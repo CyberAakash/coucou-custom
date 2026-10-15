@@ -11,13 +11,23 @@ enum FlowCleanup {
     /// Past this, the words are pasted as heard rather than keeping you waiting.
     static let timeout: TimeInterval = 4
 
+    /// Starting the CLI takes 2–3 s before Claude even answers, so it gets longer than the API.
+    static let claudeCodeTimeout: TimeInterval = 10
+
     static var hasKey: Bool {
         !(KeychainStore.shared.get("anthropic-api-key") ?? "").isEmpty
     }
 
+    /// The clean-up runs with an API key or through the Claude Code login. The Notetaker still
+    /// reads `hasKey`: its summary has no Claude Code path.
+    static var isAvailable: Bool { hasKey || AppState.claudeCodeLoginEnabled }
+
     static func clean(_ text: String, style: FlowStyle, app: String?, words: [String]) async -> String {
-        guard style != .verbatim, let key = KeychainStore.shared.get("anthropic-api-key"), !key.isEmpty,
-              FlowText.wordCount(text) >= 3 else { return text }
+        guard style != .verbatim, FlowText.wordCount(text) >= 3 else { return text }
+        if AppState.claudeCodeLoginEnabled {
+            return await cleanWithClaudeCode(text, style: style, app: app, words: words)
+        }
+        guard let key = KeychainStore.shared.get("anthropic-api-key"), !key.isEmpty else { return text }
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
@@ -45,6 +55,24 @@ enum FlowCleanup {
             return plausible(cleaned, from: text) ? cleaned : text
         } catch {
             appendAppLog("nb.log", "[Flow] clean-up skipped: \(error.localizedDescription)")
+            return text
+        }
+    }
+
+    private static func cleanWithClaudeCode(_ text: String, style: FlowStyle, app: String?,
+                                            words: [String]) async -> String {
+        do {
+            let reply = try await ClaudeCodeCLI.run(
+                prompt: "<dictation>\n\(text)\n</dictation>",
+                system: system(style: style, app: app, words: words),
+                model: model, webSearch: false, timeout: claudeCodeTimeout)
+            let cleaned = reply.text
+                .replacingOccurrences(of: "<dictation>", with: "")
+                .replacingOccurrences(of: "</dictation>", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return plausible(cleaned, from: text) ? cleaned : text
+        } catch {
+            appendAppLog("nb.log", "[Flow] Claude Code clean-up skipped: \(error.localizedDescription)")
             return text
         }
     }
