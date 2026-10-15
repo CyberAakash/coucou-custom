@@ -24,18 +24,19 @@ final class ClaudeVoiceBrain {
 
     /// Claude is Coucou's brain whenever an Anthropic key is saved (Settings → Chat).
     static var isActive: Bool {
-        !(ClaudeService.shared.apiKey ?? "").isEmpty
+        !(ClaudeService.shared.apiKey ?? "").isEmpty || AppState.claudeCodeLoginEnabled
     }
 
     private var messages: [[String: Any]] = []
     /// One turn at a time: a second "OK Coucou" during the wait must not interleave.
     private var busy = false
 
-    func reset() { messages = [] }
+    func reset() { messages = []; ClaudeCodeVoice.shared.reset() }
 
     // MARK: Turn
 
     func respond(to transcript: String) async -> Reply? {
+        if AppState.claudeCodeLoginEnabled { return await ClaudeCodeVoice.shared.respond(to: transcript, brain: self) }
         guard !busy else { return nil }
         busy = true
         defer { busy = false; repairHistory() }
@@ -109,7 +110,7 @@ final class ClaudeVoiceBrain {
 
     // MARK: Prompt
 
-    private static func systemPrompt() -> String {
+    static func systemPrompt() -> String {
         let fr = VoiceSettings.language == "fr"
         let today = Date().formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute()
             .locale(Locale(identifier: fr ? "fr_FR" : "en_US")))
@@ -141,7 +142,7 @@ final class ClaudeVoiceBrain {
 
     // MARK: Tools
 
-    private static let tools: [[String: Any]] = [
+    static let tools: [[String: Any]] = [
         [
             "name": "pills",
             "description": "Add, remove, set as main or list the pills shown in the notch. At most 4 pills besides the main one: remove one first if needed.",
@@ -217,7 +218,7 @@ final class ClaudeVoiceBrain {
     // MARK: Running a tool
 
     /// Returns the text sent back to Claude, and whether something changed.
-    private func run(tool: String, input: [String: Any]) async -> (String, Bool) {
+    func run(tool: String, input: [String: Any]) async -> (String, Bool) {
         let runner = VoiceActionRunner.shared
         let pills = PillCatalog.available
         runner.commandLocale = VoiceSettings.answerLocale

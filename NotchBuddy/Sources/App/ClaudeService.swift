@@ -679,6 +679,19 @@ final class ClaudeService {
         }
         messages.append(["role": "user", "content": question])
 
+        if AppState.shared.useClaudeCodeLogin {
+            // One-shot CLI run: the earlier exchanges ride along in the prompt.
+            let earlier = history.map { "User: \($0.question)\nYou: \($0.answer)" }.joined(separator: "\n\n")
+            let prompt = earlier.isEmpty ? question : "Earlier in this conversation:\n\(earlier)\n\nNow: \(question)"
+            guard let reply = try? await ClaudeCodeCLI.run(
+                prompt: prompt, system: system, model: "haiku", webSearch: true, timeout: 60) else {
+                appendAppLog("nb.log", "[Voice] Claude Code web answer failed")
+                return nil
+            }
+            let spoken = VoiceQuery.spokenText(reply.text)
+            return spoken.isEmpty ? nil : spoken
+        }
+
         var search: [String: Any] = ["type": "web_search_20250305", "name": "web_search", "max_uses": 3]
         var location: [String: Any] = ["type": "approximate", "timezone": TimeZone.current.identifier]
         if let country = Locale.current.region?.identifier, country.count == 2 { location["country"] = country }
