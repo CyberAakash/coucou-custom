@@ -1,5 +1,7 @@
 # Coucou — guide for AI coding agents
 
+> This is the coucou-custom fork: also follow @FORK.md, which wins where the two disagree.
+
 Coucou is a native macOS app (`NotchBuddy/`); `windows/` is the Tauri version for Windows and Linux. Mochi, a small animated character living in the MacBook notch, shows AI coding agent sessions (Claude Code, Gemini CLI, Antigravity and more) and a few integrations, and lets the user approve, answer, chat and drop files from the notch.
 
 ## Where things are
