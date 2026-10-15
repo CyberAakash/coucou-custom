@@ -26,13 +26,22 @@ enum WakePhrase {
     ///
     /// Word-boundary search means "euh ok coucou add" matches and returns "add".
     /// Standalone "coucou" never matches (no preceding "ok"/"hey").
-    static func split(_ raw: String) -> SplitResult {
+    ///
+    /// A non-empty `customPhrase` (coucou-custom fork) replaces the "OK Coucou" patterns.
+    static func split(_ raw: String, customPhrase: String? = nil) -> SplitResult {
         // Split original into whitespace-separated tokens (punctuation stays attached to words)
         let originalWords = raw.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         guard !originalWords.isEmpty else { return SplitResult(matched: false, command: "") }
 
         // Normalise each word independently for wake-phrase matching only
         let normWords = originalWords.map(normWord)
+
+        if let customPhrase, !normalise(customPhrase).isEmpty {
+            guard let end = lastCustomMatchEnd(normWords, phrase: customPhrase) else {
+                return SplitResult(matched: false, command: "")
+            }
+            return result(originalWords, after: end)
+        }
 
         // Wake phrase patterns (normalised).
         // "ok cou cou" handled as a 3-token pattern in case the STT splits it.
@@ -61,7 +70,10 @@ enum WakePhrase {
         }
 
         guard let end = lastMatchEnd else { return SplitResult(matched: false, command: "") }
+        return result(originalWords, after: end)
+    }
 
+    private static func result(_ originalWords: [String], after end: Int) -> SplitResult {
         let tail = Array(originalWords[end...])
         guard !tail.isEmpty else { return SplitResult(matched: true, command: "") }
 
@@ -82,6 +94,24 @@ enum WakePhrase {
     }
 
     // MARK: - Private
+
+    /// Word index just after the last occurrence of `phrase`. Compared with spaces removed, so
+    /// the recognizer splitting or merging words ("jar vis" / "jarvis", "heymochi") still matches.
+    private static func lastCustomMatchEnd(_ normWords: [String], phrase: String) -> Int? {
+        let target = normalise(phrase).split(separator: " ").map { normWord(String($0)) }
+        let joined = target.joined()
+        guard !joined.isEmpty else { return nil }
+        var last: Int? = nil
+        for start in normWords.indices {
+            var concat = ""
+            for end in start..<min(normWords.count, start + target.count + 2) {
+                concat += normWords[end]
+                if concat == joined { last = max(last ?? 0, end + 1); break }
+                if concat.count >= joined.count { break }
+            }
+        }
+        return last
+    }
 
     /// Normalise a single word token for wake-phrase matching.
     private static func normWord(_ w: String) -> String {

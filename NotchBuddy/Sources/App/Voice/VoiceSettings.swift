@@ -35,6 +35,12 @@ enum VoiceSettings {
         set { UserDefaults.standard.set(newValue, forKey: captionEnabledKey) }
     }
 
+    /// Wake phrase said instead of "OK Coucou" (coucou-custom fork). Empty: the default phrases.
+    static let wakePhraseKey = "voiceWakePhrase"
+    static var wakePhrase: String {
+        (UserDefaults.standard.string(forKey: wakePhraseKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Language Coucou ANSWERS in: "en" (default) or "fr".
     static var language: String {
         get { UserDefaults.standard.string(forKey: "voiceLanguage") ?? "en" }
