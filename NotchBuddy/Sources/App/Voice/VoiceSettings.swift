@@ -104,6 +104,20 @@ enum VoiceSettings {
         set { UserDefaults.standard.set(newValue, forKey: "voiceWeatherCity") }
     }
 
+    /// Where the user is, for weather and "near me" questions. `claude -p` web search gets no
+    /// location of its own (the API path sends an approximate one), so the prompt carries it.
+    /// (coucou-custom fork)
+    static var locationLine: String {
+        let city = weatherCity.trimmingCharacters(in: .whitespaces)
+        let zone = TimeZone.current.identifier
+        let country = Locale.current.region.map { Locale.current.localizedString(forRegionCode: $0.identifier) ?? $0.identifier }
+        if !city.isEmpty {
+            return "The user is in \(city) (time zone \(zone)). Use it for weather and anything local when they name no place."
+        }
+        return "The user's time zone is \(zone)\(country.map { ", country \($0)" } ?? ""). "
+            + "For weather or anything local with no place named, ask once which city they are in."
+    }
+
     // MARK: - Permissions
 
     enum PermissionStatus { case granted, denied, undetermined }

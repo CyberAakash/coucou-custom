@@ -19,6 +19,7 @@ still applies; this file adds the fork's own rules and wins where the two disagr
 | `chore/fork-workflow` | This file, `scripts/custom-install.sh`, `scripts/custom-sync-upstream.sh`. |
 | `feature/voice-claude-code` | "OK Coucou" brain and voice web answers use the same login. The brain's tools are served to `claude -p` by a loopback MCP server for the turn (`Voice/ClaudeCodeVoice.swift`). |
 | `feature/custom-wake-phrase` | Settings → Voice → "Wake phrase": say your own phrase instead of "OK Coucou". Tests: `scripts/test-custom-wake-phrase.sh`. |
+| `feature/voice-music-weather` | Voice fixes: music goes to the player in use (Spotify no longer opens Apple Music), Spotify found by bundle id (also `~/Applications`), songs on Spotify play through an open.spotify.com link Claude finds by web search; Settings → Voice → "Your city" gives the CLI brain Open-Meteo weather and a location. |
 | `chore/stable-signing` | `scripts/custom-signing-cert.sh` and a stable signature in `custom-install.sh`, so permissions survive rebuilds. |
 
 Add a row here in the same PR as every new feature.

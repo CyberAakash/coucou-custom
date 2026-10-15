@@ -424,6 +424,29 @@ final class SpotifyController: ObservableObject {
         }
     }
 
+    /// Plays a `spotify:track|album|playlist|artist:<id>` URI or its open.spotify.com link.
+    /// Returns false for anything else: the value ends up inside an AppleScript string.
+    /// (coucou-custom fork)
+    @discardableResult
+    func play(link: String) -> Bool {
+        guard let uri = Self.spotifyURI(link) else { return false }
+        command("play track \"\(uri)\"")
+        return true
+    }
+
+    nonisolated static func spotifyURI(_ link: String) -> String? {
+        let s = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kinds = "track|album|playlist|artist"
+        if let m = s.range(of: "^spotify:(\(kinds)):[A-Za-z0-9]{10,40}$", options: .regularExpression) {
+            return String(s[m])
+        }
+        guard let url = URL(string: s), url.host?.hasSuffix("open.spotify.com") == true else { return nil }
+        let parts = url.pathComponents.filter { $0 != "/" && !$0.hasPrefix("intl-") }
+        guard parts.count >= 2, ["track", "album", "playlist", "artist"].contains(parts[0]),
+              parts[1].range(of: "^[A-Za-z0-9]{10,40}$", options: .regularExpression) != nil else { return nil }
+        return "spotify:\(parts[0]):\(parts[1])"
+    }
+
     func openSpotify() {
         if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == Self.bundleId }) {
             app.activate()
