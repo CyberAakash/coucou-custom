@@ -17,6 +17,7 @@ still applies; this file adds the fork's own rules and wins where the two disagr
 | `feature/claude-code-login` | Settings → Chat → Anthropic → "Use my Claude Code login instead of a key": notch chat and search run through the installed `claude` CLI on the user's subscription (`ClaudeCodeCLI.swift`). |
 | `feature/flow-cleanup-claude-code` | Flow → Styles clean-up uses the same login. Stacked on `feature/claude-code-login`. |
 | `chore/fork-workflow` | This file, `scripts/custom-install.sh`, `scripts/custom-sync-upstream.sh`. |
+| `chore/stable-signing` | `scripts/custom-signing-cert.sh` and a stable signature in `custom-install.sh`, so permissions survive rebuilds. |
 
 Add a row here in the same PR as every new feature.
 
@@ -35,8 +36,13 @@ Add a row here in the same PR as every new feature.
 - Keep the bundle ID `fr.louisraille.NotchBuddy` (settings and Keychain items depend on it).
 
 ## Build and install
-`scripts/custom-install.sh` builds the GitHub variant from the current checkout, ad-hoc signs it, quits the running
-copy and installs it as `/Applications/Coucou Custom.app`. Before handing a change over, also build
+`scripts/custom-install.sh` builds the GitHub variant from the current checkout, signs it, quits the running
+copy and installs it as `/Applications/Coucou Custom.app`.
+
+It signs with the local identity "Coucou Custom Local Signing" (self-signed, in the login keychain), created once
+per Mac by `scripts/custom-signing-cert.sh`. Keep it: macOS ties Accessibility, microphone and screen-recording
+grants to the signature, and an ad-hoc signature changes every build, so those grants would drop after each
+install. If the identity is ever recreated, the grants must be given once more. Before handing a change over, also build
 `CoucouAppStore` (the script's `--check-appstore` flag does it).
 
 ## Staying in sync with upstream
