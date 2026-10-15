@@ -1,5 +1,5 @@
 #if !APPSTORE
-import Foundation
+import AppKit
 
 // MARK: - ClaudeVoiceBrain
 //
@@ -166,6 +166,10 @@ final class ClaudeVoiceBrain {
                                                           "volume_down", "set_volume", "play_search", "play_playlist"]],
                     "query": ["type": "string", "description": "Song, artist or playlist name for play_search / play_playlist."],
                     "volume": ["type": "integer", "description": "0-100 for set_volume."],
+                    "app": ["type": "string", "enum": ["spotify", "apple_music"],
+                            "description": "The player, when the user names one. Omit it to use the one in use."],
+                    "spotify_link": ["type": "string",
+                                     "description": "For play_search / play_playlist on Spotify: the open.spotify.com link of the track, album, playlist or artist, found with web search. Spotify cannot search by name from here."],
                 ],
                 "required": ["action"],
             ],
@@ -262,9 +266,13 @@ final class ClaudeVoiceBrain {
         case "music":
             let action = input["action"] as? String ?? ""
             let query = (input["query"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            let target = Self.musicTarget(input["app"] as? String)
+            if target == .spotify, action == "play_search" || action == "play_playlist" {
+                return await playOnSpotify(link: input["spotify_link"] as? String, query: query)
+            }
             let intent: VoiceIntent?
             switch action {
-            case "play":          intent = .musicPlay(target: nil)
+            case "play":          intent = .musicPlay(target: target)
             case "pause":         intent = .musicPause
             case "next":          intent = .musicNext
             case "previous":      intent = .musicPrevious
@@ -297,6 +305,36 @@ final class ClaudeVoiceBrain {
         default:
             return ("unknown tool \(tool)", false)
         }
+    }
+
+    /// The player for a music tool call: the one named, else the one in use, else Spotify when
+    /// installed. Without this, "play" with nothing running opened Apple Music next to Spotify.
+    /// (coucou-custom fork)
+    private static func musicTarget(_ app: String?) -> MusicTarget? {
+        switch app {
+        case "spotify": return .spotify
+        case "apple_music": return .appleMusic
+        default: break
+        }
+        let running = { (id: String) in !NSRunningApplication.runningApplications(withBundleIdentifier: id).isEmpty }
+        if running(SpotifyController.bundleId) && !running("com.apple.Music") { return .spotify }
+        if running("com.apple.Music") { return nil }
+        let installed = NSWorkspace.shared.urlForApplication(withBundleIdentifier: SpotifyController.bundleId) != nil
+        return installed ? .spotify : nil
+    }
+
+    private func playOnSpotify(link: String?, query: String) async -> (String, Bool) {
+        guard let link, SpotifyController.spotifyURI(link) != nil else {
+            return ("Spotify needs a link: search the web for \"\(query) open.spotify.com\", then call music again "
+                    + "with the same action, app spotify and spotify_link set to the open.spotify.com URL.", false)
+        }
+        let spotify = SpotifyController.shared
+        if NSRunningApplication.runningApplications(withBundleIdentifier: SpotifyController.bundleId).isEmpty {
+            spotify.openSpotify()
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        spotify.play(link: link)
+        return ("Playing \(query.isEmpty ? "it" : query) on Spotify.", true)
     }
 
     private func prepareEmail(_ input: [String: Any]) async -> (String, Bool) {

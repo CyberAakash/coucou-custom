@@ -21,6 +21,14 @@ final class ClaudeCodeVoice {
 
     func reset() { sessionID = nil }
 
+    /// The CLI's web search makes Claude end with a "Sources:" list of links: fine in the chat,
+    /// noise when read aloud.
+    nonisolated static func withoutSources(_ text: String) -> String {
+        guard let r = text.range(of: #"\n\s*\**Sources\**:?\**\s*\n"#, options: [.regularExpression, .caseInsensitive])
+        else { return text }
+        return String(text[..<r.lowerBound])
+    }
+
     func respond(to transcript: String, brain: ClaudeVoiceBrain) async -> ClaudeVoiceBrain.Reply? {
         guard !busy else { return nil }
         busy = true
@@ -44,7 +52,7 @@ final class ClaudeCodeVoice {
         do {
             let reply = try await ClaudeCodeCLI.run(
                 prompt: transcript,
-                system: ClaudeVoiceBrain.systemPrompt(),
+                system: ClaudeVoiceBrain.systemPrompt() + "\n" + VoiceSettings.locationLine,
                 model: Self.model,
                 webSearch: true,
                 mcpConfig: config,
@@ -53,7 +61,7 @@ final class ClaudeCodeVoice {
                 resume: sessionID,
                 timeout: Self.timeout)
             sessionID = reply.sessionID
-            let text = VoiceQuery.spokenText(reply.text)
+            let text = VoiceQuery.spokenText(Self.withoutSources(reply.text))
             return ClaudeVoiceBrain.Reply(text: text, acted: acted.value, failed: text.isEmpty && !acted.value)
         } catch {
             appendAppLog("nb.log", "[Voice] Claude Code turn failed: \(error.localizedDescription)")
@@ -68,7 +76,20 @@ final class ClaudeCodeVoice {
 
 extension ClaudeVoiceBrain {
     /// The brain's own tools; Anthropic's server-side web_search is the CLI's WebSearch here.
-    static var mcpTools: [[String: Any]] { tools.filter { $0["input_schema"] != nil } }
+    /// With a city set, service_info also answers the weather (Open-Meteo, no key), which is
+    /// quicker and surer than a web search.
+    static var mcpTools: [[String: Any]] {
+        let hasCity = !VoiceSettings.weatherCity.trimmingCharacters(in: .whitespaces).isEmpty
+        return tools.filter { $0["input_schema"] != nil }.map { tool in
+            guard hasCity, tool["name"] as? String == "service_info" else { return tool }
+            var tool = tool
+            tool["description"] = (tool["description"] as? String ?? "") + " Also the weather today or tomorrow at the user's city."
+            tool["input_schema"] = ["type": "object",
+                                    "properties": ["topic": ["type": "string", "enum": VoiceTopic.allCases.map(\.rawValue)]],
+                                    "required": ["topic"]]
+            return tool
+        }
+    }
 }
 
 // MARK: - VoiceToolServer

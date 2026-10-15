@@ -1406,6 +1406,7 @@ struct SettingsView: View {
     @AppStorage("voiceLanguage")       private var voiceLanguage: String = "en"
     @AppStorage("voiceListenLanguage") private var listenLanguage: String = "auto"
     @AppStorage(VoiceSettings.wakePhraseKey) private var wakePhrase: String = ""
+    @AppStorage("voiceWeatherCity") private var weatherCity: String = ""
     @AppStorage("voiceTTSEngine")      private var ttsEngine: String = "system"
     @AppStorage("voiceElevenGender")   private var elevenGender: String = "female"
     @AppStorage("voicePitchFemale")    private var pitchFemale: Double = VoiceSettings.defaultPitchFemale
@@ -1436,6 +1437,13 @@ struct SettingsView: View {
                 TextField(String(localized: "voice.wake-phrase.field", defaultValue: "Wake phrase (empty: OK Coucou)"),
                           text: $wakePhrase)
                     .textFieldStyle(.roundedBorder)
+                TextField(String(localized: "voice.city.field", defaultValue: "Your city (weather and local questions)"),
+                          text: $weatherCity)
+                    .textFieldStyle(.roundedBorder)
+                    // The weather source is opt-in upstream; naming a city is the opt-in here.
+                    .onChange(of: weatherCity) { _, city in
+                        VoiceSettings.weatherEnabled = !city.trimmingCharacters(in: .whitespaces).isEmpty
+                    }
                 Text(String(localized: "voice.wake-phrase.hint",
                             defaultValue: "Say this instead of \"OK Coucou\", e.g. \"Hey Jarvis\". Two words or more avoid waking up by mistake. Takes effect on the next wake."))
                     .font(.system(size: 11))

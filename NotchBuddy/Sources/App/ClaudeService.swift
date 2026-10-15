@@ -684,11 +684,12 @@ final class ClaudeService {
             let earlier = history.map { "User: \($0.question)\nYou: \($0.answer)" }.joined(separator: "\n\n")
             let prompt = earlier.isEmpty ? question : "Earlier in this conversation:\n\(earlier)\n\nNow: \(question)"
             guard let reply = try? await ClaudeCodeCLI.run(
-                prompt: prompt, system: system, model: "haiku", webSearch: true, timeout: 60) else {
+                prompt: prompt, system: system + "\n" + VoiceSettings.locationLine, model: "haiku",
+                webSearch: true, timeout: 60) else {
                 appendAppLog("nb.log", "[Voice] Claude Code web answer failed")
                 return nil
             }
-            let spoken = VoiceQuery.spokenText(reply.text)
+            let spoken = VoiceQuery.spokenText(ClaudeCodeVoice.withoutSources(reply.text))
             return spoken.isEmpty ? nil : spoken
         }
 
