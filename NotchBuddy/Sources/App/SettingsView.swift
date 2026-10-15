@@ -1061,7 +1061,7 @@ struct SettingsView: View {
                     }
                 Text(ClaudeCodeCLI.isInstalled
                      ? String(localized: "chat.claude-code-login.description",
-                              defaultValue: "Chat and search run through the claude command on this Mac, on your Pro or Max plan. Voice, Flow clean-up and the Notetaker still need an API key.")
+                              defaultValue: "Chat and search run through the claude command on this Mac, on your Pro or Max plan. Flow clean-up uses it too. Voice and the Notetaker still need an API key.")
                      : String(localized: "chat.claude-code-login.missing",
                               defaultValue: "Install Claude Code and sign in with `claude` to use your subscription."))
                     .font(.system(size: 11))

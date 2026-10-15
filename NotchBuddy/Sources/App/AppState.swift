@@ -130,6 +130,11 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// For code off the main actor (Flow clean-up), which cannot read the published property.
+    nonisolated static var claudeCodeLoginEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "useClaudeCodeLogin")
+    }
+
     /// Anthropic is usable with either an API key or the Claude Code login.
     var anthropicConfigured: Bool {
         #if !APPSTORE
