@@ -25,7 +25,10 @@ struct SettingsView: View {
         return SettingsView.fallbackModels.contains { $0.id == m } ? "" : m
     }()
     private var displayModels: [(id: String, label: String)] {
-        fetchedModels.isEmpty ? Self.fallbackModels : fetchedModels
+        #if !APPSTORE
+        if state.useClaudeCodeLogin { return ClaudeCodeCLI.models }
+        #endif
+        return fetchedModels.isEmpty ? Self.fallbackModels : fetchedModels
     }
     @State private var launchAtStartup: Bool = (SMAppService.mainApp.status == .enabled)
     @State private var statusMessage: String = ""
@@ -1037,6 +1040,33 @@ struct SettingsView: View {
                     statusMessage = String(localized: "status.key-saved")
                 }
                 .buttonStyle(.borderedProminent)
+
+                #if !APPSTORE
+                Toggle(String(localized: "chat.claude-code-login.toggle",
+                              defaultValue: "Use my Claude Code login instead of a key"),
+                       isOn: $state.useClaudeCodeLogin)
+                    .disabled(!ClaudeCodeCLI.isInstalled && !state.useClaudeCodeLogin)
+                    .onChange(of: state.useClaudeCodeLogin) { _, on in
+                        ClaudeService.shared.clearConversation()
+                        let isAlias = ClaudeCodeCLI.models.contains(where: { $0.id == state.claudeModel })
+                        // CLI aliases mean nothing to the API, and the API list has no aliases.
+                        if on && !isAlias { state.claudeModel = ClaudeCodeCLI.models[0].id }
+                        if !on && isAlias { state.claudeModel = AppState.defaultClaudeModel }
+                        if displayModels.contains(where: { $0.id == state.claudeModel }) {
+                            modelChoice = state.claudeModel
+                        } else {
+                            modelChoice = Self.customModelTag
+                            customModel = state.claudeModel
+                        }
+                    }
+                Text(ClaudeCodeCLI.isInstalled
+                     ? String(localized: "chat.claude-code-login.description",
+                              defaultValue: "Chat and search run through the claude command on this Mac, on your Pro or Max plan. Voice, Flow clean-up and the Notetaker still need an API key.")
+                     : String(localized: "chat.claude-code-login.missing",
+                              defaultValue: "Install Claude Code and sign in with `claude` to use your subscription."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                #endif
 
                 Divider().padding(.vertical, 2)
 
@@ -2185,9 +2215,10 @@ struct SettingsView: View {
                 if let provider = ChatProvider(pillID: def.id), provider.isLocal {
                     let url = provider == .ollama ? state.ollamaServerURL : state.lmstudioServerURL
                     if url.isEmpty { return String(localized: "Not connected") }
+                } else if def.id == "ai_anthropic" {
+                    if !state.anthropicConfigured { return String(localized: "Key not configured") }
                 } else {
-                    let keyId = def.id == "ai_anthropic" ? "anthropic-api-key"
-                               : def.id == "ai_google"    ? "google-api-key" : "openai-api-key"
+                    let keyId = def.id == "ai_google" ? "google-api-key" : "openai-api-key"
                     if KeychainStore.shared.get(keyId) == nil { return String(localized: "Key not configured") }
                 }
             }
