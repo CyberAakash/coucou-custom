@@ -1888,7 +1888,7 @@ struct IntegrationCardView: View {
             return true  // public market data: no key, nothing to set up
         case "integration_portfolio":
             return PortfolioSettings.hasAnyAccount
-        case "ai_anthropic":  return KeychainStore.shared.get("anthropic-api-key") != nil
+        case "ai_anthropic":  return AppState.shared.anthropicConfigured
         case "ai_google":     return KeychainStore.shared.get("google-api-key")    != nil
         case "ai_openai":     return KeychainStore.shared.get("openai-api-key")    != nil
         case "ai_ollama":     return !AppState.shared.ollamaServerURL.isEmpty
@@ -4982,7 +4982,7 @@ struct SettingsIslandView: View {
     }
 
     private var apiConnected: Bool {
-        KeychainStore.shared.get("anthropic-api-key") != nil
+        AppState.shared.anthropicConfigured
     }
 
     var body: some View {

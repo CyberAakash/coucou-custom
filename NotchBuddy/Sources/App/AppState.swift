@@ -120,6 +120,24 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(claudeModel, forKey: "claudeModel") }
     }
 
+    /// Anthropic chat runs through the installed Claude Code CLI on the user's subscription
+    /// instead of an API key. Persisted.
+    @Published var useClaudeCodeLogin: Bool = false {
+        didSet {
+            UserDefaults.standard.set(useClaudeCodeLogin, forKey: "useClaudeCodeLogin")
+            fetchedProviderModels[.anthropic] = nil
+            providerModelFetchError[.anthropic] = nil
+        }
+    }
+
+    /// Anthropic is usable with either an API key or the Claude Code login.
+    var anthropicConfigured: Bool {
+        #if !APPSTORE
+        if useClaudeCodeLogin { return true }
+        #endif
+        return KeychainStore.shared.get("anthropic-api-key") != nil
+    }
+
     // In-chat provider + model — picked via the model selector in the prompt view
     @Published var chatProvider: ChatProvider = .anthropic {
         didSet { UserDefaults.standard.set(chatProvider.rawValue, forKey: "chatProvider") }
@@ -201,6 +219,14 @@ final class AppState: ObservableObject {
             }
             return
         }
+        #if !APPSTORE
+        if provider == .anthropic && useClaudeCodeLogin {
+            let models = ClaudeCodeCLI.models
+            fetchedProviderModels[.anthropic] = models
+            if !models.contains(where: { $0.id == claudeModel }) { claudeModel = models[0].id }
+            return
+        }
+        #endif
         // Remote providers: require API key
         guard let apiKey = KeychainStore.shared.get(provider.keychainKey), !apiKey.isEmpty else {
             providerModelFetchError[provider] = "No API key — add it in Settings."
@@ -527,6 +553,7 @@ final class AppState: ObservableObject {
         if let v = ud.string(forKey: "claudeModel"),
            !v.trimmingCharacters(in: .whitespaces).isEmpty { claudeModel = v }
         if let v = ud.string(forKey: "chatProvider"), let p = ChatProvider(rawValue: v) { chatProvider = p }
+        if let v = ud.object(forKey: "useClaudeCodeLogin") as? Bool { useClaudeCodeLogin = v }
         if let v = ud.string(forKey: "googleChatModel"), !v.isEmpty { googleChatModel = v }
         if let v = ud.string(forKey: "openAIChatModel"), !v.isEmpty { openAIChatModel = v }
         if let v = ud.string(forKey: "ollamaChatModel"), !v.isEmpty { ollamaChatModel = v }

@@ -211,8 +211,16 @@ final class ClaudeService {
     // Multi-turn conversation messages (for API)
     private var conversationMessages: [[String: Any]] = []
 
+    #if !APPSTORE
+    /// Claude Code keeps the conversation itself; this resumes it on the next turn.
+    private var claudeCodeSessionID: String?
+    #endif
+
     func clearConversation() {
         conversationMessages = []
+        #if !APPSTORE
+        claudeCodeSessionID = nil
+        #endif
     }
 
     /// Resolved once: NSFullUserName() is a system call, and the name cannot change under us
@@ -252,6 +260,12 @@ final class ClaudeService {
             await chatOpenAICompatible(query: query, context: context, state: state)
             return
         }
+        #if !APPSTORE
+        if state.useClaudeCodeLogin {
+            await chatClaudeCode(query: query, context: context, state: state)
+            return
+        }
+        #endif
         guard let key = apiKey, !key.isEmpty else {
             await showError("API key missing. Open settings.", state: state)
             return
@@ -294,6 +308,65 @@ final class ClaudeService {
             await showError(error.localizedDescription, state: state)
         }
     }
+
+    #if !APPSTORE
+    // MARK: - Chat through Claude Code (subscription login)
+
+    private func chatClaudeCode(query: String, context: PromptContext?, state: AppState) async {
+        let isFirstTurn = claudeCodeSessionID == nil
+        let (prompt, file) = isFirstTurn ? claudeCodePrompt(query, context: context) : (query, nil)
+        conversationMessages.append(["role": "user", "content": [["type": "text", "text": query]]])
+
+        let placeholder = ChatMessage(role: .assistant, content: "")
+        let msgId = placeholder.id
+        state.chatHistory.append(placeholder)
+        state.stateOverride = .thinking
+        do {
+            let reply = try await ClaudeCodeCLI.run(
+                prompt: prompt, system: systemPrompt, model: model, webSearch: true,
+                readableFile: file, resume: claudeCodeSessionID
+            ) { [state, msgId] visible in
+                if !visible.isEmpty, state.stateOverride == .thinking { state.stateOverride = nil }
+                if let idx = state.chatHistory.firstIndex(where: { $0.id == msgId }) {
+                    state.chatHistory[idx].content = visible
+                }
+            }
+            claudeCodeSessionID = reply.sessionID
+            conversationMessages.append(["role": "assistant", "content": [["type": "text", "text": reply.text]]])
+            if let idx = state.chatHistory.firstIndex(where: { $0.id == msgId }) {
+                state.chatHistory[idx].content = reply.text
+            }
+            state.stateOverride = nil
+            state.view = .prompt
+            NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
+        } catch {
+            conversationMessages.removeLast()
+            state.chatHistory.removeAll { $0.id == msgId }
+            state.stateOverride = nil
+            await showError(error.localizedDescription, state: state)
+        }
+    }
+
+    /// The CLI takes plain text: text files go inline, anything else (PDF, images) is named by
+    /// path and Claude opens it with its Read tool.
+    private func claudeCodePrompt(_ query: String, context: PromptContext?) -> (String, URL?) {
+        switch context {
+        case .window(let app, let title, let url):
+            var text = "Context — App: \(app), Window: \(title)"
+            if let url { text += ", URL: \(url)" }
+            return (text + "\n\n" + query, nil)
+        case .file(let name, let fileURL):
+            guard let fileURL else { return ("File: \(name)\n\n" + query, nil) }
+            let binary = ["pdf", "jpg", "jpeg", "png", "gif", "webp"].contains(fileURL.pathExtension.lowercased())
+            if !binary, let block = readFileAsBlock(url: fileURL), let text = block["text"] as? String {
+                return ("File: \(name)\n\(text)\n\n" + query, nil)
+            }
+            return ("File: \(name) at \(fileURL.path) — read it to answer.\n\n" + query, fileURL)
+        case nil:
+            return (query, nil)
+        }
+    }
+    #endif
 
     // MARK: - OpenAI-compatible chat (Google Gemini / OpenAI / Ollama / LM Studio)
 
@@ -484,7 +557,12 @@ final class ClaudeService {
     // MARK: - Structured search (M8 — window attach + web search)
 
     func search(query: String, context: PromptContext?, state: AppState) async {
-        guard let key = apiKey, !key.isEmpty else {
+        #if !APPSTORE
+        let viaClaudeCode = state.useClaudeCodeLogin
+        #else
+        let viaClaudeCode = false
+        #endif
+        guard viaClaudeCode || !(apiKey ?? "").isEmpty else {
             await showError("Anthropic API key missing. Open settings to configure it.", state: state)
             return
         }
@@ -525,7 +603,16 @@ final class ClaudeService {
         ]
 
         do {
-            let result = try await callAPI(body: body, key: key, beta: "web-search-2025-03-05")
+            #if !APPSTORE
+            if viaClaudeCode {
+                let (prompt, file) = claudeCodePrompt(query, context: context)
+                let reply = try await ClaudeCodeCLI.run(
+                    prompt: prompt, system: system, model: model, webSearch: true, readableFile: file)
+                await handleResultText(reply.text, state: state)
+                return
+            }
+            #endif
+            let result = try await callAPI(body: body, key: apiKey ?? "", beta: "web-search-2025-03-05")
             await handleResult(result, state: state)
         } catch {
             await showError(error.localizedDescription, state: state)
@@ -689,7 +776,10 @@ final class ClaudeService {
             await showError("Unexpected API response.", state: state)
             return
         }
+        await handleResultText(text, state: state)
+    }
 
+    private func handleResultText(_ text: String, state: AppState) async {
         // Strip markdown code fences if present, then extract JSON object
         let cleanText: String
         if let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") {
