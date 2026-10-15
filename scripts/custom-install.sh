@@ -32,9 +32,19 @@ if [ "${1:-}" = "--check-appstore" ]; then build CoucouAppStore appstore; fi
 build NotchBuddy github
 
 APP="$BUILD/github/Build/Products/Debug/Coucou.app"
-# Ad-hoc signature with the app's own entitlements (microphone, Apple Events); the official
-# Developer ID certificate belongs to the upstream author.
-codesign --force --deep -s - --entitlements Resources/Coucou.entitlements "$APP"
+# macOS ties Accessibility, microphone and screen-recording grants to the signature. An ad-hoc
+# signature is identified by its code hash, which changes every build and silently drops those
+# grants, so sign with the stable local identity from custom-signing-cert.sh. (The official
+# Developer ID certificate belongs to the upstream author.)
+IDENTITY="Coucou Custom Local Signing"
+if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
+  SIGN="$IDENTITY"
+else
+  echo "No \"$IDENTITY\" identity: run scripts/custom-signing-cert.sh once. Signing ad-hoc," >&2
+  echo "so permissions will need granting again after every build." >&2
+  SIGN="-"
+fi
+codesign --force --deep -s "$SIGN" --entitlements Resources/Coucou.entitlements "$APP"
 
 if pgrep -f "$DEST/Contents/MacOS/Coucou" >/dev/null; then
   osascript -e "tell application \"$DEST\" to quit" || true
