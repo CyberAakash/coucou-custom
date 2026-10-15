@@ -1405,6 +1405,7 @@ struct SettingsView: View {
     @ObservedObject private var voiceEngine = VoiceEngine.shared
     @AppStorage("voiceLanguage")       private var voiceLanguage: String = "en"
     @AppStorage("voiceListenLanguage") private var listenLanguage: String = "auto"
+    @AppStorage(VoiceSettings.wakePhraseKey) private var wakePhrase: String = ""
     @AppStorage("voiceTTSEngine")      private var ttsEngine: String = "system"
     @AppStorage("voiceElevenGender")   private var elevenGender: String = "female"
     @AppStorage("voicePitchFemale")    private var pitchFemale: Double = VoiceSettings.defaultPitchFemale
@@ -1431,6 +1432,14 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(String(localized: "Enable voice command"), isOn: $voiceEngine.isEnabled)
                     .disabled(!voicePermissionsGranted && !voiceEngine.isEnabled)
+
+                TextField(String(localized: "voice.wake-phrase.field", defaultValue: "Wake phrase (empty: OK Coucou)"),
+                          text: $wakePhrase)
+                    .textFieldStyle(.roundedBorder)
+                Text(String(localized: "voice.wake-phrase.hint",
+                            defaultValue: "Say this instead of \"OK Coucou\", e.g. \"Hey Jarvis\". Two words or more avoid waking up by mistake. Takes effect on the next wake."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
 
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: webKeySaved ? "checkmark.circle.fill" : "exclamationmark.circle")

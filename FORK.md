@@ -18,6 +18,7 @@ still applies; this file adds the fork's own rules and wins where the two disagr
 | `feature/flow-cleanup-claude-code` | Flow → Styles clean-up uses the same login. Stacked on `feature/claude-code-login`. |
 | `chore/fork-workflow` | This file, `scripts/custom-install.sh`, `scripts/custom-sync-upstream.sh`. |
 | `feature/voice-claude-code` | "OK Coucou" brain and voice web answers use the same login. The brain's tools are served to `claude -p` by a loopback MCP server for the turn (`Voice/ClaudeCodeVoice.swift`). |
+| `feature/custom-wake-phrase` | Settings → Voice → "Wake phrase": say your own phrase instead of "OK Coucou". Tests: `scripts/test-custom-wake-phrase.sh`. |
 | `chore/stable-signing` | `scripts/custom-signing-cert.sh` and a stable signature in `custom-install.sh`, so permissions survive rebuilds. |
 
 Add a row here in the same PR as every new feature.

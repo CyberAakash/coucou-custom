@@ -55,6 +55,7 @@ final class WakeSpotter: @unchecked Sendable {
     private var maxWords      = 0       // diagnostics only — never the words themselves
     private var nearWake      = false   // a partial had a "coucou"-like token
     private var gen           = SpotterGeneration()   // stale-callback filter
+    private var wakePhrase    = ""      // custom wake phrase, read once per window
 
     /// What a wake window heard, without any text: lets the log tell "recognizer
     /// returned nothing" apart from "heard speech but not the wake phrase".
@@ -98,7 +99,9 @@ final class WakeSpotter: @unchecked Sendable {
             req.shouldReportPartialResults  = true
             req.requiresOnDeviceRecognition = true
             let extra = startInCommandPhase ? additionalContextualStrings : [String]()
-            req.contextualStrings = ["Coucou", "OK Coucou", "okay Coucou", "hey Coucou"] + extra
+            wakePhrase = VoiceSettings.wakePhrase
+            let wakeHints = wakePhrase.isEmpty ? ["Coucou", "OK Coucou", "okay Coucou", "hey Coucou"] : [wakePhrase]
+            req.contextualStrings = wakeHints + extra
             preroll.forEach { req.append($0) }
 
             recognizer   = r
@@ -189,13 +192,13 @@ final class WakeSpotter: @unchecked Sendable {
                     if words.contains(where: { w in
                         ["cou", "kou", "kuku", "cuck", "koukou", "coco"].contains { w.contains($0) }
                     }) { nearWake = true }
-                    let r = WakePhrase.split(transcript)
+                    let r = WakePhrase.split(transcript, customPhrase: wakePhrase)
                     if r.matched {
                         phase = .command
                         return .woke(transcript)
                     }
                 case .command:
-                    let r = WakePhrase.split(transcript)
+                    let r = WakePhrase.split(transcript, customPhrase: wakePhrase)
                     return .commandUpdate(r.matched ? r.command : transcript)
                 }
             }
