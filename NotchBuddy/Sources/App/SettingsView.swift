@@ -1061,7 +1061,7 @@ struct SettingsView: View {
                     }
                 Text(ClaudeCodeCLI.isInstalled
                      ? String(localized: "chat.claude-code-login.description",
-                              defaultValue: "Chat and search run through the claude command on this Mac, on your Pro or Max plan. Flow clean-up uses it too. Voice and the Notetaker still need an API key.")
+                              defaultValue: "Chat and search run through the claude command on this Mac, on your Pro or Max plan. Flow clean-up and OK Coucou use it too. The Notetaker still needs an API key.")
                      : String(localized: "chat.claude-code-login.missing",
                               defaultValue: "Install Claude Code and sign in with `claude` to use your subscription."))
                     .font(.system(size: 11))
@@ -1410,6 +1410,7 @@ struct SettingsView: View {
     @AppStorage("voicePitchFemale")    private var pitchFemale: Double = VoiceSettings.defaultPitchFemale
     @AppStorage("voicePitchMale")      private var pitchMale: Double = VoiceSettings.defaultPitchMale
     @State private var webKeySaved: Bool = !(KeychainStore.shared.get("anthropic-api-key") ?? "").isEmpty
+        || AppState.claudeCodeLoginEnabled
     @State private var elevenKeyDraft: String = ""
     @State private var elevenKeySaved: Bool = KeychainStore.shared.get(ElevenLabsTTS.keyName) != nil
 
@@ -1440,7 +1441,8 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .onAppear { webKeySaved = !(KeychainStore.shared.get("anthropic-api-key") ?? "").isEmpty }
+                .onAppear { webKeySaved = !(KeychainStore.shared.get("anthropic-api-key") ?? "").isEmpty
+                    || AppState.claudeCodeLoginEnabled }
 
                 if voiceEngine.recognizerUnavailable {
                     HStack(spacing: 6) {

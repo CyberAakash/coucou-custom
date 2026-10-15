@@ -76,13 +76,17 @@ enum ClaudeCodeCLI {
 
     /// Sends one user turn. `resume` continues an earlier reply's session so the CLI keeps the
     /// conversation; nil starts a new one. `readableFile` lets Claude open that one file (PDFs and
-    /// images it cannot get inline). `onText` gets the streamed text so far, on the main actor.
+    /// images it cannot get inline). `mcpConfig` is an MCP config file whose servers are the only
+    /// ones loaded; their tools still need naming in `allowedTools`. `onText` gets the streamed
+    /// text so far, on the main actor.
     static func run(
         prompt: String,
         system: String,
         model: String,
         webSearch: Bool,
         readableFile: URL? = nil,
+        mcpConfig: URL? = nil,
+        allowedTools: [String] = [],
         resume: String? = nil,
         timeout: TimeInterval = 300,
         onText: (@MainActor @Sendable (String) -> Void)? = nil
@@ -92,7 +96,7 @@ enum ClaudeCodeCLI {
 
         var tools: [String] = []
         if webSearch { tools.append("WebSearch") }
-        var allowed = tools
+        var allowed = tools + allowedTools
         if let readableFile {
             tools.append("Read")
             // `//` marks an absolute path in Claude Code permission rules.
@@ -112,6 +116,7 @@ enum ClaudeCodeCLI {
             "--setting-sources", "",
             "--disable-slash-commands",
         ]
+        if let mcpConfig { args += ["--mcp-config", mcpConfig.path] }
         if !allowed.isEmpty { args += ["--allowedTools", allowed.joined(separator: ",")] }
         if let resume { args += ["--resume", resume] }
 

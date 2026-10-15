@@ -189,7 +189,7 @@ final class LiveVoiceInfo: VoiceInfoProviding {
     // MARK: Web search (opt-in, the user's Anthropic key)
 
     var webSearchEnabled: Bool { VoiceSettings.webSearchEnabled }
-    var hasWebKey: Bool { !(ClaudeService.shared.apiKey ?? "").isEmpty }
+    var hasWebKey: Bool { !(ClaudeService.shared.apiKey ?? "").isEmpty || AppState.claudeCodeLoginEnabled }
 
     func webAnswer(_ question: String, history: [VoiceWebTurn], french: Bool) async -> String? {
         await ClaudeService.shared.voiceAnswer(question, history: history, french: french)
