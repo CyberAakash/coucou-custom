@@ -7,6 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var islandController: IslandWindowController?
     private var demoMenuItem: NSMenuItem?
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if APPSTORE
+        return .terminateNow
+        #else
+        return BackgroundMode.shouldTerminate()
+        #endif
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         #if !APPSTORE
         NoteTaker.shared.shutdown()
@@ -96,6 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu bar
 
+    #if !APPSTORE
+    @objc private func quitCompletely() { BackgroundMode.quitCompletely() }
+    #endif
+
     private func setupMenuBarItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem?.button else { return }
@@ -118,7 +130,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         menu.addItem(withTitle: NSLocalizedString("Settings…", comment: ""), action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
+        #if APPSTORE
         menu.addItem(withTitle: NSLocalizedString("Quit", comment: ""), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        #else
+        // A deliberate stop, even in background mode (⌘Q and Dock → Quit only hide).
+        menu.addItem(withTitle: NSLocalizedString("Quit", comment: ""), action: #selector(quitCompletely), keyEquivalent: "q")
+        #endif
 
         statusItem?.menu = menu
     }
