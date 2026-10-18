@@ -15,6 +15,7 @@ enum IslandView: String, CaseIterable {
     case listening    // voice wake detected — "À l'écoute…" with live transcript
     case voiceResult  // voice command executed — "✓ Musique lancée" for ~2 s
     case capture      // a screen capture just taken (⌃⌥X): paste, copy, annotate, ask Claude
+    case sessions     // every agent session and what it is doing (coucou-custom fork)
 }
 
 // MARK: - Bot State
@@ -240,6 +241,8 @@ enum IslandConst {
         .voiceResult:  ViewLayout(height: 160, botX: 68,  botY: nil, botDiameter: 58, agentMode: .none),
         // Screen capture: Mochi on the left (he just swallowed it), the image and what to do with it
         .capture:      ViewLayout(height: 160, botX: 58,  botY: nil, botDiameter: 52, agentMode: .none),
+        // Sessions (coucou-custom fork): tall, no Mochi — the room goes to the session detail
+        .sessions:     ViewLayout(height: 420, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
     ]
 
     // Project colors — keyed by lowercase display name or slug

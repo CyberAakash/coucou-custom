@@ -741,6 +741,12 @@ final class IslandWindowController: NSWindowController {
         let raw = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let cmd = raw == .command
 
+        // ⌘⇧→ / ⌘⇧← — next / previous session of the focused pill (coucou-custom fork)
+        if raw == [.command, .shift], event.keyCode == 124 || event.keyCode == 123,
+           let pill = state.focusTask?.id {
+            LiveSessions.shared.cycle(pill: pill, by: event.keyCode == 124 ? 1 : -1)
+            return true
+        }
         // ⌘→ — next pill
         if cmd && event.keyCode == 124 { cyclePill(by: +1); return true }
         // ⌘← — previous pill

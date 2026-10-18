@@ -469,6 +469,10 @@ final class HookServer: @unchecked Sendable {
             nbLog("Ignored \(name) from \(termProgram.isEmpty ? bundleId : termProgram) (\(projectName))")
             return
         }
+        // Per-session detail for the Sessions view (coucou-custom fork).
+        LiveSessions.shared.record(event: name, payload: payload, pill: agentId,
+                                   projectName: isExternalAgent ? (validAgent ?? projectName) : projectName,
+                                   hostApp: hostApp)
 
         let focused = state.focusId == agentId
         // Several sessions can share one pill (it is chosen from the client, not from the
