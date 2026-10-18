@@ -363,6 +363,16 @@ extension LiveSessions {
     }
 
     func hasSeveralSessions(_ task: AgentTask) -> Bool { sessions(for: task.id).count > 1 }
+
+    /// What a tap on the home card's step row does: open the Sessions view on the session the
+    /// card shows. Nil when the pill has no listed session (upstream behaviour: nothing).
+    func openAction(pill: String) -> (() -> Void)? {
+        guard let id = shown(for: pill)?.id else { return nil }
+        return { [weak self] in
+            self?.select(id)
+            AppState.shared.view = .sessions
+        }
+    }
 }
 
 // MARK: - Helpers

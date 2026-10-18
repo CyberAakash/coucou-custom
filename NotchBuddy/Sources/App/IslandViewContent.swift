@@ -105,7 +105,7 @@ struct OverviewView: View {
 
                             TickerView(task: live.tickerTask(for: agent), onDiffTap: live.hasSeveralSessions(agent) ? nil : { diffIdx in
                                 withAnimation(.easeIn(duration: 0.16)) { activeDiffId = diffIdx }
-                            })
+                            }, onRowTap: live.openAction(pill: agent.id))
                                 .frame(height: 44)
                                 .padding(.top, 6)
                                 .padding(.leading, 108)
@@ -675,6 +675,7 @@ struct ErrorView: View {
                     } else {
                         #if !APPSTORE
                         PrimaryButton("Open terminal") {
+                            if let pill = task?.id { LiveSessions.shared.markShownSeen(pill: pill) }
                             openSessionApp(task)
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
@@ -687,6 +688,7 @@ struct ErrorView: View {
                         }
                     }
                     SecondaryButton("OK") {
+                        if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
                         NotificationCenter.default.post(name: .islandCollapse, object: nil)
                     }
                 }
@@ -746,6 +748,7 @@ struct FinishedView: View {
                     } else {
                         #if !APPSTORE
                         PrimaryButton("Open terminal") {
+                            if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
                             openSessionApp(state.focusTask)
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
@@ -758,6 +761,7 @@ struct FinishedView: View {
                         }
                     }
                     SecondaryButton("OK") {
+                        if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
                         NotificationCenter.default.post(name: .islandCollapse, object: nil)
                     }
                 }
@@ -2257,7 +2261,8 @@ struct IntegrationCardView: View {
                 .padding(.leading, 108)
                 .padding(.trailing, 36)
 
-                TickerView(task: live.tickerTask(for: task), onDiffTap: live.hasSeveralSessions(task) ? nil : onDiffTap)
+                TickerView(task: live.tickerTask(for: task), onDiffTap: live.hasSeveralSessions(task) ? nil : onDiffTap,
+                           onRowTap: live.openAction(pill: task.id))
                     .frame(height: 44)
                     .padding(.top, 6)
                     .padding(.leading, 108)
@@ -3838,6 +3843,8 @@ struct N8nDetailView: View {
 struct TickerView: View {
     let task: AgentTask?
     var onDiffTap: ((Int) -> Void)? = nil
+    /// Tap on a step row that is not a diff (coucou-custom fork: opens the Sessions view).
+    var onRowTap: (() -> Void)? = nil
 
     @State private var rowA: String = "…"   // completed (above, left-shifted)
     @State private var rowB: String = "…"   // current (below) → animates diagonally up-left
@@ -3870,18 +3877,18 @@ struct TickerView: View {
 
             // Row A: completed row — always rendered at phase=1 + completedScale
             // Row A never shows its shimmer (phase 1): it doesn't animate one either.
-            TickerRowView(text: rowA, phase: 1.0, isActive: isActive, shimmerPaused: true, onDiffTap: rowADiffTap)
+            TickerRowView(text: rowA, phase: 1.0, isActive: isActive, shimmerPaused: true, onDiffTap: rowADiffTap, onRowTap: onRowTap)
                 .scaleEffect(completedScale, anchor: .leading)
                 .offset(x: -10, y: rowAOffset)
                 .opacity(rowAOpacity)
 
             // Row B: current step → animates diagonally up-left, phase 0→1, scale 1→completedScale
-            TickerRowView(text: rowB, phase: rowBPhase, isActive: isActive, onDiffTap: rowBDiffTap)
+            TickerRowView(text: rowB, phase: rowBPhase, isActive: isActive, onDiffTap: rowBDiffTap, onRowTap: onRowTap)
                 .scaleEffect(1 - rowBPhase * (1 - completedScale), anchor: .leading)
                 .offset(x: -rowBPhase * 10, y: rowBOffset)
 
             // Row C: incoming new step — slides in from below at phase=0
-            TickerRowView(text: rowC, phase: 0.0, isActive: isActive)
+            TickerRowView(text: rowC, phase: 0.0, isActive: isActive, onRowTap: onRowTap)
                 .offset(y: rowCOffset)
                 .opacity(rowCOpacity)
         }
@@ -3963,6 +3970,7 @@ struct TickerRowView: View {
     var isActive: Bool = true
     var shimmerPaused: Bool = false
     var onDiffTap: (() -> Void)? = nil
+    var onRowTap: (() -> Void)? = nil
 
     var body: some View {
         let chevronOpacity:   Double = isActive ? max(0, 1 - phase * 2)       : 0
@@ -4042,6 +4050,8 @@ struct TickerRowView: View {
             }
             .frame(height: 22, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { onRowTap?() }
         }
     }
 }
