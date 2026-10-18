@@ -486,7 +486,11 @@ struct SettingsView: View {
                         task.executableURL = URL(fileURLWithPath: "/bin/sh")
                         task.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; open \"$1\"", "--", appPath]
                         try? task.run()
+                        #if APPSTORE
                         NSApp.terminate(nil)
+                        #else
+                        BackgroundMode.quitCompletely()
+                        #endif
                     }
                     .buttonStyle(.bordered)
                     Text(String(localized: "Applies on next launch"))

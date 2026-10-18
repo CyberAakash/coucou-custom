@@ -47,11 +47,14 @@ fi
 codesign --force --deep -s "$SIGN" --entitlements Resources/Coucou.entitlements "$APP"
 
 if pgrep -f "$DEST/Contents/MacOS/Coucou" >/dev/null; then
-  osascript -e "tell application \"$DEST\" to quit" || true
+  # A signal, not an AppleScript quit: with "Run in background" on, Coucou cancels ordinary quits.
+  pkill -TERM -f "$DEST/Contents/MacOS/Coucou" || true
   for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$DEST/Contents/MacOS/Coucou" >/dev/null || break; sleep 0.5; done
 fi
-rm -rf "$DEST"
-cp -R "$APP" "$DEST"
+# Update in place: macOS App Management lets this script replace the bundle's contents but not
+# delete the signed bundle folder itself.
+mkdir -p "$DEST"
+rsync -a --delete "$APP/" "$DEST/"
 codesign --verify "$DEST"
 open "$DEST"
 echo "Installed $DEST ($(git -C "$ROOT" rev-parse --abbrev-ref HEAD) @ $(git -C "$ROOT" rev-parse --short HEAD))"
