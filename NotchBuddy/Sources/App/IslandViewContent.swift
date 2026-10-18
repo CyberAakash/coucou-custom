@@ -45,6 +45,8 @@ struct IslandViewContent: View {
             #else
             EmptyView()
             #endif
+        case .sessions:
+            SessionsView(state: state)
         }
     }
 }
@@ -55,6 +57,7 @@ struct OverviewView: View {
     @ObservedObject var state: AppState
     @State private var showingN8nDetail = false
     @State private var activeDiffId: Int? = nil
+    @ObservedObject private var live = LiveSessions.shared
 
     var agent: AgentTask? { state.focusTask }
 
@@ -76,7 +79,7 @@ struct OverviewView: View {
                                 Circle()
                                     .fill(Color(hex: agent.color))
                                     .frame(width: 7, height: 7)
-                                Text(agent.name)
+                                Text(live.title(for: agent))
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(Color(hex: "#F5F6F8"))
                                     .lineLimit(1)
@@ -94,18 +97,13 @@ struct OverviewView: View {
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                                 Spacer(minLength: 2)
-                                if agent.steps.count > 1 {
-                                    Text("\(min(agent.stepIndex + 1, agent.steps.count))/\(agent.steps.count)")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(Color(hex: "#6B7079"))
-                                        .fixedSize()
-                                }
+                                SessionControls(task: agent)
                             }
                             .padding(.top, 6)
                             .padding(.leading, 108)
                             .padding(.trailing, 36)
 
-                            TickerView(task: agent, onDiffTap: { diffIdx in
+                            TickerView(task: live.tickerTask(for: agent), onDiffTap: live.hasSeveralSessions(agent) ? nil : { diffIdx in
                                 withAnimation(.easeIn(duration: 0.16)) { activeDiffId = diffIdx }
                             })
                                 .frame(height: 44)
@@ -682,6 +680,12 @@ struct ErrorView: View {
                         }
                         #endif
                     }
+                    if let pill = state.focusTask?.id, let s = LiveSessions.shared.shown(for: pill) {
+                        SecondaryButton("Details") {
+                            LiveSessions.shared.select(s.id)
+                            state.view = .sessions
+                        }
+                    }
                     SecondaryButton("OK") {
                         NotificationCenter.default.post(name: .islandCollapse, object: nil)
                     }
@@ -746,6 +750,12 @@ struct FinishedView: View {
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
                         #endif
+                    }
+                    if let pill = state.focusTask?.id, let s = LiveSessions.shared.shown(for: pill) {
+                        SecondaryButton("Details") {
+                            LiveSessions.shared.select(s.id)
+                            state.view = .sessions
+                        }
                     }
                     SecondaryButton("OK") {
                         NotificationCenter.default.post(name: .islandCollapse, object: nil)
@@ -1869,6 +1879,7 @@ struct IntegrationCardView: View {
     @Binding var showingDetail: Bool
     var onDiffTap: ((Int) -> Void)? = nil
     @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var live = LiveSessions.shared
     @State private var githubDetailSection: GitHubDetailSection = .myPRs
     #if !APPSTORE
     @ObservedObject private var mailController = MailController.shared
@@ -2230,7 +2241,7 @@ struct IntegrationCardView: View {
                     Circle()
                         .fill(Color(hex: task.color))
                         .frame(width: 7, height: 7)
-                    Text(task.name)
+                    Text(live.title(for: task))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color(hex: "#F5F6F8"))
                         .lineLimit(1).truncationMode(.tail)
@@ -2240,18 +2251,13 @@ struct IntegrationCardView: View {
                         .foregroundColor(Color(hex: "#8E939C"))
                         .lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 2)
-                    if task.steps.count > 1 {
-                        Text("\(min(task.stepIndex + 1, task.steps.count))/\(task.steps.count)")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(hex: "#6B7079"))
-                            .fixedSize()
-                    }
+                    SessionControls(task: task)
                 }
                 .padding(.top, 6)
                 .padding(.leading, 108)
                 .padding(.trailing, 36)
 
-                TickerView(task: task, onDiffTap: onDiffTap)
+                TickerView(task: live.tickerTask(for: task), onDiffTap: live.hasSeveralSessions(task) ? nil : onDiffTap)
                     .frame(height: 44)
                     .padding(.top, 6)
                     .padding(.leading, 108)

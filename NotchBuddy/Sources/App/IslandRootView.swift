@@ -495,7 +495,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || (v == .mail && active)
+                    let isTall = v == .prompt || ((v == .mail || v == .sessions) && active)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
                         : .easeIn(duration: 0.16)
@@ -546,6 +546,10 @@ struct IslandHeader: View {
                     #endif
                 })
                 TabButton(icon: "plus", view: .upload, state: state)
+                // Sessions (coucou-custom fork): only while an agent session is known.
+                if !LiveSessions.shared.sessions.isEmpty {
+                    TabButton(icon: "rectangle.stack.fill", view: .sessions, state: state)
+                }
             }
             .padding(.leading, 14)
 
