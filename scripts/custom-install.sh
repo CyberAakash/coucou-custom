@@ -46,6 +46,14 @@ else
 fi
 codesign --force --deep -s "$SIGN" --entitlements Resources/Coucou.entitlements "$APP"
 
+# Build copies must not count as apps: Launchpad, Spotlight and "Open With" would list each one,
+# and launching one runs a second Coucou (the App Store variant has no background mode).
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
+touch "$BUILD/.metadata_never_index"
+for copy in "$BUILD"/*/Build/Products/*/Coucou.app; do
+  [ -d "$copy" ] && "$LSREGISTER" -u "$copy" >/dev/null 2>&1 || true
+done
+
 if pgrep -f "$DEST/Contents/MacOS/Coucou" >/dev/null; then
   # A signal, not an AppleScript quit: with "Run in background" on, Coucou cancels ordinary quits.
   pkill -TERM -f "$DEST/Contents/MacOS/Coucou" || true
@@ -56,5 +64,6 @@ fi
 mkdir -p "$DEST"
 rsync -a --delete "$APP/" "$DEST/"
 codesign --verify "$DEST"
+"$LSREGISTER" -f "$DEST" >/dev/null 2>&1 || true
 open "$DEST"
 echo "Installed $DEST ($(git -C "$ROOT" rev-parse --abbrev-ref HEAD) @ $(git -C "$ROOT" rev-parse --short HEAD))"
