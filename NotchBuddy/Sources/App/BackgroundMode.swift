@@ -26,7 +26,9 @@ enum BackgroundMode {
         for window in NSApp.windows where window.isVisible && window.styleMask.contains(.titled) && !(window is NSPanel) {
             window.close()
         }
-        NSApp.hide(nil)
+        // Not NSApp.hide: hiding the app hides the notch island too, and it stays dead until
+        // something unhides Coucou. Giving focus back to the previous app is enough.
+        NSApp.deactivate()
         return .terminateCancel
     }
 
