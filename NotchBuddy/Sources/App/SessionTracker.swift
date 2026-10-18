@@ -70,15 +70,27 @@ struct SessionTracker {
         var finalMessage: String?
         var errorDetail: String?
         var endedAt: Date?
+        /// When the user looked at the finished session (or answered it). New work clears it.
+        var seenAt: Date?
+        /// Background tasks Claude reported at Stop that are not subagents (shells, watchers).
+        var otherBackgroundTasks = 0
 
         var runningSubagents: Int { subagents.filter(\.running).count }
         var isBusy: Bool { status == .working || status == .background || status == .waiting }
+        /// Something worth showing: a SessionStart alone (a window opened) is not.
+        var hasWork: Bool { !(prompt ?? "").isEmpty || !steps.isEmpty || finalMessage != nil || errorDetail != nil }
+        /// Listed while it runs or waits, and once done until the user has seen it.
+        var needsAttention: Bool {
+            hasWork && (isBusy || ((status == .finished || status == .failed) && seenAt == nil))
+        }
     }
 
     static let maxSteps = 100
     /// A closed session stays visible this long, so its last answer can still be read.
     static let keepEnded: TimeInterval = 10 * 60
     static let maxSilence: TimeInterval = 12 * 60 * 60
+    /// A turn or subagent with no event for this long is over: an event was lost on the way.
+    static let maxTurnSilence: TimeInterval = 30 * 60
 
     private(set) var sessions: [String: Session] = [:]
 
@@ -89,7 +101,9 @@ struct SessionTracker {
 
     mutating func apply(event: String, payload: [String: Any], pill: String, projectName: String,
                         hostApp: String?, errorDetail: String? = nil, now: Date = Date()) {
-        guard let id = (payload["session_id"] ?? payload["conversation_id"]) as? String, !id.isEmpty else { return }
+        // Some agent plugins send session_id: "" when they have none (OpenCode, Amp).
+        let ids = [payload["session_id"], payload["conversation_id"]].compactMap { $0 as? String }
+        guard let id = ids.first(where: { !$0.isEmpty }) else { return }
         var s = sessions[id] ?? Session(id: id, pill: pill, projectName: projectName,
                                         cwd: payload["cwd"] as? String ?? "", firstSeen: now, lastActivity: now)
         s.pill = pill
@@ -112,6 +126,7 @@ struct SessionTracker {
             let prompt = (payload["prompt"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             // A background subagent finishing comes back as a synthetic prompt: work continues,
             // but it is not what the user asked.
+            s.seenAt = nil
             if !prompt.hasPrefix("<task-notification>") {
                 s.prompt = prompt
                 s.turnStartedAt = now
@@ -124,6 +139,7 @@ struct SessionTracker {
 
         case "PreToolUse":
             s.status = .working
+            s.seenAt = nil
             let text = Self.stepText(tool: tool, input: input)
             if let agentId {
                 if let i = s.subagents.firstIndex(where: { $0.id == agentId }) { s.subagents[i].lastStep = text }
@@ -147,18 +163,29 @@ struct SessionTracker {
                 if let i = s.todos.lastIndex(where: { $0.id.hasPrefix("pending:") }) { s.todos[i].id = taskId }
             }
             if tool == "Agent" || tool == "Task", let useId = payload["tool_use_id"] as? String,
-               let i = s.subagents.firstIndex(where: { $0.toolUseId == useId }) {
+               var i = s.subagents.firstIndex(where: { $0.toolUseId == useId }) {
                 let response = payload["tool_response"] as? [String: Any]
-                if let realId = response?["agentId"] as? String { s.subagents[i].id = realId }
-                // A synchronous subagent is done when its tool returns; an async one keeps running.
-                if response?["isAsync"] as? Bool != true {
-                    s.subagents[i].running = false
-                    s.subagents[i].endedAt = now
+                if let realId = response?["agentId"] as? String, s.subagents[i].id != realId {
+                    // SubagentStart may have arrived first and added its own entry: keep one.
+                    if let dup = s.subagents.firstIndex(where: { $0.id == realId }) {
+                        s.subagents[i].running = s.subagents[i].running && s.subagents[dup].running
+                        s.subagents[i].lastStep = s.subagents[dup].lastStep ?? s.subagents[i].lastStep
+                        s.subagents.remove(at: dup)
+                        if dup < i { i -= 1 }
+                    }
+                    s.subagents[i].id = realId
                 }
+                // A synchronous subagent is done when its tool returns; an async one keeps running.
+                if response?["isAsync"] as? Bool != true { endSubagent(at: i, now: now, in: &s) }
             }
 
         case "PostToolUseFailure":
             if let i = s.steps.lastIndex(where: { $0.agentId == agentId }) { s.steps[i].failed = true }
+            // A denied or interrupted Agent call never starts its subagent.
+            if tool == "Agent" || tool == "Task", let useId = payload["tool_use_id"] as? String,
+               let i = s.subagents.firstIndex(where: { $0.toolUseId == useId }) {
+                endSubagent(at: i, now: now, in: &s)
+            }
 
         case "PermissionRequest":
             s.status = .waiting
@@ -181,9 +208,8 @@ struct SessionTracker {
             }
 
         case "SubagentStop":
-            if let agentId, let i = s.subagents.firstIndex(where: { $0.id == agentId }) {
-                s.subagents[i].running = false
-                s.subagents[i].endedAt = now
+            if let agentId {
+                for i in s.subagents.indices where s.subagents[i].id == agentId { endSubagent(at: i, now: now, in: &s) }
             }
 
         case "Stop":
@@ -193,8 +219,14 @@ struct SessionTracker {
             }
             let background = (payload["background_tasks"] as? [[String: Any]] ?? [])
                 .filter { ($0["status"] as? String) == "running" }
+            s.otherBackgroundTasks = background.filter { ($0["type"] as? String) != "subagent" }.count
             s.status = background.isEmpty && s.runningSubagents == 0 ? .finished : .background
             s.currentStep = nil
+
+        case "Interrupt":   // Codex: the user stopped the turn
+            s.status = .finished
+            s.currentStep = nil
+            for i in s.subagents.indices where s.subagents[i].running { endSubagent(at: i, now: now, in: &s) }
 
         case "StopFailure":
             s.status = .failed
@@ -219,11 +251,32 @@ struct SessionTracker {
             if let ended = s.endedAt { return now.timeIntervalSince(ended) < Self.keepEnded }
             return now.timeIntervalSince(s.lastActivity) < Self.maxSilence
         }
+        for (id, var s) in sessions where s.isBusy && s.status != .waiting
+            && now.timeIntervalSince(s.lastActivity) >= Self.maxTurnSilence {
+            for i in s.subagents.indices where s.subagents[i].running { s.subagents[i].running = false; s.subagents[i].endedAt = now }
+            s.otherBackgroundTasks = 0
+            s.status = .finished
+            s.currentStep = nil
+            sessions[id] = s
+        }
     }
 
     mutating func remove(_ id: String) { sessions[id] = nil }
 
+    mutating func markSeen(_ id: String, now: Date = Date()) {
+        guard var s = sessions[id], s.seenAt == nil, !s.isBusy else { return }
+        s.seenAt = now
+        sessions[id] = s
+    }
+
     // MARK: Helpers
+
+    /// Ends one subagent; a turn that only waited on background work is then finished.
+    private func endSubagent(at i: Int, now: Date, in s: inout Session) {
+        s.subagents[i].running = false
+        s.subagents[i].endedAt = s.subagents[i].endedAt ?? now
+        if s.status == .background, s.runningSubagents == 0, s.otherBackgroundTasks == 0 { s.status = .finished }
+    }
 
     private func append(_ step: Step, to s: inout Session) {
         s.steps.append(step)

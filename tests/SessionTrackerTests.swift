@@ -14,6 +14,86 @@ enum SessionTrackerTests {
 
     static let t0 = Date(timeIntervalSince1970: 1_000_000)
 
+    // MARK: - Attention, stuck states, other agents
+
+    static func attentionTests() {
+        var tracker = SessionTracker()
+        func send(_ event: String, _ session: String, at offset: TimeInterval, _ extra: [String: Any] = [:]) {
+            var payload: [String: Any] = ["session_id": session, "cwd": "/Users/x/rea"]
+            extra.forEach { payload[$0] = $1 }
+            tracker.apply(event: event, payload: payload, pill: "integration_claude", projectName: "rea",
+                          hostApp: nil, now: t0.addingTimeInterval(offset))
+        }
+        func s(_ id: String) -> SessionTracker.Session { tracker.sessions[id]! }
+
+        // A window opened, nothing asked: no tab.
+        send("SessionStart", "idle", at: 0)
+        check("SessionStart alone is not listed", !s("idle").needsAttention)
+
+        // Running → listed; finished → listed until seen; new work → listed again.
+        send("UserPromptSubmit", "R", at: 1, ["prompt": "go"])
+        check("running session listed", s("R").needsAttention)
+        tracker.markSeen("R", now: t0.addingTimeInterval(2))
+        check("a running session cannot be marked seen", s("R").seenAt == nil && s("R").needsAttention)
+        send("Stop", "R", at: 3, ["last_assistant_message": "done", "background_tasks": []])
+        check("finished, unseen: listed", s("R").needsAttention)
+        tracker.markSeen("R", now: t0.addingTimeInterval(4))
+        check("finished, seen: not listed", !s("R").needsAttention)
+        send("UserPromptSubmit", "R", at: 5, ["prompt": "again"])
+        check("new prompt lists it again", s("R").needsAttention && s("R").seenAt == nil)
+        send("StopFailure", "R", at: 6)
+        check("failed, unseen: listed", s("R").needsAttention)
+
+        // SubagentStop ends a turn that only waited on it.
+        send("UserPromptSubmit", "B", at: 10, ["prompt": "x"])
+        send("PreToolUse", "B", at: 11, ["tool_name": "Agent", "tool_use_id": "u1", "tool_input": ["description": "d", "subagent_type": "general-purpose"]])
+        send("PostToolUse", "B", at: 12, ["tool_name": "Agent", "tool_use_id": "u1", "tool_response": ["isAsync": true, "agentId": "ag1"]])
+        send("Stop", "B", at: 13, ["background_tasks": [["id": "ag1", "type": "subagent", "status": "running"]]])
+        check("background while the subagent runs", s("B").status == .background)
+        send("SubagentStop", "B", at: 14, ["agent_id": "ag1", "agent_type": "general-purpose"])
+        check("SubagentStop with nothing else running → finished", s("B").status == .finished)
+
+        // A background shell keeps it in background after the subagent ends.
+        send("UserPromptSubmit", "S", at: 20, ["prompt": "x"])
+        send("PreToolUse", "S", at: 21, ["tool_name": "Agent", "tool_use_id": "u2", "tool_input": ["description": "d", "subagent_type": "Explore"]])
+        send("PostToolUse", "S", at: 22, ["tool_name": "Agent", "tool_use_id": "u2", "tool_response": ["isAsync": true, "agentId": "ag2"]])
+        send("Stop", "S", at: 23, ["background_tasks": [["id": "ag2", "type": "subagent", "status": "running"],
+                                                       ["id": "sh", "type": "shell", "status": "running"]]])
+        send("SubagentStop", "S", at: 24, ["agent_id": "ag2"])
+        check("a running background shell keeps it in background", s("S").status == .background)
+
+        // Denied Agent call frees its subagent.
+        send("UserPromptSubmit", "D", at: 30, ["prompt": "x"])
+        send("PreToolUse", "D", at: 31, ["tool_name": "Agent", "tool_use_id": "u3", "tool_input": ["description": "d"]])
+        send("PostToolUseFailure", "D", at: 32, ["tool_name": "Agent", "tool_use_id": "u3"])
+        check("failed Agent call: subagent not running", s("D").runningSubagents == 0)
+
+        // SubagentStart before PostToolUse with a different type: one entry, not two.
+        send("UserPromptSubmit", "U", at: 40, ["prompt": "x"])
+        send("PreToolUse", "U", at: 41, ["tool_name": "Agent", "tool_use_id": "u4", "tool_input": ["description": "scan"]])
+        send("SubagentStart", "U", at: 42, ["agent_id": "ag4", "agent_type": "general-purpose"])
+        send("PostToolUse", "U", at: 43, ["tool_name": "Agent", "tool_use_id": "u4", "tool_response": ["isAsync": true, "agentId": "ag4"]])
+        check("no duplicate subagent", s("U").subagents.count == 1 && s("U").subagents.first?.description == "scan")
+        send("SubagentStop", "U", at: 44, ["agent_id": "ag4"])
+        check("its stop ends it", s("U").runningSubagents == 0)
+
+        // Lost events: a silent turn ends after maxTurnSilence.
+        send("UserPromptSubmit", "Q", at: 50, ["prompt": "x"])
+        send("PreToolUse", "Q", at: 51, ["tool_name": "Agent", "tool_use_id": "u5", "tool_input": ["description": "d"]])
+        tracker.sweep(now: t0.addingTimeInterval(51 + SessionTracker.maxTurnSilence - 1))
+        check("still working before the silence limit", s("Q").status == .working)
+        tracker.sweep(now: t0.addingTimeInterval(51 + SessionTracker.maxTurnSilence))
+        check("silent turn → finished, subagent stopped", s("Q").status == .finished && s("Q").runningSubagents == 0)
+
+        // Other agents.
+        tracker.apply(event: "PreToolUse", payload: ["session_id": "", "conversation_id": "oc1", "tool_name": "bash"],
+                      pill: "agent_opencode", projectName: "rea", hostApp: nil, now: t0)
+        check("empty session_id falls back to conversation_id", tracker.sessions["oc1"] != nil)
+        send("UserPromptSubmit", "X", at: 60, ["prompt": "x"])
+        send("Interrupt", "X", at: 61)
+        check("Codex Interrupt ends the turn", s("X").status == .finished)
+    }
+
     static func main() {
         var tracker = SessionTracker()
         func send(_ event: String, _ session: String, at offset: TimeInterval = 0, pill: String = "integration_claude",
@@ -118,6 +198,8 @@ enum SessionTrackerTests {
         check("mcp tool step", SessionTracker.stepText(tool: "mcp__claude_ai_Canva__create-design", input: [:]) == "claude_ai_Canva · create-design")
         check("ignores events without a session id", { var t = SessionTracker()
             t.apply(event: "Stop", payload: [:], pill: "p", projectName: "x", hostApp: nil); return t.sessions.isEmpty }())
+
+        attentionTests()
 
         print(failures == 0 ? "\nSessionTrackerTests: all passed" : "\n\(failures) failed")
         if failures > 0 { exit(1) }

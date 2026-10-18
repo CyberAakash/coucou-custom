@@ -525,6 +525,7 @@ struct IslandContentView: View {
 
 struct IslandHeader: View {
     @ObservedObject var state: AppState
+    @ObservedObject private var live = LiveSessions.shared   // coucou-custom fork
     @State private var gearHovered  = false
     @State private var soundHovered = false
     @State private var closeHovered = false
@@ -547,7 +548,7 @@ struct IslandHeader: View {
                 })
                 TabButton(icon: "plus", view: .upload, state: state)
                 // Sessions (coucou-custom fork): only while an agent session is known.
-                if !LiveSessions.shared.sessions.isEmpty {
+                if !live.sessions.isEmpty {
                     TabButton(icon: "rectangle.stack.fill", view: .sessions, state: state)
                 }
             }

@@ -22,9 +22,27 @@ still applies; this file adds the fork's own rules and wins where the two disagr
 | `feature/voice-music-weather` | Voice fixes: music goes to the player in use (Spotify no longer opens Apple Music), Spotify found by bundle id (also `~/Applications`), songs on Spotify play through an open.spotify.com link Claude finds by web search; Settings → Voice → "Your city" gives the CLI brain Open-Meteo weather and a location. |
 | `feature/run-in-background` | Flow → Settings → App → "Run in background" (the upstream "Show in Dock" setting, inverted): no Dock icon or ⌘-Tab, and ⌘Q / Dock Quit / closing only hide. "Quit Coucou completely", the menu-bar Quit, Restart and logout still stop it (`BackgroundMode.swift`). `custom-install.sh` stops Coucou with SIGTERM for that reason. |
 | `feature/sessions-view` | Per-session tracking (`SessionTracker.swift`, fed from one call in `HookServer.processEvent`) and a tall Sessions view (`SessionsView.swift`, header tab ▤): a tab per session, then what it needs / is doing / answered (subagents, tasks, full answer, prompt, activity). Home card: "‹ 2/3 ›" switcher + expand button, ⌘⇧←/→. Tests: `scripts/test-session-tracker.sh`. |
+| `feature/sessions-attention` | Sessions view lists only what needs attention: running/waiting sessions, and finished/failed ones until seen (opening the tab, Open terminal, Details/OK); a session that only opened gets no tab. Fixes sessions stuck in "background". Tapping the home card's step row opens the Sessions view. |
 | `chore/stable-signing` | `scripts/custom-signing-cert.sh` and a stable signature in `custom-install.sh`, so permissions survive rebuilds. |
 
 Add a row here in the same PR as every new feature.
+
+### What the Sessions view knows per agent
+Every agent's hooks reach `SessionTracker` through `HookServer.processEvent`; how much it can show depends on what
+each agent sends (checked in the generated plugins in `HookServer.swift`):
+
+| Agent | Prompt | Tool steps | Subagents / todos | Final answer | Ends with |
+|---|---|---|---|---|---|
+| Claude Code, Claude Desktop, Cursor | ✓ | ✓ | ✓ | ✓ | Stop / SessionEnd |
+| Codex | ✓ | ✓ | subagents | if Codex sends it | Stop / Interrupt / SessionEnd |
+| Gemini CLI | ✓ | ✓ | – | – | AfterAgent → Stop |
+| Copilot CLI, Muse | as sent | ✓ | – | – | Stop / SessionEnd |
+| Antigravity | – | ✓ | – | – | Stop |
+| OpenCode | – | tool names | – | – | session.idle → Stop |
+| Amp, Hermes | – | ✓ | – | Hermes only | Stop (no SessionEnd: the 30-min silence rule ends them) |
+
+PermissionRequest never reaches the tracker (HookServer answers it on its own path); "waiting" comes from
+Notification and AskUserQuestion.
 
 ## Rules for customizations
 - **Stay mergeable with upstream.** Put new code in new files (e.g. `ClaudeCodeCLI.swift`) and keep edits to
