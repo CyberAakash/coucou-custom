@@ -152,6 +152,9 @@ struct SettingsView: View {
     @AppStorage("iPhoneInstructionsEnabled") private var iPhoneInstructionsEnabled = false
     #endif
     @AppStorage(ClaudeHost.terminalCardsKey) private var terminalCardsEnabled = false
+    #if !APPSTORE
+    @AppStorage(TerminalFocus.defaultKey) private var defaultTerminal = ""   // coucou-custom fork
+    #endif
     @State private var customSoundCount = SoundEngine.shared.customized.count
 
     private var appVersion: String {
@@ -635,6 +638,19 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 #if !APPSTORE
+                // coucou-custom fork: TerminalFocus.
+                Picker(String(localized: "terminal.default", defaultValue: "Default terminal"), selection: $defaultTerminal) {
+                    Text(String(localized: "terminal.default.auto", defaultValue: "Automatic")).tag("")
+                    ForEach(TerminalFocus.installedChoices, id: \.id) { choice in
+                        Text(choice.name).tag(choice.id)
+                    }
+                }
+                Text(String(localized: "terminal.default.detail",
+                            defaultValue: "Open terminal goes to the session's own tab in Warp, Terminal, iTerm2, Ghostty, kitty (remote control on) or WezTerm. This terminal opens when a session's own one is unknown."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 if showDiff {
                     ScrollView {
                         Text(pendingHookJSON)

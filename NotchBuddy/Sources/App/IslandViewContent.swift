@@ -223,6 +223,18 @@ struct OverviewView: View {
         guard let task else { return }
         switch task.id {
         case "integration_claude":
+            #if !APPSTORE
+            // coucou-custom fork: the session's own tab first (TerminalFocus).
+            TerminalFocus.open(LiveSessions.shared.latest(for: task.id)) {
+                if ClaudeHost.activate(task.hostApp) { return }
+                let vscodeBundleId = "com.microsoft.VSCode"
+                if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == vscodeBundleId }) {
+                    app.activate(options: .activateIgnoringOtherApps)
+                } else {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Visual Studio Code.app"))
+                }
+            }
+            #else
             if ClaudeHost.activate(task.hostApp) { return }
             let vscodeBundleId = "com.microsoft.VSCode"
             if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == vscodeBundleId }) {
@@ -230,6 +242,7 @@ struct OverviewView: View {
             } else {
                 NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Visual Studio Code.app"))
             }
+            #endif
         case "integration_resend":
             NSWorkspace.shared.open(URL(string: "https://resend.com/emails")!)
         case "integration_mail":
@@ -727,10 +740,13 @@ struct ErrorView: View {
 
 #if !APPSTORE
 /// The app a session runs in (its terminal, or VS Code), else any known terminal.
-private func openSessionApp(_ task: AgentTask?) {
-    if !(task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp)),
-       !TerminalTarget.activate(sessionBundleId: task?.sessionBundleId) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+@MainActor private func openSessionApp(_ task: AgentTask?) {
+    // coucou-custom fork: the session's own tab first (TerminalFocus), then the app.
+    TerminalFocus.open(LiveSessions.shared.latest(for: task?.id)) {
+        if !(task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp)),
+           !TerminalTarget.activate(sessionBundleId: task?.sessionBundleId) {
+            TerminalFocus.openDefaultTerminal()
+        }
     }
 }
 #endif

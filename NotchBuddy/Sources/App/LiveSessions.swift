@@ -121,10 +121,24 @@ final class LiveSessions: ObservableObject {
     /// The terminal (or VS Code) this exact session runs in, as `openSessionApp` does for a pill.
     func openTerminal(_ s: SessionTracker.Session) {
         markSeen(s.id)
-        if !(s.pill == "integration_claude" && ClaudeHost.activate(s.hostApp)),
-           !TerminalTarget.activate(sessionBundleId: s.bundleId) {
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+        TerminalFocus.open(s) {
+            if !(s.pill == "integration_claude" && ClaudeHost.activate(s.hostApp)),
+               !TerminalTarget.activate(sessionBundleId: s.bundleId) {
+                TerminalFocus.openDefaultTerminal()
+            }
         }
     }
+    #endif
+
+    /// Any tracked session, listed or not (an approval's session, a seen finished one).
+    func session(_ id: String?) -> SessionTracker.Session? { id.flatMap { tracker.sessions[$0] } }
+
+    /// The session "Open terminal" on a pill means: the shown one, else the pill's latest.
+    func latest(for pill: String?) -> SessionTracker.Session? {
+        guard let pill else { return nil }
+        return shown(for: pill) ?? tracker.ordered.filter { $0.pill == pill }.max { $0.lastActivity < $1.lastActivity }
+    }
+
+    #if !APPSTORE
     #endif
 }
