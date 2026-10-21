@@ -585,6 +585,7 @@ struct QuestionView: View {
                 .padding(.trailing, 16)
                 .padding(.vertical, 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .reportsQuestionHeight()   // coucou-custom fork: the notch fits this page
             }
         }
         .onAppear { resetQuestionState() }

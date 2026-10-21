@@ -168,6 +168,11 @@ struct IslandContainer: View {
             guard state.mode == .expanded, state.view == .prompt else { return }
             withAnimation(openSpring) { islandHeight = chatPromptHeight }
         }
+        // coucou-custom fork: the question card measured a new page height (QuestionFit).
+        .onReceive(NotificationCenter.default.publisher(for: .islandQuestionFit)) { _ in
+            guard state.mode == .expanded, state.view == .question, let h = QuestionLayout.height else { return }
+            withAnimation(openSpring) { islandHeight = h }
+        }
         .onAppear {
             let (w, h) = islandSize(mode: state.mode, view: state.view,
                                     progress: state.uploadProgress,
@@ -495,7 +500,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || ((v == .mail || v == .sessions) && active)
+                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question) && active)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
                         : .easeIn(duration: 0.16)
