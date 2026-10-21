@@ -90,6 +90,7 @@ private struct SessionDetail: View {
     let session: SessionTracker.Session
     @ObservedObject var state: AppState
     @State private var promptExpanded = false
+    @State private var agentsExpanded = false
 
     private var s: SessionTracker.Session { session }
 
@@ -110,10 +111,10 @@ private struct SessionDetail: View {
                             ChatMarkdownView(markdown: message).textSelection(.enabled)
                         }
                     }
-                    if !s.subagents.isEmpty { subagents }
+                    if !s.subagents.isEmpty { agents }
                     if !s.todos.isEmpty { todos }
                     if let prompt = s.prompt, !prompt.isEmpty { promptSection(prompt) }
-                    if !s.steps.isEmpty { activity }
+                    if s.steps.contains(where: { $0.agentId == nil }) { activity }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 6)
@@ -152,7 +153,7 @@ private struct SessionDetail: View {
         case .working:
             return s.currentStep.map { "\(agent) · \($0)" } ?? "\(agent) · working"
         case .background:
-            return "\(agent) · \(s.runningSubagents) subagent\(s.runningSubagents == 1 ? "" : "s") still running"
+            return "\(agent) · \(s.runningSubagents) agent\(s.runningSubagents == 1 ? "" : "s") still running"
         case .waiting:  return "\(agent) · waiting for you"
         case .finished: return "\(agent) · finished"
         case .failed:   return "\(agent) · stopped on an error"
@@ -183,36 +184,71 @@ private struct SessionDetail: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: "#F5A623").opacity(0.12)))
     }
 
-    private var subagents: some View {
-        let running = s.subagents.filter(\.running).count
-        let title = running > 0
-            ? "Subagents · \(running) running"
-            : "Subagents · \(s.subagents.count) done"
-        return section(title) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(s.subagents, id: \.id) { a in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        if a.running {
-                            ProgressView().controlSize(.mini).frame(width: 12, height: 12)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill").font(.system(size: 10))
-                                .foregroundColor(Color(hex: "#4ADE80")).frame(width: 12)
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 6) {
-                                Text(a.description).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                                Text(a.type).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
-                            }
-                            if a.running, let step = a.lastStep {
-                                Text(step).font(.system(size: 11)).foregroundColor(Color(hex: "#A1A6AE")).lineLimit(1)
-                            }
-                        }
-                        Spacer(minLength: 4)
-                        Text(duration(from: a.startedAt, to: a.endedAt))
-                            .font(.system(size: 10).monospacedDigit())
-                            .foregroundColor(Color(hex: "#6B7079"))
+    /// A session's subagents as one row: "Agents · 2 running". Tap to see each one and its
+    /// last steps; their steps stay out of the session's Activity.
+    private var agents: some View {
+        let running = s.runningSubagents
+        let started = s.subagents.map(\.startedAt).min() ?? Date()
+        let ended = running > 0 ? nil : s.subagents.compactMap(\.endedAt).max()
+        return VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.easeInOut(duration: 0.15)) { agentsExpanded.toggle() } } label: {
+                HStack(spacing: 8) {
+                    if running > 0 {
+                        ProgressView().controlSize(.mini).frame(width: 12, height: 12)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 10))
+                            .foregroundColor(Color(hex: "#4ADE80")).frame(width: 12)
                     }
+                    Text(running > 0
+                         ? "Agents · \(running) running" + (s.subagents.count > running ? ", \(s.subagents.count - running) done" : "")
+                         : "Agents · \(s.subagents.count) done")
+                        .font(.system(size: 12, weight: .semibold))
+                    Spacer(minLength: 4)
+                    Text(duration(from: started, to: ended))
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundColor(Color(hex: "#6B7079"))
+                    Image(systemName: agentsExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Color(hex: "#8E939C"))
                 }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.06)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if agentsExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(s.subagents, id: \.id) { a in agentRow(a) }
+                }
+                .padding(.leading, 10)
+            }
+        }
+    }
+
+    private func agentRow(_ a: SessionTracker.Subagent) -> some View {
+        let steps = s.steps.filter { $0.agentId == a.id }.suffix(5)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if a.running {
+                    ProgressView().controlSize(.mini).frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Color(hex: "#4ADE80")).frame(width: 12)
+                }
+                Text(a.description).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                Text(a.type).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
+                Spacer(minLength: 4)
+                Text(duration(from: a.startedAt, to: a.endedAt))
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundColor(Color(hex: "#6B7079"))
+            }
+            ForEach(Array(steps.reversed().enumerated()), id: \.offset) { _, step in
+                Text(step.text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Color(hex: step.failed ? "#F87171" : "#A1A6AE"))
+                    .lineLimit(1).truncationMode(.tail)
+                    .padding(.leading, 20)
             }
         }
     }
@@ -253,17 +289,11 @@ private struct SessionDetail: View {
     private var activity: some View {
         section(String(localized: "sessions.activity", defaultValue: "Activity")) {
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(Array(s.steps.suffix(40).reversed().enumerated()), id: \.offset) { _, step in
+                ForEach(Array(s.steps.filter { $0.agentId == nil }.suffix(40).reversed().enumerated()), id: \.offset) { _, step in
                     HStack(spacing: 6) {
                         if step.failed {
                             Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9))
                                 .foregroundColor(Color(hex: "#F87171"))
-                        }
-                        if let agentId = step.agentId {
-                            Text(s.subagents.first { $0.id == agentId }?.type ?? "subagent")
-                                .font(.system(size: 10))
-                                .foregroundColor(Color(hex: "#8EC5FF"))
-                                .lineLimit(1)
                         }
                         Text(step.text)
                             .font(.system(size: 11, design: .monospaced))
@@ -274,7 +304,6 @@ private struct SessionDetail: View {
                             .font(.system(size: 10).monospacedDigit())
                             .foregroundColor(Color(hex: "#6B7079"))
                     }
-                    .padding(.leading, step.agentId == nil ? 0 : 12)
                 }
             }
         }
@@ -299,8 +328,8 @@ private struct SessionDetail: View {
 // MARK: - Home-card controls
 
 /// Next to a pill's title on the home card: "‹ 2/3 ›" when the pill has several sessions (the
-/// card then follows the selected one), the upstream step counter otherwise, and a button
-/// opening the Sessions view.
+/// card then follows the selected one), the upstream step counter otherwise. The card itself
+/// (title and step row) opens the Sessions view.
 struct SessionControls: View {
     let task: AgentTask
     @ObservedObject private var live = LiveSessions.shared
@@ -321,13 +350,6 @@ struct SessionControls: View {
                     .font(.system(size: 11))
                     .foregroundColor(Color(hex: "#6B7079"))
                     .fixedSize()
-            }
-            if !list.isEmpty {
-                arrow("arrow.up.left.and.arrow.down.right") {
-                    if let s = live.shown(for: task.id) { live.select(s.id) }
-                    AppState.shared.view = .sessions
-                }
-                .help(String(localized: "sessions.expand", defaultValue: "Show the session in detail"))
             }
         }
     }
@@ -350,19 +372,33 @@ extension LiveSessions {
         sessions(for: task.id).count > 1 ? (shown(for: task.id)?.projectName ?? task.name) : task.name
     }
 
-    /// The pill's task with the ticker steps of the shown session when the pill has several
-    /// sessions (upstream mixes every session's steps into one ticker).
+    /// The pill's ticker, grouped by session. Upstream mixes every session's and every
+    /// subagent's steps into one ticker; here it shows the shown session's own steps and its
+    /// agents as one line ("▸ 2 agents running"). With one session and no agents the upstream
+    /// ticker stays, so its diff rows keep opening the diff.
     func tickerTask(for task: AgentTask) -> AgentTask {
-        guard sessions(for: task.id).count > 1, let s = shown(for: task.id) else { return task }
+        guard let s = shown(for: task.id), usesSessionTicker(task) else { return task }
         var t = task
         t.name = s.projectName
         t.steps = s.steps.filter { $0.agentId == nil }.suffix(20).map(\.text)
         if t.steps.isEmpty, let message = s.finalMessage { t.steps = [message] }
+        let running = s.runningSubagents
+        if running > 0 {
+            t.steps.append("▸ \(running) agent\(running == 1 ? "" : "s") running")
+        } else if !s.subagents.isEmpty, s.isBusy {
+            t.steps.append("▸ \(s.subagents.count) agent\(s.subagents.count == 1 ? "" : "s") done")
+        }
         t.stepIndex = max(0, t.steps.count - 1)
         return t
     }
 
     func hasSeveralSessions(_ task: AgentTask) -> Bool { sessions(for: task.id).count > 1 }
+
+    /// The session ticker replaces upstream's when the pill has several sessions or the shown
+    /// one has agents; then the upstream diff indices no longer match the rows.
+    func usesSessionTicker(_ task: AgentTask) -> Bool {
+        hasSeveralSessions(task) || !(shown(for: task.id)?.subagents.isEmpty ?? true)
+    }
 
     /// What a tap on the home card's step row does: open the Sessions view on the session the
     /// card shows. Nil when the pill has no listed session (upstream behaviour: nothing).
