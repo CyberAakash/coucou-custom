@@ -838,9 +838,10 @@ final class IslandWindowController: NSWindowController {
             NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.annoyed)
             return
         }
-        if !TerminalTarget.activate(sessionBundleId: state.focusTask?.sessionBundleId) {
-            NSWorkspace.shared.open(
-                URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+        let bundle = state.focusTask?.sessionBundleId
+        // coucou-custom fork: the session's own tab first (TerminalFocus), then the app.
+        TerminalFocus.open(LiveSessions.shared.latest(for: state.focusTask?.id)) {
+            if !TerminalTarget.activate(sessionBundleId: bundle) { TerminalFocus.openDefaultTerminal() }
         }
         collapse(allowPendingApproval: true)
     }

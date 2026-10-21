@@ -23,6 +23,7 @@ still applies; this file adds the fork's own rules and wins where the two disagr
 | `feature/run-in-background` | Flow → Settings → App → "Run in background" (the upstream "Show in Dock" setting, inverted): no Dock icon or ⌘-Tab, and ⌘Q / Dock Quit / closing only hide. "Quit Coucou completely", the menu-bar Quit, Restart and logout still stop it (`BackgroundMode.swift`). `custom-install.sh` stops Coucou with SIGTERM for that reason. |
 | `feature/sessions-view` | Per-session tracking (`SessionTracker.swift`, fed from one call in `HookServer.processEvent`) and a tall Sessions view (`SessionsView.swift`, header tab ▤): a tab per session, then what it needs / is doing / answered (subagents, tasks, full answer, prompt, activity). Home card: "‹ 2/3 ›" switcher + expand button, ⌘⇧←/→. Tests: `scripts/test-session-tracker.sh`. |
 | `feature/sessions-attention` | Sessions view lists only what needs attention: running/waiting sessions, and finished/failed ones until seen (opening the tab, Open terminal, Details/OK); a session that only opened gets no tab. Fixes sessions stuck in "background". Tapping the home card's step row opens the Sessions view. |
+| `feature/terminal-tab-focus` | "Open terminal" (cards, Sessions view, ↗, ⌃⌥T, Change plan) goes to the session's own tab (`TerminalFocus.swift`); the relay records per-tab handles (`add_terminal_ids` in the GitHub `nb-hook.py`). Settings → Agents → "Default terminal" replaces the hard-coded Terminal.app fallback. Tests: `scripts/test-terminal-focus.sh`. |
 | `feature/session-agent-grouping` | Subagents grouped under their session: the home ticker shows the session's own steps plus "▸ 2 agents running"; the Sessions view shows one collapsible "Agents · 2 running" row (each agent and its last steps inside) and keeps their steps out of Activity. The home card's expand button is gone: its title and step row open the Sessions view. |
 | `feature/question-fit` | The notch fits each AskUserQuestion page: the card measures itself (`QuestionFit.swift`) and the island animates to it, instead of one estimated height for the tallest question (gaps on short pages, Send clipped on long ones). |
 | `chore/no-upstream-updater` | Turns off upstream's self-updater (`MacUpdater.disabledInFork`): it would replace Coucou Custom with the official release. Settings → Updates explains how the fork updates instead. |
@@ -46,6 +47,18 @@ each agent sends (checked in the generated plugins in `HookServer.swift`):
 
 PermissionRequest never reaches the tracker (HookServer answers it on its own path); "waiting" comes from
 Notification and AskUserQuestion.
+
+### How "Open terminal" finds a session's tab
+| Terminal | Handle recorded by the relay | How the tab is focused |
+|---|---|---|
+| Warp | `WARP_FOCUS_URL` (undocumented, `warp://session/<uuid>`) | open the URL, then activate Warp |
+| Terminal.app | tty of the session (first ancestor with one) | AppleScript: tab whose `tty` matches |
+| iTerm2 | `ITERM_SESSION_ID` | AppleScript: session whose `unique id` matches |
+| Ghostty 1.3+ | session cwd | AppleScript `focus` the terminal with that working directory |
+| kitty | `KITTY_WINDOW_ID`, `KITTY_LISTEN_ON` | `kitten @ focus-window` (remote control must be on) |
+| WezTerm | `WEZTERM_PANE` | `wezterm cli activate-pane` |
+| tmux (inside any) | `TMUX`, `TMUX_PANE` | `select-window` + `select-pane`, then the host tab |
+| others / unknown | – | app only (upstream behaviour) |
 
 ## Rules for customizations
 - **Stay mergeable with upstream.** Put new code in new files (e.g. `ClaudeCodeCLI.swift`) and keep edits to

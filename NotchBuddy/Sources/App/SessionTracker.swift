@@ -74,6 +74,9 @@ struct SessionTracker {
         var seenAt: Date?
         /// Background tasks Claude reported at Stop that are not subagents (shells, watchers).
         var otherBackgroundTasks = 0
+        /// How to bring this session's own tab forward: warp_focus_url, tty, iterm_session_id,
+        /// kitty_window_id, kitty_listen_on, wezterm_pane, tmux, tmux_pane (relay coucou_terminal).
+        var terminal: [String: String] = [:]
 
         var runningSubagents: Int { subagents.filter(\.running).count }
         var isBusy: Bool { status == .working || status == .background || status == .waiting }
@@ -111,6 +114,10 @@ struct SessionTracker {
         if let cwd = payload["cwd"] as? String, !cwd.isEmpty { s.cwd = cwd }
         if let hostApp { s.hostApp = hostApp }
         if let bundle = payload["bundle_id"] as? String, !bundle.isEmpty { s.bundleId = bundle }
+        if let ids = payload["coucou_terminal"] as? [String: Any] {
+            for (k, v) in ids { if let v = v as? String, !v.isEmpty { s.terminal[k] = v } }
+        }
+        if let iterm = payload["iterm_session_id"] as? String, !iterm.isEmpty { s.terminal["iterm_session_id"] = iterm }
         s.lastActivity = now
         s.endedAt = nil
 

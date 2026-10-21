@@ -989,7 +989,15 @@ final class HookServer: @unchecked Sendable {
         let recapDecision = ["plan_auto": "allow", "plan_default": "allow", "plan_change": "deny"][decision] ?? decision
         RecapStore.shared.recordDecision(pillId: head.pillId, decision: recapDecision)
         removeApproval(id: head.id, answer: json)
-        if decision == "plan_change" { ClaudeHost.activate(head.hostApp) }
+        if decision == "plan_change" {
+            #if !APPSTORE
+            // coucou-custom fork: the session's own tab, where the plan changes are typed.
+            let host = head.hostApp
+            TerminalFocus.open(LiveSessions.shared.session(head.sessionId)) { ClaudeHost.activate(host) }
+            #else
+            ClaudeHost.activate(head.hostApp)
+            #endif
+        }
     }
 
     /// The plan's first non-empty line without its Markdown heading marks, for the card.
@@ -3366,6 +3374,37 @@ def add_session_name(payload):
     except Exception:
         pass
 
+def add_terminal_ids(payload):
+    # coucou-custom fork: what it takes to bring this session's own tab forward later.
+    env = os.environ
+    ids = {}
+    for key, var in (('warp_focus_url', 'WARP_FOCUS_URL'), ('kitty_window_id', 'KITTY_WINDOW_ID'),
+                     ('kitty_listen_on', 'KITTY_LISTEN_ON'), ('wezterm_pane', 'WEZTERM_PANE'),
+                     ('tmux', 'TMUX'), ('tmux_pane', 'TMUX_PANE')):
+        if env.get(var):
+            ids[key] = env[var]
+    # The hook's stdin is a pipe and Claude Code may run it detached: the session's tty is the
+    # first ancestor that has one. Looked up only when a turn starts.
+    if payload.get('hook_event_name') in ('SessionStart', 'UserPromptSubmit') or '--ask' in sys.argv[1:]:
+        try:
+            import subprocess
+            pid = os.getppid()
+            for _ in range(6):
+                out = subprocess.run(['/bin/ps', '-o', 'tty=,ppid=', '-p', str(pid)],
+                                     capture_output=True, text=True, timeout=1).stdout.split()
+                if len(out) < 2:
+                    break
+                if out[0] not in ('??', '-'):
+                    ids['tty'] = out[0]
+                    break
+                pid = int(out[1])
+                if pid <= 1:
+                    break
+        except Exception:
+            pass
+    if ids:
+        payload['coucou_terminal'] = ids
+
 def main():
     raw = b''
     payload = {}
@@ -3427,6 +3466,7 @@ def main():
         payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
         payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
         payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
+        add_terminal_ids(payload)
         if 'cwd' not in payload or not payload['cwd']:
             paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
             if isinstance(paths, list) and paths:
@@ -3495,6 +3535,7 @@ def main():
     payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
     payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
     payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
+    add_terminal_ids(payload)
     if 'cwd' not in payload or not payload['cwd']:
         paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
         if isinstance(paths, list) and paths:
