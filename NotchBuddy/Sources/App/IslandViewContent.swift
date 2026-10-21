@@ -91,6 +91,7 @@ struct OverviewView: View {
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                                     .layoutPriority(1)
+                                    .onTapGesture { live.openAction(pill: agent.id)?() }
                                 Text({ () -> String in
                                     switch agent.source {
                                     case .claudeCode: return "Claude Code"
@@ -109,7 +110,7 @@ struct OverviewView: View {
                             .padding(.leading, 108)
                             .padding(.trailing, 36)
 
-                            TickerView(task: live.tickerTask(for: agent), onDiffTap: live.hasSeveralSessions(agent) ? nil : { diffIdx in
+                            TickerView(task: live.tickerTask(for: agent), onDiffTap: live.usesSessionTicker(agent) ? nil : { diffIdx in
                                 withAnimation(.easeIn(duration: 0.16)) { activeDiffId = diffIdx }
                             }, onRowTap: live.openAction(pill: agent.id))
                                 .frame(height: 44)
@@ -2273,6 +2274,7 @@ struct IntegrationCardView: View {
                         .foregroundColor(Color(hex: "#F5F6F8"))
                         .lineLimit(1).truncationMode(.tail)
                         .layoutPriority(1)
+                        .onTapGesture { live.openAction(pill: task.id)?() }
                     Text(PillCatalog.definition(for: task.id)?.sessionSubtitle ?? "Agent")
                         .font(.system(size: 11))
                         .foregroundColor(Color(hex: "#8E939C"))
@@ -2284,7 +2286,7 @@ struct IntegrationCardView: View {
                 .padding(.leading, 108)
                 .padding(.trailing, 36)
 
-                TickerView(task: live.tickerTask(for: task), onDiffTap: live.hasSeveralSessions(task) ? nil : onDiffTap,
+                TickerView(task: live.tickerTask(for: task), onDiffTap: live.usesSessionTicker(task) ? nil : onDiffTap,
                            onRowTap: live.openAction(pill: task.id))
                     .frame(height: 44)
                     .padding(.top, 6)
