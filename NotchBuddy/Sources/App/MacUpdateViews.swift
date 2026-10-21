@@ -116,7 +116,23 @@ struct UpdateSettingsSection: View {
     @ObservedObject private var updater = MacUpdater.shared
     @State private var enabled = MacUpdater.consent == true
 
-    var body: some View {
+    @ViewBuilder var body: some View {
+        if MacUpdater.disabledInFork {
+            GroupBox(String(localized: "update.settings.title")) {
+                Text(String(localized: "update.settings.fork",
+                            defaultValue: "Coucou Custom doesn't update itself: the official update would replace it and drop your customizations. Update from your fork: scripts/custom-sync-upstream.sh, then scripts/custom-install.sh."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+            }
+        } else {
+            upstreamBody
+        }
+    }
+
+    private var upstreamBody: some View {
         GroupBox(String(localized: "update.settings.title")) {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(String(localized: "update.settings.toggle"), isOn: $enabled)
