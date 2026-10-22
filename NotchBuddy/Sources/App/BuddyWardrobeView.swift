@@ -10,13 +10,14 @@ import Combine
 // MARK: - Shadow
 
 struct BuddyShadowChips: View {
-    @Binding var selection: BuddyShadow
+    @Binding var opacity: Double
 
     var body: some View {
+        let preset = BuddyShadow.preset(opacity: opacity)
         HStack(spacing: 4) {
             ForEach(BuddyShadow.allCases) { s in
-                let on = selection == s
-                Button { selection = s } label: {
+                let on = preset == s
+                Button { opacity = s.opacity } label: {
                     Text(s.label)
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
@@ -28,10 +29,70 @@ struct BuddyShadowChips: View {
                 }
                 .buttonStyle(.plain)
             }
+            BuddyCustomChip(on: preset == nil) {
+                // Nudge off the preset so the slider shows, starting where the shadow is now.
+                if preset != nil { opacity = min(opacity + 0.02, BuddyShadow.customRange.upperBound) }
+            }
         }
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+    }
+}
+
+/// The last chip of a preset row: picks a value of your own (the row's slider appears).
+struct BuddyCustomChip: View {
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "slider.horizontal.3").font(.system(size: 10, weight: .bold))
+                Text("Custom").font(.system(size: 12, weight: .bold, design: .rounded))
+            }
+            .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("A value of your own")
+    }
+}
+
+/// A custom value under its preset row. `live: false` applies the value when the slider is
+/// released (resizing the Buddy rebuilds its window, too heavy for every step of a drag).
+struct BuddyCustomSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let low: String
+    let high: String
+    var live = false
+    let readout: (Double) -> String
+    @State private var draft: Double?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Spacer(minLength: 0)
+            Text(low).font(.system(size: 11)).foregroundColor(HubTheme.secondary)
+            Slider(value: Binding(get: { draft ?? value }, set: { v in if live { value = v } else { draft = v } }),
+                   in: range, step: step,
+                   onEditingChanged: { editing in
+                       if !editing, let d = draft { value = d; draft = nil }
+                   })
+                .frame(width: 240)
+            Text(high).font(.system(size: 11)).foregroundColor(HubTheme.secondary)
+            Text(readout(draft ?? value))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(HubTheme.text)
+                .monospacedDigit()
+                .frame(width: 56, alignment: .trailing)
+        }
+        .padding(.top, -4)
     }
 }
 

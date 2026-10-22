@@ -9,7 +9,9 @@ final class BuddySettings: ObservableObject {
     static let shared = BuddySettings()
 
     static let enabledKey = "buddyEnabled"
+    /// Read once to carry an older preset over: the size is stored under sizeScaleKey.
     static let sizeKey = "buddySize"
+    static let sizeScaleKey = "buddySizeScale"
     static let outfitKey = "buddyOutfit"
     static let colorKey = "buddyColor"
     static let reactKey = "buddyReactToAgents"
@@ -21,14 +23,23 @@ final class BuddySettings: ObservableObject {
     static let companionsMatchKey = "buddyCompanionsMatch"
     static let companionSideKey = "buddyCompanionSide"
     static let scheduleKey = "buddyWardrobeSchedule"
+    /// Read once to carry an older preset over: the shadow is stored under shadowOpacityKey.
     static let shadowKey = "buddyShadow"
+    static let shadowOpacityKey = "buddyShadowOpacity"
     static let clicksKey = "buddyClicks"
 
     private let defaults: UserDefaults
 
     /// The Buddy is on the desktop.
     @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: Self.enabledKey) } }
-    @Published var size: BuddySize { didSet { defaults.set(size.rawValue, forKey: Self.sizeKey) } }
+    /// Any scale in BuddySize.customRange; the presets are shortcuts to some of them.
+    @Published var sizeScale: Double {
+        didSet {
+            let n = min(max(sizeScale, BuddySize.customRange.lowerBound), BuddySize.customRange.upperBound)
+            if n != sizeScale { sizeScale = n; return }
+            defaults.set(sizeScale, forKey: Self.sizeScaleKey)
+        }
+    }
     /// Its wardrobe (its own: the notch's does not dress it). "Always wear" this outfit; nil follows
     /// the schedule ("Automatic"). Stored under the old outfit key: "auto" is Automatic.
     @Published var alwaysWear: BuddyOutfit? {
@@ -42,7 +53,14 @@ final class BuddySettings: ObservableObject {
             else { defaults.removeObject(forKey: Self.scheduleKey) }
         }
     }
-    @Published var shadow: BuddyShadow { didSet { defaults.set(shadow.rawValue, forKey: Self.shadowKey) } }
+    /// Any opacity in BuddyShadow.customRange; the presets are shortcuts to some of them.
+    @Published var shadowOpacity: Double {
+        didSet {
+            let n = min(max(shadowOpacity, BuddyShadow.customRange.lowerBound), BuddyShadow.customRange.upperBound)
+            if n != shadowOpacity { shadowOpacity = n; return }
+            defaults.set(shadowOpacity, forKey: Self.shadowOpacityKey)
+        }
+    }
     /// What each click gesture does.
     @Published var clicks: [BuddyGesture: BuddyClickBinding] {
         didSet {
@@ -95,11 +113,15 @@ final class BuddySettings: ObservableObject {
             defaults.object(forKey: key) == nil ? value : defaults.bool(forKey: key)
         }
         enabled = bool(Self.enabledKey, default: true)
-        size = defaults.object(forKey: Self.sizeKey) == nil ? .medium : BuddySize.from(stored: defaults.double(forKey: Self.sizeKey))
+        let preset = defaults.object(forKey: Self.sizeKey) == nil ? BuddySize.medium : BuddySize.from(stored: defaults.double(forKey: Self.sizeKey))
+        sizeScale = min(max(defaults.object(forKey: Self.sizeScaleKey) as? Double ?? preset.rawValue,
+                            BuddySize.customRange.lowerBound), BuddySize.customRange.upperBound)
         let worn = defaults.string(forKey: Self.outfitKey) ?? "auto"
         alwaysWear = worn == "auto" ? nil : BuddyOutfit(rawValue: worn)
         userSchedule = defaults.data(forKey: Self.scheduleKey).flatMap(BuddyWardrobe.decode)
-        shadow = defaults.string(forKey: Self.shadowKey).flatMap(BuddyShadow.init(rawValue:)) ?? .soft
+        let shade = defaults.string(forKey: Self.shadowKey).flatMap(BuddyShadow.init(rawValue:)) ?? .soft
+        shadowOpacity = min(max(defaults.object(forKey: Self.shadowOpacityKey) as? Double ?? shade.opacity,
+                                BuddyShadow.customRange.lowerBound), BuddyShadow.customRange.upperBound)
         var c = BuddyClickBinding.defaults
         if let d = defaults.data(forKey: Self.clicksKey),
            let byName = try? JSONDecoder().decode([String: BuddyClickBinding].self, from: d) {
