@@ -206,6 +206,9 @@ struct SettingsView: View {
                         SettingsSidebarRow(title: "Voice",        icon: "mic.fill",                          color: "#F97316").tag("voice")
                         #endif
                         SettingsSidebarRow(title: "Shortcuts",    icon: "keyboard.fill",                     color: "#6366F1").tag("shortcuts")
+                        #if !APPSTORE
+                        SettingsSidebarRow(title: "Buddy",        icon: "pawprint.fill",                     color: "#F472B6").tag("buddy")   // coucou-custom fork
+                        #endif
                     }
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
@@ -280,6 +283,7 @@ struct SettingsView: View {
         case "integrations": return String(localized: "Integrations")
         case "voice":        return String(localized: "Voice")
         case "shortcuts":    return String(localized: "Shortcuts")
+        case "buddy":        return String(localized: "Buddy")
         default:             return String(localized: "General")
         }
     }
@@ -294,6 +298,9 @@ struct SettingsView: View {
         case "voice":        voiceSection
         #endif
         case "shortcuts":    ShortcutsSettingsView()
+        #if !APPSTORE
+        case "buddy":        BuddySettingsView()   // coucou-custom fork
+        #endif
         default:             generalSection
         }
     }
