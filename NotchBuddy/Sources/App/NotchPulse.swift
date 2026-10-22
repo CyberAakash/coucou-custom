@@ -182,6 +182,8 @@ struct NotchHalo: View {
     let height: CGFloat
     let cornerRadius: CGFloat
     let topRadius: CGFloat
+    /// Settings preview: loops this event's motion instead of following real pulses.
+    var preview: NotchPulse.Kind? = nil
     @ObservedObject private var pulse = NotchPulse.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(SpotlightSettings.brightnessKey) private var brightness = SpotlightSettings.defaultBrightness
@@ -194,12 +196,18 @@ struct NotchHalo: View {
     private static let breathPalette = NotchPulse.Kind.agentsRunning.palette
 
     var body: some View {
-        let active = pulse.pulse != nil || pulse.breathing
+        let active = preview != nil || pulse.pulse != nil || pulse.breathing
         TimelineView(.animation(minimumInterval: 1.0 / 40, paused: !active)) { context in
             let now = context.date
-            let oneShot = pulse.pulse.map { ($0, $0.motion.intensity(at: now.timeIntervalSince($0.start))) }
+            let oneShot: (NotchPulse.Pulse, Double)? = if let preview {
+                // The motion, then a short rest, again and again.
+                (NotchPulse.Pulse(palette: preview.palette, motion: preview.motion, start: .distantPast),
+                 preview.motion.intensity(at: now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: preview.motion.duration + 0.7)))
+            } else {
+                pulse.pulse.map { ($0, $0.motion.intensity(at: now.timeIntervalSince($0.start))) }
+            }
             // The breath: slow, low, ~2.8 s period, only while agents run.
-            let breath = pulse.breathing ? 0.22 + 0.18 * (0.5 - 0.5 * cos(2 * .pi * now.timeIntervalSinceReferenceDate / 2.8)) : 0
+            let breath = preview == nil && pulse.breathing ? 0.22 + 0.18 * (0.5 - 0.5 * cos(2 * .pi * now.timeIntervalSinceReferenceDate / 2.8)) : 0
             let shot = oneShot?.1 ?? 0
             let level = max(shot, breath) * SpotlightSettings.clamped(brightness, SpotlightSettings.brightnessRange)
             if level > 0.01 {
