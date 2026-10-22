@@ -634,7 +634,14 @@ final class HookServer: @unchecked Sendable {
             }
             RecapStore.shared.userPromptSubmit(sessionId: recapSessionId, pillId: agentId, project: projectName)
             NotificationCenter.default.post(name: .checkMondayRecap, object: nil)
-            if state.isPresent { expandIfNeeded(to: .overview) }
+            // coucou-custom fork: a prompt typed in the terminal doesn't bring the notch out; a sound
+            // and the aura say Claude got it. A background agent's completion notice is silent.
+            let promptText = (payload["prompt"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            if NotchAlertRules.setting(NotchAlertRules.ambientKey) {
+                if !promptText.hasPrefix("<task-notification>") { NotchPulse.shared.signal(.promptSent, quiet: false) }
+            } else if state.isPresent {
+                expandIfNeeded(to: .overview)
+            }
 
         case "PreToolUse":
             activeSessionId = sessionId

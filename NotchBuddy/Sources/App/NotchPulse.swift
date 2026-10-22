@@ -16,11 +16,12 @@ final class NotchPulse: ObservableObject {
     static let shared = NotchPulse()
 
     enum Kind: String {
-        case sessionStart, agentStart, agentDone, agentsRunning, finishedQuiet, errorQuiet
+        case sessionStart, promptSent, agentStart, agentDone, agentsRunning, finishedQuiet, errorQuiet
 
         var sound: String {
             switch self {
             case .sessionStart:  "work"
+            case .promptSent:    "send"
             case .agentStart:    "pop"
             case .agentDone:     "tick"
             case .agentsRunning: "blip"
@@ -33,6 +34,7 @@ final class NotchPulse: ObservableObject {
         var palette: [Color] {
             let hex: [String] = switch self {
             case .sessionStart:  ["#FF8A4C", "#F472B6", "#A78BFA"]   // orange, pink, violet
+            case .promptSent:    ["#60A5FA", "#A78BFA", "#22D3EE"]   // blue, violet, cyan
             case .agentStart:    ["#22D3EE", "#818CF8", "#60A5FA"]   // cyan, indigo, blue
             case .agentsRunning: ["#F5A623", "#FB7185", "#FBBF24"]   // amber, rose, gold
             case .agentDone, .finishedQuiet: ["#4ADE80", "#22D3EE", "#A3E635"]   // green, cyan, lime
@@ -43,7 +45,7 @@ final class NotchPulse: ObservableObject {
 
         var motion: Motion {
             switch self {
-            case .sessionStart:  .swell
+            case .sessionStart, .promptSent: .swell
             case .agentStart:    .flicker
             case .agentsRunning: .swell
             case .agentDone, .finishedQuiet: .doublePulse
@@ -54,6 +56,7 @@ final class NotchPulse: ObservableObject {
         var emote: BotEmote {
             switch self {
             case .sessionStart:  .surprised
+            case .promptSent:    .listening
             case .agentStart:    .wink
             case .agentsRunning: .proud
             case .agentDone, .finishedQuiet: .happy
@@ -200,38 +203,48 @@ struct NotchHalo: View {
         .allowsHitTesting(false)
     }
 
+    /// A filled semicircle of light under the notch (Siri aura / Samsung edge-lighting feel): the
+    /// lower half of an ellipse centred on the screen's top edge, feathered at its rim, with a
+    /// bright core at the notch fading outward and large blurred colour blobs drifting inside.
+    /// Blobs move in mirrored pairs so the two sides always match.
     @ViewBuilder
     private func aura(level: Double, palette: [Color], time: TimeInterval, calm: Bool) -> some View {
-        let shape = IslandShape(width: width, height: height, cornerRadius: cornerRadius, topRadius: topRadius)
-        // Colours drift round the notch: slow while breathing, livelier for a one-shot.
-        let angle = reduceMotion ? 0 : (time * (calm ? 30 : 110)).truncatingRemainder(dividingBy: 360)
-        let flow = AngularGradient(colors: palette + [palette[0]], center: .center, angle: .degrees(angle))
-        let swell = reduceMotion ? 0.06 : 0.14 * level
+        let grow = reduceMotion ? 1.04 : 1 + 0.1 * level
+        let w = (width * 1.35 + 72) * grow           // semicircle width
+        let depth = (height + 46) * grow             // how far it reaches below the screen edge
+        let h = depth * 2                            // full ellipse height (top half is off screen)
+        let speed = reduceMotion ? 0 : (calm ? 0.45 : 1.1)
+        let t = time * speed
+        // Mirrored drift: x swings out and back, y rises and falls, never the same for long.
+        let dx = w * (0.17 + 0.07 * sin(t * 1.3))
+        let dy = depth * (0.42 + 0.12 * sin(t * 0.9 + 1.2))
+        let cy = depth * (0.6 + 0.1 * sin(t * 1.1 + 2.4))
         ZStack {
-            // 1. Wide soft bloom.
-            shape.fill(flow)
-                .scaleEffect(x: 1.18 + swell, y: 1.7 + swell * 3, anchor: .top)
-                .blur(radius: 30)
-                .opacity(0.4 * level)
-            // 2. The aura's body, close to the notch.
-            shape.fill(flow)
-                .scaleEffect(x: 1.04 + swell, y: 1.12 + swell * 2.2, anchor: .top)
-                .blur(radius: 14)
-                .opacity(0.8 * level)
-            // 3. A brighter rim right at the notch's edge.
-            shape.stroke(flow, lineWidth: 6)
-                .blur(radius: 5)
-                .opacity(0.9 * level)
-            // 4. Faint light cast down onto the screen.
+            // Spotlight core: brightest at the notch, fading toward the rim.
             Ellipse()
-                .fill(RadialGradient(colors: [palette[0].opacity(0.55), palette[1].opacity(0.2), .clear],
-                                     center: .center, startRadius: 0, endRadius: width * 0.5))
-                .frame(width: width * 1.2, height: height * 2.6 + 30)
-                .offset(y: height * 0.65)
-                .blur(radius: 22)
-                .opacity(0.45 * level)
+                .fill(RadialGradient(colors: [palette[0].opacity(0.95), palette[1].opacity(0.55), palette[2].opacity(0.2), .clear],
+                                     center: .center, startRadius: 0, endRadius: w * 0.5))
+            // Colour blobs (Siri-style), mirrored left/right.
+            Group {
+                blob(palette[1], size: w * 0.5).offset(x: -dx, y: dy)
+                blob(palette[1], size: w * 0.5).offset(x: dx, y: dy)
+                blob(palette[2], size: w * 0.42).offset(x: -dx * 0.45, y: cy)
+                blob(palette[2], size: w * 0.42).offset(x: dx * 0.45, y: cy)
+                blob(palette[0], size: w * 0.55).offset(y: depth * 0.25)
+            }
+            .blendMode(.screen)
         }
-        .frame(width: width, height: height, alignment: .top)
+        .frame(width: w, height: h)
+        // Feathered semicircle: the ellipse as a soft mask, so no hard edge and no empty gap.
+        .mask(Ellipse().frame(width: w, height: h).blur(radius: 12))
+        .blur(radius: 6)
+        .opacity(level)
+        // Centre on the notch's top edge: only the lower half is on screen.
+        .position(x: width / 2, y: 0)
+    }
+
+    private func blob(_ color: Color, size: CGFloat) -> some View {
+        Circle().fill(color.opacity(0.85)).frame(width: size, height: size).blur(radius: size * 0.28)
     }
 }
 

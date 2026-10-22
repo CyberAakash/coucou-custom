@@ -109,6 +109,7 @@ final class DesktopMochiController {
         observeScreenSleep()
         observeScreenLock()
         observeAlerts()   // permanent — lives for the lifetime of the singleton
+        observeBuddySettings()   // coucou-custom fork: Settings → Buddy
     }
 
     private var panel: NSPanel?
@@ -138,6 +139,15 @@ final class DesktopMochiController {
     private var cancellables: Set<AnyCancellable> = []
     // Alert subscription — permanent, only released with the singleton
     private var alertSubscription: AnyCancellable?
+    private var buddySubscription: AnyCancellable?
+
+    #if !APPSTORE
+    /// coucou-custom fork: the Buddy pet drawn instead of Mochi (Settings → Buddy); nil shows Mochi.
+    private var pet: BuddyLoadedPet?
+    private var lastMouse: NSPoint = .zero
+    private var lastMouseMove: Date?
+    private var lastDragX: CGFloat = 0
+    #endif
 
     // Event monitors
     private var mouseDownMonitor:    Any?
@@ -149,9 +159,17 @@ final class DesktopMochiController {
     // UserDefaults keys
     private static let posXKey    = "desktopMochiX"
     private static let posYKey    = "desktopMochiY"
-    private static let enabledKey = "mochiOnDesktop"
+    static let enabledKey = "mochiOnDesktop"
 
-    static let panelSize: CGFloat = DesktopMochiLogic.panelSize
+    /// Side of the panel: Settings → Buddy's size, for Mochi or the pet shown (Mochi at Medium
+    /// is the original 120 pt).
+    private var panelSize: CGFloat {
+        #if !APPSTORE
+        BuddySettings.shared.size.panelSide(isMochi: pet == nil)
+        #else
+        BuddySettings.shared.size.panelSide(isMochi: true)
+        #endif
+    }
 
     // MARK: - Keyboard shortcut toggle (⌃⌥D)
 
@@ -171,7 +189,8 @@ final class DesktopMochiController {
     /// centered on `screenPoint`. Called by `IslandWindowController.finishDrag`.
     func install(ghostPanel: NSPanel?, at screenPoint: NSPoint) {
         guard panel == nil, phase == .home else { ghostPanel?.close(); return }
-        let s = DesktopMochiController.panelSize
+        let content = makeContent()   // loads the Buddy pet, which decides the size
+        let s = panelSize
 
         let p: NSPanel
         if let ghost = ghostPanel {
@@ -182,22 +201,12 @@ final class DesktopMochiController {
                        display: false)
         }
 
-        // Build engine + hosting view (autoresizingMask lets it grow with the panel animation)
-        let eng = BotEngine()
-        eng.setState(AppState.shared.effectiveState, force: true)
-        eng.setOutfit(AppState.shared.resolvedOutfit, animated: false)
-        self.engine = eng
-
-        let vs = DesktopBotViewState()
-        vs.lookOrigin = lookOriginFor(panel: p)
-        vs.paused = screenSleeping
-        self.viewState = vs
-
-        let hosting = NSHostingView(rootView:
-            DesktopBotView(appState: AppState.shared, engine: eng, viewState: vs))
-        hosting.frame = CGRect(origin: .zero, size: p.frame.size)
-        hosting.autoresizingMask = [.width, .height]
-        p.contentView = hosting
+        // Hosting view (autoresizingMask lets it grow with the panel animation)
+        content.frame = CGRect(origin: .zero, size: p.frame.size)
+        content.autoresizingMask = [.width, .height]
+        p.contentView = content
+        viewState?.lookOrigin = lookOriginFor(panel: p)
+        let eng = engine
 
         p.level = .floating
         p.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
@@ -205,7 +214,7 @@ final class DesktopMochiController {
         if !p.isVisible { p.orderFront(nil) }
 
         // Squash emote + sound on landing
-        eng.triggerEmote(.happy, duration: 0.6, silent: true)
+        eng?.triggerEmote(.happy, duration: 0.6, silent: true)
         SoundEngine.shared.play("pop")
 
         // Animate from current (ghost) size to 120 × 120, centered on drop point
@@ -259,7 +268,8 @@ final class DesktopMochiController {
         }
 
         phase = .flyingOut
-        let s = DesktopMochiController.panelSize
+        let content = makeContent()   // loads the Buddy pet, which decides the size
+        let s = panelSize
         let screen = IslandWindowController.islandScreen()
         let startOrigin = NSPoint(x: screen.frame.midX - s/2, y: screen.frame.maxY - s)
         let target = loadSavedPosition()
@@ -267,21 +277,10 @@ final class DesktopMochiController {
         let p = makeBlankPanel()
         p.setFrame(NSRect(origin: startOrigin, size: CGSize(width: s, height: s)), display: false)
 
-        let eng = BotEngine()
-        eng.setState(AppState.shared.effectiveState, force: true)
-        eng.setOutfit(AppState.shared.resolvedOutfit, animated: false)
-        self.engine = eng
-
-        let vs = DesktopBotViewState()
-        vs.lookOrigin = lookOriginFor(panel: p)
-        vs.paused = screenSleeping
-        self.viewState = vs
-
-        let hosting = NSHostingView(rootView:
-            DesktopBotView(appState: AppState.shared, engine: eng, viewState: vs))
-        hosting.frame = CGRect(x: 0, y: 0, width: s, height: s)
-        hosting.autoresizingMask = [.width, .height]
-        p.contentView = hosting
+        content.frame = CGRect(x: 0, y: 0, width: s, height: s)
+        content.autoresizingMask = [.width, .height]
+        p.contentView = content
+        viewState?.lookOrigin = lookOriginFor(panel: p)
         p.alphaValue = 0
         p.orderFront(nil)
 
@@ -331,7 +330,7 @@ final class DesktopMochiController {
         removeEventMonitors()
         cancellables.removeAll()
         isSleeping = false
-        let s = DesktopMochiController.panelSize
+        let s = panelSize
         let screen = IslandWindowController.islandScreen()
         let targetOrigin = NSPoint(x: screen.frame.midX - s/2, y: screen.frame.maxY - s)
         NSAnimationContext.runAnimationGroup({ ctx in
@@ -359,7 +358,7 @@ final class DesktopMochiController {
         pendingSlapWorkItem?.cancel()
         isSleeping = false
 
-        let s = DesktopMochiController.panelSize
+        let s = panelSize
         let screen = IslandWindowController.islandScreen()
         let targetOrigin = NSPoint(x: screen.frame.midX - s/2, y: screen.frame.maxY - s)
         NSAnimationContext.runAnimationGroup({ ctx in
@@ -373,6 +372,9 @@ final class DesktopMochiController {
                 self.panel = nil
                 self.engine = nil
                 self.viewState = nil
+                #if !APPSTORE
+                self.pet = nil
+                #endif
                 self.isDragging = false
                 AppState.shared.mochiOnDesktop = false
                 // UserDefaults flag stays TRUE so launchFlyIfNeeded works
@@ -402,6 +404,9 @@ final class DesktopMochiController {
         panel = nil
         engine = nil
         viewState = nil
+        #if !APPSTORE
+        pet = nil
+        #endif
         isDragging = false
         isSleeping = false
         AppState.shared.mochiOnDesktop = false
@@ -418,6 +423,132 @@ final class DesktopMochiController {
         p.isOpaque = false
         p.hasShadow = false
         return p
+    }
+
+    /// The panel's content: the Buddy pet chosen in Settings, or Mochi. Sets `engine`,
+    /// `viewState` and `pet`; Mochi's engine is kept for a pet too, as the alert and landing
+    /// emotes go through it.
+    private func makeContent() -> NSView {
+        let eng = BotEngine()
+        eng.setState(isSleeping ? .sleeping : AppState.shared.effectiveState, force: true)
+        eng.setOutfit(AppState.shared.resolvedOutfit, animated: false)
+        self.engine = eng
+
+        let vs = DesktopBotViewState()
+        vs.paused = screenSleeping
+        vs.isSleeping = isSleeping
+        self.viewState = vs
+
+        #if !APPSTORE
+        pet = BuddyLoadedPet.load(id: BuddySettings.shared.petId)
+        if let pet {
+            return NSHostingView(rootView: BuddyPetView(pet: pet, viewState: vs))
+        }
+        #endif
+        return NSHostingView(rootView: DesktopBotView(appState: AppState.shared, engine: eng, viewState: vs))
+    }
+
+    // MARK: - Buddy (coucou-custom fork: Settings → Buddy)
+
+    /// Settings → Buddy → "Show on the desktop".
+    func setOnDesktop(_ on: Bool) {
+        if on {
+            UserDefaults.standard.set(true, forKey: DesktopMochiController.enabledKey)
+            launchFlyIfNeeded()
+        } else {
+            switch phase {
+            case .onDesktop:
+                flyHome()
+            case .home, .atNotchForAlert:
+                // Parked for an alert: forget it, so the alert's end does not fly it back out.
+                phase = .home
+                UserDefaults.standard.set(false, forKey: DesktopMochiController.enabledKey)
+            case .flyingOut, .retracting, .alertResolvedDuringRetract:
+                break   // mid-animation; the toggle reads the stored flag and stays as it is
+            }
+        }
+    }
+
+    /// Back to the default corner (bottom right of the main screen).
+    func resetPosition() {
+        UserDefaults.standard.removeObject(forKey: DesktopMochiController.posXKey)
+        UserDefaults.standard.removeObject(forKey: DesktopMochiController.posYKey)
+        guard phase == .onDesktop, let p = panel else { return }
+        p.setFrameOrigin(defaultPosition())
+        viewState?.lookOrigin = lookOriginFor(panel: p)
+        persistPosition()
+    }
+
+    /// The pet or the size changed in Settings: redraw in place, standing where it stood.
+    private func observeBuddySettings() {
+        buddySubscription = Publishers.CombineLatest(BuddySettings.shared.$petId, BuddySettings.shared.$size)
+            .dropFirst()
+            // @Published sends before the property is set: read it on the next turn of the loop.
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.reloadBuddy() }
+            }
+    }
+
+    private func reloadBuddy() {
+        guard phase == .onDesktop, let p = panel else { return }
+        let old = p.frame
+        let content = makeContent()
+        let s = panelSize
+        let origin = clampToVisibleFrame(NSPoint(x: old.midX - s/2, y: old.minY))
+        p.setFrame(NSRect(origin: origin, size: CGSize(width: s, height: s)), display: false)
+        content.frame = CGRect(x: 0, y: 0, width: s, height: s)
+        content.autoresizingMask = [.width, .height]
+        p.contentView = content
+        viewState?.lookOrigin = lookOriginFor(panel: p)
+        persistPosition()
+    }
+
+    /// Whether the cursor is over what is drawn: Mochi's round body, or an opaque pixel of the
+    /// pet's current frame (OpenPets' alpha hit test), so the rest of the panel clicks through.
+    private func isOverPet(local: CGPoint, side s: CGFloat) -> Bool {
+        #if !APPSTORE
+        if let pet {
+            let c = pet.animator.cell(now: .now, gaze: pet.gaze)
+            guard let px = BuddySpriteGeometry.atlasPixel(localTopDown: CGPoint(x: local.x, y: s - local.y),
+                                                          panelSide: s, row: c.row, column: c.column,
+                                                          flipped: pet.animator.flipped) else { return false }
+            return BuddySpriteGeometry.isOpaque(alphaAt: pet.atlas.alphaAt, x: px.x, y: px.y)
+        }
+        #endif
+        return DesktopMochiLogic.isOverBody(localPoint: local, panelSize: s)
+    }
+
+    #if !APPSTORE
+    /// Per poll: the pet's reaction from Coucou's state, its flip and waiting speed, and the V2
+    /// cursor gaze (only while idle, not dragged, and the cursor moved in the last 1.2 s).
+    private func updatePet(_ pet: BuddyLoadedPet, mouse: NSPoint, frame pf: NSRect, side s: CGFloat) {
+        let settings = BuddySettings.shared
+        pet.animator.flipped = settings.isFlipped(pet.entry.id)
+        pet.animator.relaxedWaiting = settings.relaxedWaiting
+        let state = isSleeping ? BotState.sleeping : AppState.shared.effectiveState
+        pet.animator.setReaction(settings.animation(for: .forState(state)))
+
+        let now = Date.now
+        if mouse != lastMouse { lastMouse = mouse; lastMouseMove = now }
+        guard pet.entry.manifest.layout.hasGaze, settings.cursorGaze, !isDragging,
+              BuddyGaze.isActive(lastCursorMove: lastMouseMove, now: now) else { pet.gaze = nil; return }
+        let a = BuddySpriteGeometry.gazeAnchor(panelSide: s, anchor: pet.entry.manifest.gazeAnchor,
+                                               flipped: pet.animator.flipped)
+        // Both points y-down for BuddyGaze: AppKit y negated.
+        let anchor = CGPoint(x: pf.minX + a.x, y: -(pf.maxY - a.y))
+        pet.gaze = BuddyGaze.direction(cursor: CGPoint(x: mouse.x, y: -mouse.y), anchor: anchor)
+    }
+    #endif
+
+    private func singleClick() {
+        #if !APPSTORE
+        if let pet {
+            pet.animator.play(BuddySettings.shared.animation(for: .waving))
+            return
+        }
+        #endif
+        engine?.slap()
     }
 
     // MARK: - Lifecycle observation (active while panel is live on desktop)
@@ -531,10 +662,10 @@ final class DesktopMochiController {
         let mouse = NSEvent.mouseLocation
         let pf    = p.frame
         let local = CGPoint(x: mouse.x - pf.minX, y: mouse.y - pf.minY)
-        let s     = DesktopMochiController.panelSize
+        let s     = panelSize
 
         // Toggle click-through
-        let overBody   = DesktopMochiLogic.isOverBody(localPoint: local, panelSize: s)
+        let overBody   = isOverPet(local: local, side: s)
         let needsMouse = overBody || isDragging
         if p.ignoresMouseEvents == needsMouse {
             p.ignoresMouseEvents = !needsMouse
@@ -563,6 +694,9 @@ final class DesktopMochiController {
             viewState?.isSleeping = shouldSleep
             engine?.setState(isSleeping ? .sleeping : AppState.shared.effectiveState)
         }
+        #if !APPSTORE
+        if let pet { updatePet(pet, mouse: mouse, frame: pf, side: s) }
+        #endif
     }
 
     // MARK: - Event monitors
@@ -586,7 +720,18 @@ final class DesktopMochiController {
                     let dist = hypot(m.x - self.dragMouseStart.x, m.y - self.dragMouseStart.y)
                     guard self.dragMouseStart != .zero, dist > 3 else { return }
                     self.isDragging = true
+                    #if !APPSTORE
+                    self.lastDragX = self.dragMouseStart.x
+                    #endif
                 }
+                #if !APPSTORE
+                // A pet runs the way it is dragged (OpenPets' running-left / running-right rows).
+                if let pet = self.pet {
+                    let step = m.x - self.lastDragX
+                    if abs(step) > 0.5 { pet.animator.motion = step > 0 ? .runningRight : .runningLeft }
+                    self.lastDragX = m.x
+                }
+                #endif
                 guard let p = self.panel else { return }
                 let dx = m.x - self.dragMouseStart.x
                 let dy = m.y - self.dragMouseStart.y
@@ -628,6 +773,13 @@ final class DesktopMochiController {
             guard let self else { return event }
             MainActor.assumeIsolated {
                 guard event.window === self.panel else { return }
+                #if !APPSTORE
+                // A Buddy pet has no wardrobe: its settings instead.
+                if self.pet != nil {
+                    NotificationCenter.default.post(name: .openFullSettings, object: "buddy")
+                    return
+                }
+                #endif
                 NotificationCenter.default.post(name: .openWardrobeFromDesktop, object: nil)
             }
             return event
@@ -642,13 +794,16 @@ final class DesktopMochiController {
             flyHome()
         } else {
             pendingSlapWorkItem?.cancel()
-            let item = DispatchWorkItem { [weak self] in self?.engine?.slap() }
+            let item = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.singleClick() } }
             pendingSlapWorkItem = item
             DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: item)
         }
     }
 
     private func handleDragRelease(at mouse: NSPoint) {
+        #if !APPSTORE
+        pet?.animator.motion = nil
+        #endif
         let islandController = (NSApp.delegate as? AppDelegate)?.islandController
         let inNotchZone = islandController?.window?.frame.contains(mouse) == true
 
@@ -735,7 +890,7 @@ final class DesktopMochiController {
             panelMinX:  panel.frame.minX,
             panelMinY:  panel.frame.minY,
             desktopTop: IslandWindowController.desktopTop,
-            panelSize:  DesktopMochiController.panelSize)
+            panelSize:  panelSize)
     }
 
     private func clampToVisibleFrame(_ origin: NSPoint) -> NSPoint {
@@ -746,7 +901,7 @@ final class DesktopMochiController {
         }) ?? NSScreen.main!
         let pt = DesktopMochiLogic.clampOrigin(
             CGPoint(x: origin.x, y: origin.y),
-            panelSize:    DesktopMochiController.panelSize,
+            panelSize:    panelSize,
             visibleFrame: screen.visibleFrame,
             margin:       DesktopMochiLogic.clampMargin)
         return NSPoint(x: pt.x, y: pt.y)
@@ -763,7 +918,7 @@ final class DesktopMochiController {
     }
 
     private func defaultPosition() -> NSPoint {
-        let s      = DesktopMochiController.panelSize
+        let s      = panelSize
         let margin = DesktopMochiLogic.clampMargin
         let vf     = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
         return NSPoint(x: vf.maxX - s - margin, y: vf.minY + margin)
