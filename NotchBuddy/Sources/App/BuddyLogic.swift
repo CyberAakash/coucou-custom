@@ -147,6 +147,14 @@ enum BuddyPlacement {
 /// The little Mochis around the Buddy, as on the Coucou window's banner: up to 6. They start right
 /// beside it, half on each side, and roam the whole stage, crossing behind it to the other side.
 /// The stage widens with their number.
+/// Where the companions stay: on the Buddy's left, its right, or both sides.
+enum BuddyCompanionSide: String, CaseIterable, Identifiable {
+    case left, both, right
+
+    var id: String { rawValue }
+    var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+}
+
 struct BuddyCompanionLayout: Equatable {
     static let maxCount = 6
     /// A companion's drawing is this much of the Buddy's square (its body about two thirds of it).
@@ -158,17 +166,27 @@ struct BuddyCompanionLayout: Equatable {
 
     let count: Int
     let side: CGFloat
+    let placement: BuddyCompanionSide
 
-    init(count: Int, side: CGFloat) {
+    init(count: Int, side: CGFloat, placement: BuddyCompanionSide = .both) {
         self.count = min(max(count, 0), Self.maxCount)
         self.side = side
+        self.placement = placement
     }
 
-    var left: Int { (count + 1) / 2 }
-    var right: Int { count / 2 }
+    var left: Int {
+        switch placement {
+        case .both: (count + 1) / 2
+        case .left: count
+        case .right: 0
+        }
+    }
+    var right: Int { count - left }
     /// One companion's drawing, in points.
     var size: CGFloat { (side * Self.scale).rounded() }
     /// Room added on each side of the Buddy's window for them to roam: more of them, more room.
+    /// The window stays centred on the Buddy when they keep to one side (its spot is its foot), so
+    /// the other side's room is empty, and clicks pass through it.
     var roam: CGFloat {
         guard count > 0 else { return 0 }
         return (size * (0.75 * CGFloat(count) + 0.6)).rounded()
@@ -179,12 +197,37 @@ struct BuddyCompanionLayout: Equatable {
     /// Where companion `i` starts (its centre's x in the window): beside the Buddy's body, the
     /// extra one on the left, the first ones nearest. `squareMidX`: the Buddy's square centre.
     func startX(_ i: Int, squareMidX: CGFloat) -> CGFloat {
-        let onLeft = i % 2 == 0
-        let k = CGFloat(i / 2)
+        let onLeft: Bool, k: CGFloat
+        switch placement {
+        case .both: onLeft = i % 2 == 0; k = CGFloat(i / 2)
+        case .left: onLeft = true; k = CGFloat(i)
+        case .right: onLeft = false; k = CGFloat(i)
+        }
         let body = side * Self.bodyHalfWidth
         let near = body + size * (Self.bodyHalfWidth + 0.12)   // just clear of the Buddy's body
         let offset = near + k * size * 0.78
         return onLeft ? squareMidX - offset : squareMidX + offset
+    }
+
+    /// Where they may roam (centres' x in the window): the whole stage, or their side of it up to
+    /// the Buddy's middle (behind it); only where the display is (`visible`, the display's span in
+    /// the window), so a Buddy by an edge keeps them in sight — behind it, if that is all there is.
+    func roamRange(stageWidth: CGFloat, squareMidX: CGFloat, visible: ClosedRange<CGFloat>? = nil) -> ClosedRange<CGFloat> {
+        var lo = size / 2, hi = max(lo, stageWidth - size / 2)
+        if let v = visible {
+            lo = max(lo, v.lowerBound + size / 2)
+            hi = min(hi, v.upperBound - size / 2)
+            if lo > hi { let m = min(max(squareMidX, v.lowerBound), v.upperBound); return m...m }
+        }
+        switch placement {
+        case .both: return lo...hi
+        case .left:
+            let top = min(hi, squareMidX)
+            return top >= lo ? lo...top : lo...lo
+        case .right:
+            let bottom = max(lo, squareMidX)
+            return bottom <= hi ? bottom...hi : hi...hi
+        }
     }
 }
 

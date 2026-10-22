@@ -23,6 +23,18 @@ final class BuddyCompanions {
         var jumpStart: Double = 0
         var jumpLength: Double = 0
         var jumpHeight: CGFloat = 0
+        /// In the Buddy's pouch (1) or out (0), and the hop in or out under way.
+        var pouchFrom: CGFloat = 0, pouchTo: CGFloat = 0
+        var pouchStart: Double = 0, pouchLength: Double = 0
+        /// Its turn: the nearest hops in first and comes out first.
+        var rank = 0
+
+        func pouch(now: Double) -> CGFloat {
+            guard pouchLength > 0 else { return pouchTo }
+            let t = CGFloat(min(1, max(0, (now - pouchStart) / pouchLength)))
+            let e = pouchTo > pouchFrom ? t * t : 1 - (1 - t) * (1 - t)   // in: speeding up; out: slowing down
+            return pouchFrom + (pouchTo - pouchFrom) * e
+        }
 
         init(x: CGFloat, color: String) {
             self.x = x
@@ -45,6 +57,10 @@ final class BuddyCompanions {
     let layout: BuddyCompanionLayout
     private(set) var minis: [Mini] = []
     private(set) var napping = false
+    /// The Buddy is being carried: they are in its pouch, like a kangaroo's joeys.
+    private(set) var held = false
+    /// Each one that pops out of the pouch: the Buddy gives a little squash.
+    var popped: (() -> Void)?
     private var last = CACurrentMediaTime()
     /// The stage: the window's width, and the Buddy's body (they cross behind it).
     private let stageWidth: CGFloat
@@ -57,8 +73,11 @@ final class BuddyCompanions {
         minis = (0..<layout.count).map { Mini(x: layout.startX($0, squareMidX: buddyMidX), color: colors($0)) }
     }
 
-    private var minX: CGFloat { layout.size / 2 }
-    private var maxX: CGFloat { stageWidth - layout.size / 2 }
+    /// The display's span in the window (BuddyController sets it as the Buddy moves).
+    var visible: ClosedRange<CGFloat>?
+    private var range: ClosedRange<CGFloat> { layout.roamRange(stageWidth: stageWidth, squareMidX: buddyMidX, visible: visible) }
+    private var minX: CGFloat { range.lowerBound }
+    private var maxX: CGFloat { range.upperBound }
 
     func recolor(_ colors: (Int) -> String) {
         for (i, m) in minis.enumerated() {
@@ -117,6 +136,57 @@ final class BuddyCompanions {
         }
     }
 
+    // MARK: - The pouch (the Buddy dragged)
+
+    /// Picked up: a gasp, and they hop into the Buddy one after another, nearest first.
+    func pickUp() {
+        held = true
+        let now = CACurrentMediaTime()
+        let order = minis.sorted { abs($0.x - buddyMidX) < abs($1.x - buddyMidX) }
+        for (i, m) in order.enumerated() {
+            m.rank = i
+            m.target = m.x
+            m.restUntil = .infinity
+            m.hop = 0
+            if napping { m.engine.setState(.idle) }
+            m.engine.triggerEmote(.surprised, duration: 0.5, silent: true)
+            m.pouchFrom = m.pouch(now: now)
+            m.pouchTo = 1
+            m.pouchStart = now + 0.12 + Double(i) * 0.07
+            m.pouchLength = 0.32
+        }
+    }
+
+    /// Put down: they pop out of the Buddy one by one, a hop each back to where they stood,
+    /// happy — or dizzy, when it was shaken.
+    func putDown(shaken: Bool) {
+        guard held else { return }
+        held = false
+        let now = CACurrentMediaTime()
+        for (i, m) in minis.sorted(by: { $0.rank < $1.rank }).enumerated() {
+            let delay = 0.2 + Double(i) * 0.17
+            m.pouchFrom = m.pouch(now: now)
+            m.pouchTo = 0
+            m.pouchStart = now + delay
+            m.pouchLength = 0.55
+            m.restUntil = now + delay + 0.55 + (shaken ? 2.4 : 0.8)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                self.popped?()
+                if shaken {
+                    m.engine.setState(.dizzy)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+                        m.engine.setState(self.napping ? .sleeping : .idle)
+                        m.engine.triggerEmote(.happy, silent: true)
+                    }
+                } else {
+                    m.engine.triggerEmote(i % 2 == 0 ? .happy : .love, duration: 1, silent: true)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.55) { m.engine.squash() }   // landed
+        }
+    }
+
     /// A click on one: it blushes and jumps (as on the banner).
     func poke(_ m: Mini) {
         m.engine.triggerEmote(.love, silent: true)
@@ -142,7 +212,13 @@ final class BuddyCompanions {
         last = now
         for m in minis {
             MochiFrameClock.advance(m.engine)
-            if napping { continue }
+            if napping || held || m.pouch(now: now) > 0 { continue }
+            // Off the display (the Buddy moved by an edge): back into sight.
+            if !range.contains(m.x), !range.contains(m.target) {
+                m.target = min(max(m.x, minX), maxX)
+                m.speed = layout.size * 1.6
+                m.restUntil = 0
+            }
             if now < m.restUntil {
                 m.hop = max(0, m.hop - dt * 4)
                 continue
@@ -166,14 +242,20 @@ final class BuddyCompanions {
         case 0..<9:     // stroll anywhere, even to the other side
             m.target = CGFloat.random(in: minX...maxX)
             m.speed = w * CGFloat.random(in: 0.7...1.3)
-        case 9..<12:    // run to a far spot
-            m.target = m.x < buddyMidX ? CGFloat.random(in: max(minX, buddyMidX)...maxX)
-                                       : CGFloat.random(in: minX...min(maxX, buddyMidX))
+        case 9..<12:    // run to a far spot: the other side, or the far end of theirs
+            if layout.placement == .both {
+                m.target = m.x < buddyMidX ? CGFloat.random(in: max(minX, buddyMidX)...maxX)
+                                           : CGFloat.random(in: minX...min(maxX, buddyMidX))
+            } else {
+                let mid = (minX + maxX) / 2
+                m.target = m.x < mid ? CGFloat.random(in: mid...maxX) : CGFloat.random(in: minX...mid)
+            }
             m.speed = w * CGFloat.random(in: 2.4...3.2)
             m.restUntil = now + 0.3
         case 12..<15:   // visit the Buddy, either side of it
             let edge = layout.side * BuddyCompanionLayout.bodyHalfWidth + w * 0.45
-            m.target = min(maxX, max(minX, buddyMidX + (Bool.random() ? edge : -edge)))
+            let toRight = switch layout.placement { case .both: Bool.random(); case .left: false; case .right: true }
+            m.target = min(maxX, max(minX, buddyMidX + (toRight ? edge : -edge)))
             m.speed = w * 1.1
         case 15..<17:   // a jump where it stands
             jump(m, height: CGFloat.random(in: 0.35...0.75))
@@ -199,15 +281,28 @@ final class BuddyCompanions {
     func draw(_ ctx: GraphicsContext, canvas: CGSize, square: CGRect, shadow: Double) {
         let w = layout.size, floor = floorY(square: square), now = CACurrentMediaTime()
         for m in minis {
-            let lift = m.lift(now: now, size: w)
+            let p = m.pouch(now: now)
+            guard p < 0.995 else { continue }   // in the pouch
+            // On the way in or out: toward the Buddy's middle, in an arc, smaller the deeper in
+            // (it is drawn behind the Buddy, so it vanishes into it); a little bounce coming out.
+            let x = m.x + (buddyMidX - m.x) * p
+            let arc = sin(p * .pi) * w * 0.55
+            let out = m.pouchTo < m.pouchFrom
+            let k = max(0, 1 - p) * (out ? 1 + 0.18 * sin((1 - p) * .pi) : 1)
+            let lift = m.lift(now: now, size: w) + arc
             if shadow > 0 {
-                let k = max(0.5, 1 - lift / w)
-                let sw = w * 0.52 * k, sh = w * 0.09 * k
-                ctx.fill(Path(ellipseIn: CGRect(x: m.x - sw / 2, y: floor - sh / 2, width: sw, height: sh)),
-                         with: .color(.black.opacity(shadow * 1.1 * Double(k))))
+                let sk = max(0.5, 1 - lift / w) * k
+                let sw = w * 0.52 * sk, sh = w * 0.09 * sk
+                ctx.fill(Path(ellipseIn: CGRect(x: x - sw / 2, y: floor - sh / 2, width: sw, height: sh)),
+                         with: .color(.black.opacity(shadow * 1.1 * Double(sk))))
             }
             var c = ctx
-            c.translateBy(x: m.x - w / 2, y: floor + w * 0.04 - w * 0.92 - lift)
+            c.translateBy(x: x - w / 2, y: floor + w * 0.04 - w * 0.92 - lift)
+            if k != 1 {
+                c.translateBy(x: w / 2, y: w * 0.55)
+                c.scaleBy(x: k, y: k)
+                c.translateBy(x: -w / 2, y: -w * 0.55)
+            }
             m.engine.draw(context: c, size: CGSize(width: w, height: w))
         }
     }
@@ -216,6 +311,7 @@ final class BuddyCompanions {
     func hit(_ p: CGPoint, square: CGRect) -> Mini? {
         let w = layout.size, floor = floorY(square: square), now = CACurrentMediaTime()
         return minis.first { m in
+            guard m.pouch(now: now) < 0.3 else { return false }
             let center = CGPoint(x: m.x, y: floor - w * 0.41 - m.lift(now: now, size: w))
             return hypot(p.x - center.x, p.y - center.y) < w * 0.34
         }

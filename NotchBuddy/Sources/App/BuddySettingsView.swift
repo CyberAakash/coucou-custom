@@ -7,6 +7,7 @@ import AppKit
 
 struct HubBuddyPage: View {
     @ObservedObject private var settings = BuddySettings.shared
+    @ObservedObject private var routineSettings = BuddyRoutineSettings.shared
 
     var body: some View {
         HubPageScaffold(title: String(localized: "Buddy"), subtitle: String(localized: "hub.notch.buddy")) {
@@ -27,6 +28,10 @@ struct HubBuddyPage: View {
                 }
                 if settings.companions > 0 {
                     HubDivider()
+                    HubRow(title: "Where they stay", detail: "On its left, its right, or both sides.") {
+                        BuddySideChips(selection: $settings.companionSide)
+                    }
+                    HubDivider()
                     HubRow(title: "Same colour as the Buddy", detail: "Otherwise each wears one of this window's colours.") {
                         Toggle("", isOn: $settings.companionsMatch).toggleStyle(.switch).labelsHidden()
                     }
@@ -39,6 +44,15 @@ struct HubBuddyPage: View {
 
             HubLabel("Wardrobe")
             BuddyWardrobeCard(settings: settings)
+
+            HubLabel("Assistant")
+            BuddyAssistantCard(settings: routineSettings)
+
+            HubLabel("Routines")
+            BuddyRoutinesCard(settings: routineSettings)
+
+            HubLabel("Water")
+            BuddyWaterCard(settings: routineSettings)
 
             HubLabel("Behaviour")
             HubCard {
@@ -70,7 +84,7 @@ struct HubBuddyPage: View {
                 BuddyTip(symbol: "hand.draw", title: "Drag", line: "Anywhere, right to the edges and even half off them. It remembers its spot on each display.")
                 BuddyTip(symbol: "cursorarrow.click", title: "Click", line: "Once, twice, three times or more: each does what you set above. Click a companion to make it blush.")
                 BuddyTip(symbol: "contextualmenu.and.cursorarrow", title: "Right-click",
-                         line: "Size, outfit (or back to the schedule), companions, bubbles, or hide it.")
+                         line: "Ask Mochi, focus, timer, reminders, breathe, water; size, outfit, companions, bubbles, or hide it.")
             }
         }
     }
@@ -138,6 +152,7 @@ private struct BuddyHeroCard: View {
         .onChange(of: settings.color) { _, _ in preview.dress(settings) }
         .onChange(of: settings.companions) { _, _ in preview.dress(settings) }
         .onChange(of: settings.companionsMatch) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.companionSide) { _, _ in preview.dress(settings) }
     }
 }
 
@@ -165,8 +180,8 @@ private final class BuddyPreview: ObservableObject {
         state.nightcap = worn == .nightcap
         state.shadow = settings.shadow.opacity
         engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
-        if (companions?.layout.count ?? 0) != settings.companions {
-            let layout = BuddyCompanionLayout(count: settings.companions, side: side)
+        if (companions?.layout.count ?? 0) != settings.companions || companions?.layout.placement != settings.companionSide {
+            let layout = BuddyCompanionLayout(count: settings.companions, side: side, placement: settings.companionSide)
             let size = BuddyInsets.mochi.panelSize(side: side, strip: layout.roam)
             let mid = BuddyInsets.mochi.innerRectTopDown(side: side, strip: layout.roam).midX
             companions = layout.count > 0
@@ -273,6 +288,32 @@ private struct BuddyColorPicker: View {
 }
 
 /// None, 1…6.
+private struct BuddySideChips: View {
+    @Binding var selection: BuddyCompanionSide
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(BuddyCompanionSide.allCases) { s in
+                let on = selection == s
+                Button { selection = s } label: {
+                    Text(s.label)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+    }
+}
+
 private struct BuddyCountChips: View {
     @Binding var selection: Int
 

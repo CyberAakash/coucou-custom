@@ -160,7 +160,7 @@ final class MachineVitals: ObservableObject {
     }
 
     /// All the processor time since boot: (busy, total) ticks over every core.
-    private static func cpuTicks() -> (busy: UInt64, total: UInt64)? {
+    static func cpuTicks() -> (busy: UInt64, total: UInt64)? {
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.stride / MemoryLayout<integer_t>.stride)
         let result = withUnsafeMutablePointer(to: &info) {
@@ -175,7 +175,7 @@ final class MachineVitals: ObservableObject {
     }
 
     /// The internal battery: its charge and whether the Mac is plugged in. Nil on a desktop Mac.
-    private static func readBattery() -> (percent: Int, onPower: Bool)? {
+    static func readBattery() -> (percent: Int, onPower: Bool)? {
         guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let list = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() else { return nil }
         for source in list as Array {

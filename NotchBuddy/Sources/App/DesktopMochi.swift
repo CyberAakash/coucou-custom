@@ -649,7 +649,7 @@ final class DesktopMochiController {
     }
 
     private func handleDragRelease(at mouse: NSPoint) {
-        let islandController = (NSApp.delegate as? AppDelegate)?.islandController
+        let islandController = AppDelegate.current?.islandController   // coucou-custom fork: NSApp.delegate is SwiftUI's adaptor
         let inNotchZone = islandController?.window?.frame.contains(mouse) == true
 
         if inNotchZone {
