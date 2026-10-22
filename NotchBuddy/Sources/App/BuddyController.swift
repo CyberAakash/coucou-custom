@@ -109,6 +109,9 @@ final class BuddyController {
 
     private init() {}
 
+    /// Every input event type (kCGAnyInputEventType), for the system's idle time.
+    private static let anyInput = CGEventType(rawValue: ~0)!
+
     /// Called once at launch: shows the Buddy if it is on, and follows Settings from then on.
     func start() {
         guard !started else { return }
@@ -367,12 +370,12 @@ final class BuddyController {
         engine.setDancing(Date.now < danceUntil
             || (musicPlaying && [.idle, .working, .thinking, .searching, .finished].contains(agentState)))
 
-        // Naps after 2 quiet minutes with the cursor away (as the desktop Mochi).
+        // Naps only when you are idle (BuddyNap): any keyboard, mouse or trackpad input wakes it.
         let agents = agentState
         if agents != .idle && agents != .sleeping { lastAgentActive = .now }
-        let nap = settings.napWhenIdle && DesktopMochiLogic.shouldSleep(
-            lastAgentActiveInterval: Date.now.timeIntervalSince(lastAgentActive),
-            mouseDistanceToPanelCenter: hypot(mouse.x - sq.midX, mouse.y - sq.midY))
+        let nap = BuddyNap.shouldNap(enabled: settings.napWhenIdle,
+                                     userIdle: CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput),
+                                     agentsQuiet: Date.now.timeIntervalSince(lastAgentActive))
         if nap != isSleeping { isSleeping = nap }
         companions?.setNapping(isSleeping)
 

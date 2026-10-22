@@ -57,7 +57,7 @@ struct HubBuddyPage: View {
                     Toggle("", isOn: $settings.followCursor).toggleStyle(.switch).labelsHidden()
                 }
                 HubDivider()
-                HubRow(title: "Nap when idle", detail: "After two quiet minutes with the cursor away.") {
+                HubRow(title: "Nap when idle", detail: "Only when you are away: two minutes without keyboard, mouse or trackpad, and your agents quiet. Any input wakes it.") {
                     Toggle("", isOn: $settings.napWhenIdle).toggleStyle(.switch).labelsHidden()
                 }
             }

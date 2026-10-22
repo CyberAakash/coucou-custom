@@ -12,6 +12,7 @@ enum BuddyTests {
         testCompanions()
         testShadow()
         testClicks()
+        testNap()
         testOpenTargets()
         testColors()
         testSpeech()
@@ -154,6 +155,16 @@ enum BuddyTests {
         precondition(ground.rect.width == 72 && ground.fade == 1, "full size on the floor")
         precondition(up.rect.width < ground.rect.width && up.fade < 1, "smaller and lighter in a jump")
         precondition(BuddyShadow.ellipse(square: sq, lift: 5).rect.width == 72 * 0.45, "never vanishes")
+    }
+
+    // MARK: - Napping: only when you are idle
+
+    static func testNap() {
+        precondition(!BuddyNap.shouldNap(enabled: true, userIdle: 3, agentsQuiet: 3600), "you are using the Mac: awake, however long the agents are quiet")
+        precondition(!BuddyNap.shouldNap(enabled: true, userIdle: 119, agentsQuiet: 3600), "just under two idle minutes: awake")
+        precondition(BuddyNap.shouldNap(enabled: true, userIdle: 120, agentsQuiet: 120), "two idle minutes, agents quiet: naps")
+        precondition(!BuddyNap.shouldNap(enabled: true, userIdle: 3600, agentsQuiet: 30), "you are away but an agent just worked: awake")
+        precondition(!BuddyNap.shouldNap(enabled: false, userIdle: 3600, agentsQuiet: 3600), "off: never naps")
     }
 
     // MARK: - Clicks

@@ -216,6 +216,20 @@ enum BuddyShadow: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Napping
+
+/// When the Buddy naps: only when you are idle — no keyboard, mouse or trackpad input for two
+/// minutes (the system's idle time) — and your agents have been quiet as long. The desktop
+/// Mochi's rule (agents quiet and the cursor 150 pt away) put it to sleep while you worked
+/// elsewhere on screen, as the Buddy usually sits in a corner.
+enum BuddyNap {
+    static let after: TimeInterval = 120
+
+    static func shouldNap(enabled: Bool, userIdle: TimeInterval, agentsQuiet: TimeInterval) -> Bool {
+        enabled && userIdle >= after && agentsQuiet >= after
+    }
+}
+
 // MARK: - Clicks
 
 /// Click, double click, triple click, and many clicks (4 or more, the notch's "slaps").

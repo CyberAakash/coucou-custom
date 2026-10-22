@@ -73,7 +73,7 @@ final class BuddySettings: ObservableObject {
     @Published var speechBubbles: Bool { didSet { defaults.set(speechBubbles, forKey: Self.speechKey) } }
     /// Its eyes follow the cursor.
     @Published var followCursor: Bool { didSet { defaults.set(followCursor, forKey: Self.followKey) } }
-    /// It naps after two quiet minutes with the cursor away.
+    /// It naps when you are idle (BuddyNap).
     @Published var napWhenIdle: Bool { didSet { defaults.set(napWhenIdle, forKey: Self.napKey) } }
     /// Where it stands, per display (BuddyPlacement).
     var spots: [BuddySpot] {
