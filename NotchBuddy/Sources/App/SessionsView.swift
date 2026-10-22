@@ -89,6 +89,7 @@ struct SessionStatusIcon: View {
 private struct SessionDetail: View {
     let session: SessionTracker.Session
     @ObservedObject var state: AppState
+    @ObservedObject private var line = QuestionQueueModel.shared
     @State private var promptExpanded = false
     @State private var agentsExpanded = false
 
@@ -99,7 +100,7 @@ private struct SessionDetail: View {
             header
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 12) {
-                    if s.status == .waiting { waitingBanner }
+                    if s.status == .waiting || hasQuestion { waitingBanner }
                     if s.status == .failed, let error = s.errorDetail {
                         section(String(localized: "sessions.error", defaultValue: "Stopped on an error")) {
                             Text(error).font(.system(size: 12)).foregroundColor(Color(hex: "#FCA5A5"))
@@ -163,16 +164,23 @@ private struct SessionDetail: View {
 
     // MARK: Sections
 
+    /// This session's own question is on the card, or waiting in line (QuestionQueue).
+    private var questionShown: Bool { state.pendingQuestion != nil && line.shownSessionId == s.id }
+    private var questionPosition: Int? { line.waitingSessions.firstIndex(of: s.id).map { $0 + 1 } }
+    private var hasQuestion: Bool { questionShown || questionPosition != nil }
+
     @ViewBuilder private var waitingBanner: some View {
         let approval = state.pendingApproval.flatMap { $0.sessionId == s.id ? $0 : nil }
         HStack(spacing: 10) {
             Image(systemName: "hand.raised.fill").foregroundColor(Color(hex: "#F5A623"))
             Text(approval.map { "Needs permission: \($0.command ?? $0.tool)" }
-                 ?? (state.pendingQuestion != nil ? "Has a question for you" : "Waiting for you in the terminal"))
+                 ?? (questionShown ? "Has a question for you"
+                     : questionPosition.map { "Question waiting · \($0) in line (or answer it in the terminal)" }
+                     ?? "Waiting for you in the terminal"))
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(2)
             Spacer(minLength: 4)
-            if approval != nil || state.pendingQuestion != nil {
+            if approval != nil || questionShown {
                 Button(String(localized: "sessions.review", defaultValue: "Review")) {
                     state.view = approval != nil ? .approval : .question
                 }
@@ -381,7 +389,8 @@ extension LiveSessions {
         var t = task
         t.name = s.projectName
         t.steps = s.steps.filter { $0.agentId == nil }.suffix(20).map(\.text)
-        if t.steps.isEmpty, let message = s.finalMessage { t.steps = [message] }
+        // Nothing done yet (thinking, waiting): say what it is about rather than "…".
+        if t.steps.isEmpty { t.steps = Self.placeholderRows(s) }
         let running = s.runningSubagents
         if running > 0 {
             t.steps.append("▸ \(running) agent\(running == 1 ? "" : "s") running")
@@ -397,7 +406,25 @@ extension LiveSessions {
     /// The session ticker replaces upstream's when the pill has several sessions or the shown
     /// one has agents; then the upstream diff indices no longer match the rows.
     func usesSessionTicker(_ task: AgentTask) -> Bool {
-        hasSeveralSessions(task) || !(shown(for: task.id)?.subagents.isEmpty ?? true)
+        guard let s = shown(for: task.id) else { return false }
+        return hasSeveralSessions(task) || !s.subagents.isEmpty || task.steps.isEmpty
+    }
+
+    /// Two rows for a session with no step of its own yet: what was asked, and its state.
+    static func placeholderRows(_ s: SessionTracker.Session) -> [String] {
+        let prompt = (s.prompt ?? "").split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let asked = prompt.isEmpty ? nil : "You asked · " + (prompt.count > 60 ? String(prompt.prefix(60)) + "…" : prompt)
+        let status: String
+        switch s.status {
+        case .working:    status = s.currentStep ?? "Thinking…"
+        case .waiting:    status = "Waiting for you"
+        case .background: status = "\(s.runningSubagents) agent\(s.runningSubagents == 1 ? "" : "s") running"
+        case .finished:
+            status = s.finalMessage?.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Finished"
+        case .failed:     status = "Stopped on an error"
+        case .idle:       status = "Ready"
+        }
+        return [asked, status].compactMap { $0 }
     }
 
     /// What a tap on the home card's step row does: open the Sessions view on the session the
