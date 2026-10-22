@@ -43,6 +43,18 @@ enum NotchAlertRulesTests {
         check("burst coalesced", !NotchAlertRules.playsSound(last: t0, now: t0.addingTimeInterval(0.3)))
         check("after the spacing, plays again", NotchAlertRules.playsSound(last: t0, now: t0.addingTimeInterval(0.9)))
 
+        // Spotlight: brightest at the notch, fading to nothing at the rim, at any softness.
+        for soft in [0.0, 0.3, 1.0, 1.6, 9.0] {
+            let f = SpotlightSettings.falloff(softness: soft)
+            let ordered = zip(f, f.dropFirst()).allSatisfy { $0.location < $1.location && $0.opacity > $1.opacity }
+            check("falloff decreases outward (softness \(soft))", ordered && f.first?.location == 0 && f.first?.opacity == 1)
+            check("falloff reaches 0 at the rim (softness \(soft))", f.last?.location == 1 && f.last?.opacity == 0)
+        }
+        check("softer spreads the light", SpotlightSettings.falloff(softness: 1.6)[2].location > SpotlightSettings.falloff(softness: 0.3)[2].location)
+        check("brightness clamps low", SpotlightSettings.clamped(0, SpotlightSettings.brightnessRange) == 0.1)
+        check("brightness clamps high", SpotlightSettings.clamped(3, SpotlightSettings.brightnessRange) == 1)
+        check("default brightness is in range", SpotlightSettings.brightnessRange.contains(SpotlightSettings.defaultBrightness))
+
         print(failures == 0 ? "\nNotchAlertRulesTests: all passed" : "\n\(failures) failed")
         if failures > 0 { exit(1) }
     }
