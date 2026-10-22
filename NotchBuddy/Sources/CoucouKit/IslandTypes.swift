@@ -17,6 +17,7 @@ enum IslandView: String, CaseIterable {
     case capture      // a screen capture just taken (⌃⌥X): paste, copy, annotate, ask Claude
     case sessions     // every agent session and what it is doing (coucou-custom fork)
     case update       // a new Coucou is out on GitHub: one click to install it (GitHub build)
+    case whatsNew     // Coucou just updated itself: what the version brings, then your Coucou so far (GitHub build)
 }
 
 // MARK: - Bot State
@@ -247,6 +248,8 @@ enum IslandConst {
         .sessions:     ViewLayout(height: 420, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         // New version: Mochi on the left, the version and Update now
         .update:       ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
+        // After an update: taller, four items then the stats (like mail, it fills the height)
+        .whatsNew:     ViewLayout(height: 232, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
     ]
 
     // Project colors — keyed by lowercase display name or slug
