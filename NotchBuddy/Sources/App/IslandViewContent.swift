@@ -1415,141 +1415,40 @@ struct PromptView: View {
     @State private var text: String = ""
     @FocusState private var focused: Bool
     @State private var showModelPicker = false
+    /// coucou-custom fork: false once the user scrolls up, so streaming doesn't yank them back.
+    @State private var atBottom = true
 
     #if !APPSTORE
     @State private var dictation = MacDictation()
     #endif
     var body: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .topLeading) {
             CardBackground(wash: .indigo)
 
-            VStack(alignment: .leading, spacing: 6) {
-                if let ctx = state.promptContext {
-                    ContextChip(context: ctx).padding(.top, 4)
-                }
-
+            // coucou-custom fork: messages over one composer (input + context + model + mic +
+            // send); the island grows with both (ChatFit). Mochi sits small at the top-left.
+            VStack(alignment: .leading, spacing: 8) {
                 if !state.chatHistory.isEmpty {
-                    ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: false) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(state.chatHistory) { msg in
-                                    ChatBubble(
-                                        message: msg,
-                                        isStreaming: state.stateOverride != nil
-                                            && msg.role == .assistant
-                                            && msg.id == state.chatHistory.last?.id
-                                    ).id(msg.id)
-                                }
-                                if state.stateOverride != nil {
-                                    HStack { TypingDotsView(); Spacer(minLength: 32) }
-                                        .id("typing")
-                                }
-                            }
-                            .padding(.vertical, 2)
-                        }
-                        .onChange(of: state.chatHistory) { _, _ in
-                            if let last = state.chatHistory.last(where: { !$0.content.isEmpty }) {
-                                proxy.scrollTo(last.id, anchor: .bottom)
-                            }
-                        }
-                        .onChange(of: state.stateOverride) { _, v in
-                            if v != nil {
-                                withAnimation { proxy.scrollTo("typing", anchor: .bottom) }
-                            } else if let last = state.chatHistory.last(where: { !$0.content.isEmpty }) {
-                                withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                            }
-                        }
-                        .onAppear {
-                            if let last = state.chatHistory.last {
-                                proxy.scrollTo(last.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: .infinity)
+                    messageList.frame(maxHeight: .infinity)
                 } else {
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
-
-                HStack(spacing: 0) {
-                    Spacer()
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            showModelPicker.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color(hex: state.chatProvider.accentHex))
-                                .frame(width: 6, height: 6)
-                            Text(state.activeChatModel)
-                                .font(.system(size: 10.5, weight: .medium))
-                                .foregroundColor(Color(hex: "#7B8089"))
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 8))
-                                .foregroundColor(Color(hex: "#5C6370"))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(Capsule())
+                composer
+                    .reportsHeight(ChatComposerHeightKey.self)
+                    .onPreferenceChange(ChatComposerHeightKey.self) { h in
+                        Task { @MainActor in ChatFit.update(composer: h) }
                     }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
-                        ModelPickerView(state: state, isPresented: $showModelPicker)
-                            .frame(width: 300)
-                    }
-                }
-                .padding(.horizontal, 10)
-
-                HStack(spacing: 8) {
-                    TextField(state.chatHistory.isEmpty ? String(localized: "Ask me anything…") : String(localized: "Continue…"), text: $text)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .focused($focused)
-                        .onSubmit { sendMessage() }
-
-                    #if !APPSTORE
-                    // Dictate instead of typing (on-device speech recognition when available)
-                    Button {
-                        Task {
-                            if dictation.isRecording { text = await dictation.finish() }
-                            else { await dictation.start(from: text) }
-                        }
-                    } label: {
-                        Image(systemName: dictation.isRecording ? "mic.fill" : "mic")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(dictation.isRecording ? Color(hex: "#F4505E") : Color(hex: "#8E939C"))
-                            .frame(width: 18, height: 18)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(dictation.isRecording ? String(localized: "Stop dictation") : String(localized: "Dictate (right-click to choose the language)"))
-                    .contextMenu { DictationLanguageMenu(dictation: dictation) }
-                    .onChange(of: dictation.transcript) { _, _ in
-                        if dictation.isRecording { text = dictation.text }
-                    }
-                    #endif
-
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(Color(hex: "#0B0C0E"))
-                    }
-                    .buttonStyle(SendButtonStyle())
-                    .disabled(text.isEmpty)
-                }
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.white.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .simultaneousGesture(TapGesture().onEnded { focused = true })
             }
-            .padding(.leading, 84)
-            .padding(.trailing, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
+            .padding(.leading, 44)
+            .padding(.trailing, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
         }
         .padding(.bottom, 10)
         .onAppear { focused = true }
+        .onChange(of: state.chatHistory.isEmpty) { _, empty in
+            if empty { ChatFit.update(messages: 0) }
+        }
         .onChange(of: state.view) { _, view in
             if view == .prompt {
                 state.fetchModelsIfNeeded(for: state.chatProvider)
@@ -1573,6 +1472,178 @@ struct PromptView: View {
         }
     }
 
+    private var messageList: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(state.chatHistory) { msg in
+                        ChatBubble(
+                            message: msg,
+                            isStreaming: state.stateOverride != nil
+                                && msg.role == .assistant
+                                && msg.id == state.chatHistory.last?.id
+                        ).id(msg.id)
+                    }
+                    if state.stateOverride != nil {
+                        HStack { TypingDotsView(); Spacer(minLength: 32) }
+                            .id("typing")
+                    }
+                }
+                .padding(.vertical, 2)
+                .reportsHeight(ChatMessagesHeightKey.self)
+            }
+            .onPreferenceChange(ChatMessagesHeightKey.self) { h in
+                Task { @MainActor in ChatFit.update(messages: h) }
+            }
+            .onScrollGeometryChange(for: Bool.self) { g in
+                g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 24
+            } action: { _, bottom in
+                atBottom = bottom
+            }
+            .onChange(of: state.chatHistory) { _, history in
+                // A message the user just sent always shows; a streaming reply only while they
+                // haven't scrolled up to read.
+                guard atBottom || history.last?.role == .user,
+                      let last = history.last(where: { !$0.content.isEmpty }) else { return }
+                proxy.scrollTo(last.id, anchor: .bottom)
+            }
+            .onChange(of: state.stateOverride) { _, v in
+                guard atBottom else { return }
+                if v != nil {
+                    withAnimation { proxy.scrollTo("typing", anchor: .bottom) }
+                } else if let last = state.chatHistory.last(where: { !$0.content.isEmpty }) {
+                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
+            .onAppear {
+                if let last = state.chatHistory.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !atBottom {
+                    Button {
+                        if let last = state.chatHistory.last {
+                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Color(hex: "#E8E9EC"))
+                            .frame(width: 22, height: 22)
+                            .background(Color(hex: "#2A2C33"))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "Jump to the latest message"))
+                    .padding(4)
+                    .transition(.opacity)
+                }
+            }
+        }
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField(state.chatHistory.isEmpty ? String(localized: "Ask me anything…") : String(localized: "Continue…"),
+                      text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .lineLimit(1...6)
+                .focused($focused)
+                // Return sends, ⇧Return starts a new line (at the cursor); ⌘↩ still sends.
+                .onKeyPress(.return, phases: .down) { press in
+                    if press.modifiers.contains(.shift) {
+                        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
+                    } else {
+                        sendMessage()
+                    }
+                    return .handled
+                }
+
+            HStack(spacing: 6) {
+                if let ctx = state.promptContext {
+                    ContextChip(context: ctx, onRemove: { state.promptContext = nil })
+                }
+                modelChip
+                Spacer(minLength: 0)
+
+                #if !APPSTORE
+                // Dictate instead of typing (on-device speech recognition when available)
+                Button {
+                    Task {
+                        if dictation.isRecording { text = await dictation.finish() }
+                        else { await dictation.start(from: text) }
+                    }
+                } label: {
+                    Image(systemName: dictation.isRecording ? "mic.fill" : "mic")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(dictation.isRecording ? Color(hex: "#F4505E") : Color(hex: "#8E939C"))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(dictation.isRecording ? String(localized: "Stop dictation") : String(localized: "Dictate (right-click to choose the language)"))
+                .contextMenu { DictationLanguageMenu(dictation: dictation) }
+                .onChange(of: dictation.transcript) { _, _ in
+                    if dictation.isRecording { text = dictation.text }
+                }
+                #endif
+
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "#0B0C0E"))
+                }
+                .buttonStyle(SendButtonStyle())
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(.horizontal, 12).padding(.top, 9).padding(.bottom, 7)
+        .background(Color.white.opacity(0.07))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(focused ? 0.16 : 0.07)))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .simultaneousGesture(TapGesture().onEnded { focused = true })
+    }
+
+    private var modelChip: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                showModelPicker.toggle()
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color(hex: state.chatProvider.accentHex))
+                    .frame(width: 6, height: 6)
+                Text(modelLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color(hex: "#9AA0A9"))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundColor(Color(hex: "#5C6370"))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.white.opacity(0.06))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(String(localized: "Choose the model"))
+        .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
+            ModelPickerView(state: state, isPresented: $showModelPicker)
+                .frame(width: 300)
+        }
+    }
+
+    /// The picker's name for the active model (e.g. "Claude Opus 5.5"), else its ID.
+    private var modelLabel: String {
+        let id = state.activeChatModel
+        return state.fetchedProviderModels[state.chatProvider]?.first { $0.id == id }?.label ?? id
+    }
+
     private func sendMessage() {
         #if !APPSTORE
         // Still dictating: take the final words (and the right language) before sending.
@@ -1588,6 +1659,7 @@ struct PromptView: View {
         guard !query.isEmpty else { return }
         text = ""
         focused = false
+        atBottom = true
         state.chatHistory.append(ChatMessage(role: .user, content: query))
         state.stateOverride = .thinking
         Task {
@@ -1763,12 +1835,13 @@ struct ModelPickerView: View {
 struct ChatBubble: View {
     let message: ChatMessage
     var isStreaming: Bool = false
+    @State private var showSources = false
 
     var body: some View {
         if !message.content.isEmpty {
             HStack(alignment: .top) {
                 if message.role == .user {
-                    Spacer(minLength: 32)
+                    Spacer(minLength: 48)
                     Text(message.content)
                         .font(.system(size: 12.5))
                         .foregroundColor(Color(hex: "#F1F2F4"))
@@ -1777,26 +1850,50 @@ struct ChatBubble: View {
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Color.white.opacity(0.13))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else {
-                    Group {
-                        if isStreaming {
-                            TimelineView(.periodic(from: .now, by: 0.5)) { tl in
-                                let show = Int(tl.date.timeIntervalSinceReferenceDate / 0.5).isMultiple(of: 2)
-                                Text(message.content + (show ? "▌" : " "))
-                                    .font(.system(size: 12.5))
-                                    .foregroundColor(Color(hex: "#B0B5BE"))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        } else {
-                            ChatMarkdownView(markdown: message.content)
-                        }
+                } else if isStreaming {
+                    TimelineView(.periodic(from: .now, by: 0.5)) { tl in
+                        let show = Int(tl.date.timeIntervalSinceReferenceDate / 0.5).isMultiple(of: 2)
+                        Text(message.content + (show ? "▌" : " "))
+                            .font(.system(size: 12.5))
+                            .foregroundColor(Color(hex: "#B0B5BE"))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 6)
-                    .background(Color.white.opacity(0.05))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    Spacer(minLength: 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    // coucou-custom fork: replies read as text across the full width, no card.
+                    assistantReply.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var assistantReply: some View {
+        if let split = ChatSources.split(message.content) {
+            VStack(alignment: .leading, spacing: 6) {
+                ChatMarkdownView(markdown: split.body)
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { showSources.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "link").font(.system(size: 9, weight: .semibold))
+                        Text("Sources · \(split.count)").font(.system(size: 11, weight: .medium))
+                        Image(systemName: showSources ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .semibold))
+                    }
+                    .foregroundColor(Color(hex: "#8E939C"))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                if showSources {
+                    ChatMarkdownView(markdown: split.sources)
+                        .opacity(0.85)
+                        .transition(.opacity)
+                }
+            }
+        } else {
+            ChatMarkdownView(markdown: message.content)
         }
     }
 }
@@ -4905,6 +5002,8 @@ struct CodeBlock: View {
 
 struct ContextChip: View {
     let context: PromptContext
+    /// coucou-custom fork: shows a ✕ that drops the context (the chat's composer).
+    var onRemove: (() -> Void)? = nil
     @State private var glowing = false
 
     var label: String {
@@ -4924,6 +5023,18 @@ struct ContextChip: View {
             Text(label)
                 .font(.system(size: 11.5))
                 .foregroundColor(Color(hex: "#F1F2F4"))
+                .lineLimit(1)
+            if let onRemove {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(Color(hex: "#8E939C"))
+                        .frame(width: 12, height: 12)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "Don't use this context"))
+            }
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(Color.white.opacity(0.1))
