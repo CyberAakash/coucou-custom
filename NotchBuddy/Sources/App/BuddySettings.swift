@@ -19,6 +19,7 @@ final class BuddySettings: ObservableObject {
     static let spotsKey = "buddySpots"
     static let companionsKey = "buddyCompanions"
     static let companionsMatchKey = "buddyCompanionsMatch"
+    static let companionSideKey = "buddyCompanionSide"
     static let scheduleKey = "buddyWardrobeSchedule"
     static let shadowKey = "buddyShadow"
     static let clicksKey = "buddyClicks"
@@ -65,6 +66,10 @@ final class BuddySettings: ObservableObject {
             defaults.set(companions, forKey: Self.companionsKey)
         }
     }
+    /// Which side of the Buddy they keep to.
+    @Published var companionSide: BuddyCompanionSide {
+        didSet { defaults.set(companionSide.rawValue, forKey: Self.companionSideKey) }
+    }
     /// The companions take the Buddy's colour; otherwise each has one of the window's palette.
     @Published var companionsMatch: Bool { didSet { defaults.set(companionsMatch, forKey: Self.companionsMatchKey) } }
     /// It plays what your agents do (thinking, working, waiting, done); off, it just hangs out.
@@ -104,6 +109,7 @@ final class BuddySettings: ObservableObject {
         color = BuddyColor.normalized(defaults.string(forKey: Self.colorKey) ?? "") ?? ""
         companions = min(max(defaults.integer(forKey: Self.companionsKey), 0), BuddyCompanionLayout.maxCount)
         companionsMatch = bool(Self.companionsMatchKey, default: false)
+        companionSide = defaults.string(forKey: Self.companionSideKey).flatMap(BuddyCompanionSide.init(rawValue:)) ?? .both
         reactToAgents = bool(Self.reactKey, default: true)
         speechBubbles = bool(Self.speechKey, default: true)
         followCursor = bool(Self.followKey, default: true)

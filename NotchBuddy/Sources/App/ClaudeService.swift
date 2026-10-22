@@ -292,21 +292,45 @@ final class ClaudeService {
         }
         userContent.append(["type": "text", "text": query])
 
+        let turnStart = conversationMessages.count
         conversationMessages.append(["role": "user", "content": userContent])
 
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 4096,
-            "tools": webSearchTools,
-            "system": systemPrompt,
-            "messages": conversationMessages,
-        ]
+        var tools = webSearchTools
+        var system = systemPrompt
+        #if !APPSTORE
+        if BuddyToolRunner.enabled {
+            tools += BuddyToolCatalog.tools
+            system += "\n" + BuddyToolCatalog.systemLine(now: .now)
+        }
+        #endif
+        func body() -> [String: Any] {
+            ["model": model, "max_tokens": 4096, "tools": tools, "system": system, "messages": conversationMessages]
+        }
 
         do {
-            let data = try await callAPI(body: body, key: key, beta: "web-search-2025-03-05")
+            var data = try await callAPI(body: body(), key: key, beta: "web-search-2025-03-05")
+            #if !APPSTORE
+            // coucou-custom fork: the Buddy's tools — run the calls, give back their results, ask again.
+            for _ in 0..<5 {
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      json["stop_reason"] as? String == "tool_use",
+                      let content = json["content"] as? [[String: Any]] else { break }
+                let calls = content.filter { $0["type"] as? String == "tool_use" }
+                guard !calls.isEmpty else { break }
+                conversationMessages.append(["role": "assistant", "content": content])
+                var results: [[String: Any]] = []
+                for call in calls {
+                    let text = await BuddyToolRunner.runShown(call["name"] as? String ?? "",
+                                                              call["input"] as? [String: Any] ?? [:], state: state)
+                    results.append(["type": "tool_result", "tool_use_id": call["id"] as? String ?? "", "content": text])
+                }
+                conversationMessages.append(["role": "user", "content": results])
+                data = try await callAPI(body: body(), key: key, beta: "web-search-2025-03-05")
+            }
+            #endif
             await handleChatResult(data, state: state)
         } catch {
-            conversationMessages.removeLast()
+            conversationMessages.removeSubrange(turnStart...)
             await showError(error.localizedDescription, state: state)
         }
     }
@@ -323,10 +347,32 @@ final class ClaudeService {
         let msgId = placeholder.id
         state.chatHistory.append(placeholder)
         state.stateOverride = .thinking
+        // coucou-custom fork: the Buddy's tools, served to the CLI over MCP for this turn (as voice does).
+        var system = systemPrompt
+        var mcpConfig: URL?
+        var allowedTools: [String] = []
+        var toolServer: VoiceToolServer?
+        if BuddyToolRunner.enabled {
+            let server = VoiceToolServer(tools: BuddyToolCatalog.tools) { [state, msgId] name, input in
+                await BuddyToolRunner.runShown(name, input, state: state, before: msgId)
+            }
+            if let config = try? await server.start() {
+                toolServer = server
+                mcpConfig = config
+                allowedTools = BuddyToolCatalog.names.map { "mcp__\(VoiceToolServer.serverName)__\($0)" }
+                system += "\n" + BuddyToolCatalog.systemLine(now: .now)
+            } else {
+                appendAppLog("buddy.log", "chat tool server failed to start")
+            }
+        }
+        defer {
+            toolServer?.stop()
+            if let mcpConfig { try? FileManager.default.removeItem(at: mcpConfig) }
+        }
         do {
             let reply = try await ClaudeCodeCLI.run(
-                prompt: prompt, system: systemPrompt, model: model, webSearch: true,
-                readableFile: file, resume: claudeCodeSessionID
+                prompt: prompt, system: system, model: model, webSearch: true,
+                readableFile: file, mcpConfig: mcpConfig, allowedTools: allowedTools, resume: claudeCodeSessionID
             ) { [state, msgId] visible in
                 if !visible.isEmpty, state.stateOverride == .thinking { state.stateOverride = nil }
                 if let idx = state.chatHistory.firstIndex(where: { $0.id == msgId }) {
@@ -462,6 +508,15 @@ final class ClaudeService {
             "messages": msgs,
         ]
         if useStream { body["stream"] = true }
+        #if !APPSTORE
+        // coucou-custom fork: the Buddy's tools, as functions (streamed: ChatToolStream).
+        let buddyTools = !useStream && BuddyToolRunner.enabled
+        if BuddyToolRunner.enabled {
+            msgs[0]["content"] = systemPrompt + "\n" + BuddyToolCatalog.systemLine(now: .now)
+            body["messages"] = msgs
+        }
+        if buddyTools { body["tools"] = BuddyToolCatalog.openAI }
+        #endif
 
         var req = URLRequest(url: url, timeoutInterval: useStream ? 120 : 30)
         req.httpMethod = "POST"
@@ -484,7 +539,16 @@ final class ClaudeService {
             ]
             let encodedBody = (try? JSONSerialization.data(withJSONObject: streamBody)) ?? Data()
             do {
-                let final = try await LocalChat.streamChat(
+                var withTools: String? = nil
+                #if !APPSTORE
+                if BuddyToolRunner.enabled {
+                    withTools = try await ChatToolStream.run(baseURL: baseURL, apiKey: cloudKey, model: modelCopy,
+                                                             messages: msgs, state: state, placeholder: msgId)
+                }
+                #endif
+                let final: String
+                if let withTools { final = withTools } else {
+                final = try await LocalChat.streamChat(
                     baseURL: baseURL,
                     encodedBody: encodedBody,
                     model: modelCopy,
@@ -496,6 +560,7 @@ final class ClaudeService {
                     if let idx = state.chatHistory.firstIndex(where: { $0.id == msgId }) {
                         state.chatHistory[idx].content = visible
                     }
+                }
                 }
                 conversationMessages.append(["role": "assistant", "content": final])
                 if let idx = state.chatHistory.firstIndex(where: { $0.id == msgId }) {
@@ -533,7 +598,28 @@ final class ClaudeService {
         } else {
             // Non-streaming (Google, OpenAI)
             do {
-                let (data, response) = try await URLSession.shared.data(for: req)
+                var (data, response) = try await URLSession.shared.data(for: req)
+                #if !APPSTORE
+                // Tool calls: run them, add their results, ask again. Only the final reply joins
+                // the conversation, so it stays plain text for any provider.
+                for _ in 0..<(buddyTools ? 5 : 0) {
+                    guard (response as? HTTPURLResponse)?.statusCode == 200,
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let message = (json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any],
+                          let calls = message["tool_calls"] as? [[String: Any]], !calls.isEmpty else { break }
+                    msgs.append(message)
+                    for call in calls {
+                        let fn = call["function"] as? [String: Any] ?? [:]
+                        let args = (fn["arguments"] as? String).flatMap { $0.data(using: .utf8) }
+                            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                        let text = await BuddyToolRunner.runShown(fn["name"] as? String ?? "", args, state: state)
+                        msgs.append(["role": "tool", "tool_call_id": call["id"] as? String ?? "", "content": text])
+                    }
+                    body["messages"] = msgs
+                    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                    (data, response) = try await URLSession.shared.data(for: req)
+                }
+                #endif
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let err = (json["error"] as? [String: Any])?["message"] as? String {

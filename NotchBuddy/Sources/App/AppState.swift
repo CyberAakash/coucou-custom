@@ -960,4 +960,6 @@ struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let role: ChatRole
     var content: String   // var for streaming updates
+    /// coucou-custom fork: a Buddy tool call's line (BuddyToolRunner); display only.
+    var tool: ChatToolRun? = nil
 }

@@ -19,6 +19,14 @@ final class BuddyViewState: ObservableObject {
     var nightcap = false
     /// Its shadow's opacity (BuddyShadow), 0 for none.
     var shadow: Double = 0
+    /// Breathing with you (BuddyBreathing.scale): 1 is its own size.
+    var breath: CGFloat = 1
+    /// Shrinking away / growing back (0 gone, 1 itself, a little over for a pop), with its
+    /// companions: the walk to the middle for a full-screen breath.
+    var appear: CGFloat = 1
+    /// Held by the cursor: it swings from where it is held (radians) and stretches with speed.
+    var swing: CGFloat = 0
+    var stretch: CGFloat = 0
 }
 
 /// Mochi drawn as the desktop Mochi is (DesktopBotView), but in a square inside a bigger canvas so
@@ -35,9 +43,17 @@ struct BuddyMochiView: View {
 
     var body: some View {
         TimelineView(.animation(paused: viewState.paused)) { timeline in
-            Canvas { ctx, _ in
+            Canvas { base, _ in
                 _ = timeline.date   // redraw every tick (see BotCanvasView)
                 MochiFrameClock.advance(engine)
+                guard viewState.appear > 0.001 else { return }
+                var ctx = base
+                if viewState.appear != 1 {
+                    // About its middle: it shrinks to a point and grows back from one.
+                    ctx.translateBy(x: inner.midX, y: inner.midY)
+                    ctx.scaleBy(x: viewState.appear, y: viewState.appear)
+                    ctx.translateBy(x: -inner.midX, y: -inner.midY)
+                }
                 if let companions {
                     companions.step()
                     companions.draw(ctx, canvas: canvas, square: inner, shadow: viewState.shadow)
@@ -51,6 +67,21 @@ struct BuddyMochiView: View {
                 c.translateBy(x: inner.midX, y: inner.midY)
                 c.scaleBy(x: k, y: k)
                 c.translateBy(x: -inner.midX, y: -inner.midY)
+                if viewState.breath != 1 {
+                    // About its feet: it fills up rather than floats.
+                    let footY = inner.minY + inner.height * 0.9
+                    c.translateBy(x: inner.midX, y: footY)
+                    c.scaleBy(x: viewState.breath, y: viewState.breath)
+                    c.translateBy(x: -inner.midX, y: -footY)
+                }
+                if viewState.swing != 0 || viewState.stretch != 0 {
+                    // Held near its top: it swings like something dangling and stretches long.
+                    let grip = CGPoint(x: inner.midX, y: inner.minY + inner.height * 0.3)
+                    c.translateBy(x: grip.x, y: grip.y)
+                    c.rotate(by: .radians(Double(viewState.swing)))
+                    c.scaleBy(x: 1 - viewState.stretch * 0.5, y: 1 + viewState.stretch)
+                    c.translateBy(x: -grip.x, y: -grip.y)
+                }
                 BuddyMochiView.draw(engine, in: c, square: inner, nightcap: viewState.nightcap)
             }
         }

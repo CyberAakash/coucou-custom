@@ -1423,6 +1423,8 @@ struct PromptView: View {
     @State private var showModelPicker = false
     /// coucou-custom fork: false once the user scrolls up, so streaming doesn't yank them back.
     @State private var atBottom = true
+    /// coucou-custom fork: the slash command lit in the list (ChatSlashPalette).
+    @State private var slashIndex = 0
 
     #if !APPSTORE
     @State private var dictation = MacDictation()
@@ -1452,6 +1454,7 @@ struct PromptView: View {
         }
         .padding(.bottom, 10)
         .onAppear { focused = true }
+        .onReceive(NotificationCenter.default.publisher(for: .buddyFocusChat)) { _ in focused = true }
         .onChange(of: state.chatHistory.isEmpty) { _, empty in
             if empty { ChatFit.update(messages: 0) }
         }
@@ -1552,6 +1555,23 @@ struct PromptView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            #if !APPSTORE
+            // coucou-custom fork: suggested prompts for the Buddy's tools.
+            if state.chatHistory.isEmpty, text.isEmpty, BuddyRoutineSettings.shared.assistantTools {
+                ChatSuggestions { prompt in
+                    text = prompt
+                    sendMessage()
+                }
+                .padding(.bottom, 2)
+            }
+            if text.hasPrefix("/"), BuddyToolRunner.enabled, !BuddySlash.suggestions(for: text).isEmpty {
+                ChatSlashPalette(text: text, selected: slashIndex) { c in
+                    text = "/" + c.name + (c.takesNothing ? "" : " ")
+                    slashIndex = 0
+                    if c.takesNothing { sendMessage() } else { focused = true }
+                }
+            }
+            #endif
             TextField(state.chatHistory.isEmpty ? String(localized: "Ask me anything…") : String(localized: "Continue…"),
                       text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -1563,10 +1583,42 @@ struct PromptView: View {
                     if press.modifiers.contains(.shift) {
                         NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
                     } else {
+                        #if !APPSTORE
+                        // A slash command's name being typed: complete it first.
+                        if BuddyToolRunner.enabled, let c = ChatSlash.complete(text, selected: slashIndex) {
+                            text = c.text
+                            slashIndex = 0
+                            if c.runs { sendMessage() }
+                            return .handled
+                        }
+                        #endif
                         sendMessage()
                     }
                     return .handled
                 }
+                #if !APPSTORE
+                .onKeyPress(.tab, phases: .down) { _ in
+                    guard BuddyToolRunner.enabled, let c = ChatSlash.complete(text, selected: slashIndex) else { return .ignored }
+                    text = c.text
+                    slashIndex = 0
+                    return .handled
+                }
+                .onKeyPress(.upArrow, phases: .down) { _ in
+                    let n = BuddySlash.suggestions(for: text).count
+                    guard text.hasPrefix("/"), !text.contains(" "), n > 0 else { return .ignored }
+                    slashIndex = (slashIndex - 1 + n) % n
+                    return .handled
+                }
+                .onKeyPress(.downArrow, phases: .down) { _ in
+                    let n = BuddySlash.suggestions(for: text).count
+                    guard text.hasPrefix("/"), !text.contains(" "), n > 0 else { return .ignored }
+                    slashIndex = (slashIndex + 1) % n
+                    return .handled
+                }
+                .onChange(of: text) { old, new in
+                    if old.split(separator: " ").first != new.split(separator: " ").first { slashIndex = 0 }
+                }
+                #endif
 
             HStack(spacing: 6) {
                 if let ctx = state.promptContext {
@@ -1663,6 +1715,15 @@ struct PromptView: View {
         #endif
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
+        #if !APPSTORE
+        // coucou-custom fork: a slash command runs at once, without the model.
+        if ChatSlash.run(query, state: state) {
+            text = ""
+            atBottom = true
+            focused = true
+            return
+        }
+        #endif
         text = ""
         focused = false
         atBottom = true
@@ -1844,7 +1905,9 @@ struct ChatBubble: View {
     @State private var showSources = false
 
     var body: some View {
-        if !message.content.isEmpty {
+        if let tool = message.tool {
+            ChatToolRow(run: tool)   // coucou-custom fork: a Buddy tool call
+        } else if !message.content.isEmpty {
             HStack(alignment: .top) {
                 if message.role == .user {
                     Spacer(minLength: 48)

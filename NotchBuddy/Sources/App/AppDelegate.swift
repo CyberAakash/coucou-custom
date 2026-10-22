@@ -33,7 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeyCenter.shared.unregisterAll()
     }
 
+    /// coucou-custom fork: NSApp.delegate is SwiftUI's adaptor, not this class, so code that needs
+    /// the island finds it here.
+    private(set) static weak var current: AppDelegate?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.current = self
         // Ignore SIGPIPE — prevents crash when nb-hook closes socket before we write response
         signal(SIGPIPE, SIG_IGN)
         #if DEBUG && !APPSTORE
@@ -387,7 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MailController.shared.start()
         WhatsAppController.shared.start()
         MacUpdater.shared.start()
-        BuddyController.shared.start()   // coucou-custom fork: the desktop Buddy (Settings → Buddy)
+        BuddyController.shared.start(island: islandController)   // coucou-custom fork: the desktop Buddy (Settings → Buddy)
         ClaudeDesktopChatWatcher.shared.start()
         #endif
         CryptoController.shared.start()

@@ -18,6 +18,7 @@ enum BuddyTests {
         testSpeech()
         testSettings()
         BuddyWardrobeTests.run()
+        BuddyRoutinesTests.run()
         print("Buddy: all cases passed")
     }
 
@@ -143,6 +144,31 @@ enum BuddyTests {
             let x = wide.startX(i, squareMidX: wsq.midX)
             precondition(x - wide.size / 2 >= 0 && x + wide.size / 2 <= wsize.width, "start \(i) inside the stage")
         }
+        // One side: all of them there, in a row from the Buddy, inside the stage; they roam
+        // their side, up to the Buddy's middle.
+        for (placement, sign) in [(BuddyCompanionSide.left, -1.0), (.right, 1.0)] {
+            for side in [56.0, 120.0, 200.0] {
+                let one = BuddyCompanionLayout(count: 6, side: side, placement: placement)
+                let size = m.panelSize(side: side, strip: one.roam), sq = m.innerRectTopDown(side: side, strip: one.roam)
+                precondition((placement == .left ? one.left : one.right) == 6 && one.roam == BuddyCompanionLayout(count: 6, side: side).roam, "all \(placement)")
+                let xs = (0..<6).map { one.startX($0, squareMidX: sq.midX) }
+                precondition(xs.allSatisfy { ($0 - sq.midX) * sign > 0 }, "\(placement): every start on that side")
+                precondition(zip(xs, xs.dropFirst()).allSatisfy { ($1 - $0) * sign > 0 }, "\(placement): in a row outward")
+                precondition(xs.allSatisfy { $0 - one.size / 2 >= 0 && $0 + one.size / 2 <= size.width }, "\(placement) \(side): inside the stage")
+                let r = one.roamRange(stageWidth: size.width, squareMidX: sq.midX)
+                precondition(placement == .left ? r.upperBound == sq.midX : r.lowerBound == sq.midX, "\(placement) roams to the middle")
+                precondition(xs.allSatisfy { r.contains($0) }, "starts inside the roam")
+            }
+        }
+        let both = BuddyCompanionLayout(count: 3, side: 120).roamRange(stageWidth: 400, squareMidX: 200)
+        precondition(both == 25...375, "both: the whole stage \(both)")
+        // By a display's edge: only where the display is; behind the Buddy if nothing else.
+        let three3 = BuddyCompanionLayout(count: 3, side: 120)
+        precondition(three3.roamRange(stageWidth: 400, squareMidX: 200, visible: 0...260) == 25...235, "right part off the display")
+        let rightOnly = BuddyCompanionLayout(count: 3, side: 120, placement: .right)
+        precondition(rightOnly.roamRange(stageWidth: 400, squareMidX: 200, visible: 0...260) == 200...235, "right side, mostly off")
+        precondition(rightOnly.roamRange(stageWidth: 400, squareMidX: 200, visible: 0...180) == 155...155, "right side all off: by the edge")
+        precondition(BuddyCompanionLayout(count: 3, side: 120, placement: .left).roamRange(stageWidth: 400, squareMidX: 200, visible: 300...900) == 325...325, "left side all off")
     }
 
     // MARK: - Shadow
@@ -240,6 +266,7 @@ enum BuddyTests {
     static func testSettings() {
         let suite = "buddy-tests-\(UUID().uuidString)"
         let ud = UserDefaults(suiteName: suite)!
+        precondition(BuddySettings(defaults: ud).companionSide == .both, "companions on both sides by default")
         defer { ud.removePersistentDomain(forName: suite) }
         let s = BuddySettings(defaults: ud)
         precondition(s.enabled && s.size == .medium && s.alwaysWear == nil && s.userSchedule == nil && s.color.isEmpty, "defaults")
