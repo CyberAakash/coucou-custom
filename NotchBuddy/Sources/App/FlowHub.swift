@@ -243,15 +243,12 @@ struct FlowHubView: View {
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
         default:
             if let section = router.page.settingsSection {
-                VStack(alignment: .leading, spacing: 0) {
-                    HubHero(page: router.page, title: router.page.title, subtitle: HubPage.notchSubtitle(router.page))
-                        .padding(.horizontal, 28)
-                        .padding(.top, 24)
-                    SettingsView(embeddedSection: section)
-                        .groupBoxStyle(HubGroupBoxStyle())   // coucou-custom fork: window style
-                        .toggleStyle(HubSwitchRowStyle())
-                        .id(section)
-                }
+                // coucou-custom fork: SettingsView draws the page itself (hero and content in one
+                // HubPageScaffold, one width); the styles dress the parts it embeds as they are.
+                SettingsView(embeddedSection: section)
+                    .groupBoxStyle(HubGroupBoxStyle())
+                    .toggleStyle(HubSwitchRowStyle())
+                    .id(section)
             }
         }
     }
