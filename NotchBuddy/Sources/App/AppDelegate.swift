@@ -36,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Ignore SIGPIPE — prevents crash when nb-hook closes socket before we write response
         signal(SIGPIPE, SIG_IGN)
+        #if DEBUG && !APPSTORE
+        HubSnapshot.install()   // coucou-custom fork: off-screen page snapshots for layout checks
+        #endif
         #if !APPSTORE
         // Before anything writes its settings: did Coucou just update itself? (What's new, once.)
         WhatsNewCenter.shared.noteLaunch()

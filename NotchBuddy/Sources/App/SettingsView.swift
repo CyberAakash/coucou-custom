@@ -169,6 +169,11 @@ struct SettingsView: View {
     @AppStorage(TerminalFocus.defaultKey) private var defaultTerminal = ""   // coucou-custom fork
     #endif
     @State private var customSoundCount = SoundEngine.shared.customized.count
+    #if !APPSTORE
+    // coucou-custom fork: the Coucou window's pages (see the extension at the end of the file).
+    @State private var hubSavedKeys: Set<String> = SettingsView.storedKeychainKeys()
+    @State private var hubClaudeHooksOn = HookServer.claudeHooksInstalled()
+    #endif
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
@@ -239,6 +244,15 @@ struct SettingsView: View {
     // MARK: - Body
 
     var body: some View {
+        #if !APPSTORE
+        // coucou-custom fork: inside the Coucou window, a page in its style.
+        if embeddedSection != nil { hubPage } else { windowBody }
+        #else
+        windowBody
+        #endif
+    }
+
+    private var windowBody: some View {
         HStack(spacing: 0) {
             if embeddedSection == nil {
             // Sidebar — 200 pt, sidebar visual effect background
@@ -317,7 +331,10 @@ struct SettingsView: View {
                 }
             }
         }
-        .onAppear {
+        .onAppear { loadModelsOnAppear() }
+    }
+
+    private func loadModelsOnAppear() {
             #if !APPSTORE
             state.refreshPlanRelayState()
             #endif
@@ -338,7 +355,6 @@ struct SettingsView: View {
                     }
                 }
             }
-        }
     }
 
     // MARK: - Section routing
@@ -1090,22 +1106,7 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Toggle(String(localized: "plan.show-in-notch"), isOn: Binding(
-                    get: { state.showPlanInNotch || planTogglePending },
-                    set: { on in
-                        if on {
-                            if state.planRelayInstalled {
-                                state.showPlanInNotch = true
-                            } else {
-                                planTogglePending = true
-                                installStatusLine()
-                            }
-                        } else {
-                            state.showPlanInNotch = false
-                            planTogglePending = false
-                        }
-                    }
-                ))
+                Toggle(String(localized: "plan.show-in-notch"), isOn: planToggleBinding)
                 HStack(spacing: 10) {
                     if state.planRelayInstalled {
                         Text(String(localized: "plan.relay.installed"))
@@ -1155,6 +1156,28 @@ struct SettingsView: View {
         }
         #endif
     }
+
+    #if !APPSTORE
+    /// On without the relay: installs it first (the toggle stays on while that's pending).
+    private var planToggleBinding: Binding<Bool> {
+        Binding(
+            get: { state.showPlanInNotch || planTogglePending },
+            set: { on in
+                if on {
+                    if state.planRelayInstalled {
+                        state.showPlanInNotch = true
+                    } else {
+                        planTogglePending = true
+                        installStatusLine()
+                    }
+                } else {
+                    state.showPlanInNotch = false
+                    planTogglePending = false
+                }
+            }
+        )
+    }
+    #endif
 
     // MARK: - Chat section
 
@@ -2567,6 +2590,8 @@ struct IntegrationFilterRow: View {
 struct ShortcutRecorderButton: View {
     @Binding var flags: UInt
     @Binding var code: UInt16
+    /// coucou-custom fork: a keycap, as in the Coucou window's pages.
+    var hubStyle = false
     @State private var isRecording = false
 
     var body: some View {
@@ -2586,12 +2611,24 @@ struct ShortcutRecorderButton: View {
                 return nil
             }
         } label: {
-            Text(isRecording ? "Press keys…" : shortcutLabel)
-                .font(.system(size: 11, design: .monospaced))
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(isRecording ? Color.accentColor.opacity(0.12) : Color(NSColor.controlBackgroundColor))
-                .cornerRadius(5)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.gray.opacity(0.3), lineWidth: 1))
+            if hubStyle {
+                Text(isRecording ? "Press keys…" : shortcutLabel)
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .padding(.horizontal, 10)
+                    .frame(minWidth: 56)
+                    .frame(height: 28)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isRecording ? Color.accentColor.opacity(0.18) : Color.white.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(isRecording ? Color.accentColor : Color.white.opacity(0.1)))
+            } else {
+                Text(isRecording ? "Press keys…" : shortcutLabel)
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(isRecording ? Color.accentColor.opacity(0.12) : Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(5)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.gray.opacity(0.3), lineWidth: 1))
+            }
         }
         .buttonStyle(.plain)
     }
@@ -2624,3 +2661,751 @@ extension SettingsView {
         self.embeddedSection = embeddedSection
     }
 }
+
+// MARK: - coucou-custom fork: the Coucou window's pages
+//
+// Agents, Chat, Integrations, Voice and Shortcuts as pages in the window's own style (hero card,
+// small-caps labels, cards of rows, tiles), like General, Settings and Buddy. They sit in this
+// file to use SettingsView's state and actions as they are (hook previews, keys, local servers);
+// the App Store build's Settings window keeps the sections above.
+
+#if !APPSTORE
+extension SettingsView {
+    static let hubKeychainKeys = ["anthropic-api-key", "google-api-key", "openai-api-key", "deepseek-api-key",
+                                  "qwen-api-key", "moonshot-api-key", "resend-api-key", "n8n-api-key", "vercel-token",
+                                  "github-token", "stripe-api-key", "calcom-api-key", "notion-api-key"]
+
+    static func storedKeychainKeys() -> Set<String> {
+        Set(hubKeychainKeys.filter { !(KeychainStore.shared.get($0) ?? "").isEmpty })
+    }
+
+    var hubPage: some View {
+        HubPageScaffold(title: sectionTitle, subtitle: HubPage.notchSubtitle(HubPage.forSettings(section))) {
+            switch section {
+            case "agents":       hubAgents
+            case "chat":         hubChat
+            case "integrations": hubIntegrations
+            case "voice":        hubVoice
+            case "shortcuts":    ShortcutsSettingsView(hubStyle: true)
+            default:             sectionContent
+            }
+        }
+        .overlay(alignment: .bottom) { HubToast(message: $statusMessage) }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: statusMessage.isEmpty)
+        .onAppear {
+            loadModelsOnAppear()
+            // The picker's first value is matched against the API list only; with the Claude Code
+            // login the model is one of the CLI's, which would show as "Custom".
+            if modelChoice == Self.customModelTag, displayModels.contains(where: { $0.id == state.claudeModel }) {
+                modelChoice = state.claudeModel
+                customModel = ""
+            }
+        }
+        .onChange(of: statusMessage) { _, _ in
+            hubSavedKeys = Self.storedKeychainKeys()
+            hubClaudeHooksOn = HookServer.claudeHooksInstalled()
+        }
+    }
+
+    private func hubSwitch(_ isOn: Binding<Bool>) -> some View {
+        Toggle("", isOn: isOn).toggleStyle(.switch).labelsHidden()
+    }
+
+    private func savedPill(_ key: String) -> HubStatusPill {
+        hubSavedKeys.contains(key)
+            ? HubStatusPill(text: String(localized: "hub.status.saved", defaultValue: "Key saved"), tone: .on)
+            : HubStatusPill(text: String(localized: "hub.status.no-key", defaultValue: "No key"), tone: .off)
+    }
+
+    // MARK: Agents
+
+    @ViewBuilder private var hubAgents: some View {
+        claudeHero
+
+        HubLabel(String(localized: "hub.agents.notch", defaultValue: "Sessions in the notch"))
+        HubCard {
+            HubRow(title: String(localized: "hub.agents.terminal-cards", defaultValue: "Answer terminal sessions in the notch"),
+                   detail: String(localized: "hub.agents.terminal-cards-detail", defaultValue: "Questions and permission requests from Warp, Terminal, iTerm… show in the notch first; the terminal waits until you answer there or close the island (up to 2 min). Off: they're asked in the terminal.")) {
+                hubSwitch($terminalCardsEnabled)
+            }
+            HubDivider()
+            HubRow(title: String(localized: "questions.both-ways", defaultValue: "Questions: answer in the notch or in the terminal"),
+                   detail: String(localized: "questions.both-ways.help", defaultValue: "The terminal shows the question at the same time; whichever you answer first wins.")) {
+                hubSwitch($questionsBothWays)
+            }
+            HubDivider()
+            HubRow(title: String(localized: "terminal.default", defaultValue: "Default terminal"),
+                   detail: String(localized: "terminal.default.detail", defaultValue: "Open terminal goes to the session's own tab in Warp, Terminal, iTerm2, Ghostty, kitty (remote control on) or WezTerm. This terminal opens when a session's own one is unknown.")) {
+                Picker("", selection: $defaultTerminal) {
+                    Text(String(localized: "terminal.default.auto", defaultValue: "Automatic")).tag("")
+                    ForEach(TerminalFocus.installedChoices, id: \.id) { Text($0.name).tag($0.id) }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+
+        HubLabel(String(localized: "hub.agents.others", defaultValue: "Other agents"))
+        HubTileGrid {
+            agentTile("Gemini CLI", "sparkle", "#4285F4", installed: geminiHooksInstalled, path: "~/.gemini/settings.json",
+                      install: { triggerGeminiPreview(install: true) }, uninstall: { triggerGeminiPreview(install: false) },
+                      diff: showGeminiDiff ? pendingGeminiJSON : nil, confirm: confirmGeminiOp,
+                      cancel: { showGeminiDiff = false; pendingGeminiJSON = "" })
+            agentTile("Antigravity", "arrow.up.forward.circle", "#22D3EE", installed: agyHooksInstalled, path: "~/.gemini/config/hooks.json",
+                      install: { triggerAgyPreview(install: true) }, uninstall: { triggerAgyPreview(install: false) },
+                      diff: showAgyDiff ? pendingAgyJSON : nil, confirm: confirmAgyOp,
+                      cancel: { showAgyDiff = false; pendingAgyJSON = "" })
+            agentTile("Codex", "chevron.left.forwardslash.chevron.right", "#10A37F", installed: codexHooksInstalled, path: "~/.codex/hooks.json",
+                      install: { triggerCodexPreview(install: true) }, uninstall: { triggerCodexPreview(install: false) },
+                      diff: showCodexDiff ? pendingCodexJSON : nil, confirm: confirmCodexOp,
+                      cancel: { showCodexDiff = false; pendingCodexJSON = "" })
+            agentTile("GitHub Copilot CLI", "airplane", "#A78BFA", installed: copilotHooksInstalled, path: "~/.copilot/hooks/coucou.json",
+                      install: { triggerCopilotPreview(install: true) }, uninstall: { triggerCopilotPreview(install: false) },
+                      diff: showCopilotDiff ? pendingCopilotJSON : nil, confirm: confirmCopilotOp,
+                      cancel: { showCopilotDiff = false; pendingCopilotJSON = "" })
+            agentTile("Muse Code", "music.note", "#F472B6", installed: museHooksInstalled, path: "~/.config/muse/settings.json",
+                      install: { triggerMusePreview(install: true) }, uninstall: { triggerMusePreview(install: false) },
+                      diff: showMuseDiff ? pendingMuseJSON : nil, confirm: confirmMuseOp,
+                      cancel: { showMuseDiff = false; pendingMuseJSON = "" })
+            agentTile("OpenCode", "curlybraces", "#FBBF24", installed: openCodePluginInstalled, path: "~/.config/opencode/plugins/coucou.js",
+                      plugin: true,
+                      install: { triggerOpenCodePreview(install: true) }, uninstall: { triggerOpenCodePreview(install: false) },
+                      diff: showOpenCodeDiff ? pendingOpenCodeContent : nil, confirm: confirmOpenCodeOp,
+                      cancel: { showOpenCodeDiff = false; pendingOpenCodeContent = "" })
+            agentTile("Amp", "bolt.fill", "#F97316", installed: ampPluginInstalled, path: "~/.config/amp/plugins/coucou.ts",
+                      plugin: true,
+                      install: { triggerAmpPreview(install: true) }, uninstall: { triggerAmpPreview(install: false) },
+                      diff: showAmpDiff ? pendingAmpContent : nil, confirm: confirmAmpOp,
+                      cancel: { showAmpDiff = false; pendingAmpContent = "" })
+            hermesTile
+        }
+        .task(id: hermesPluginInstalled) {
+            guard hermesPluginInstalled else { hermesSupportsApprovals = false; return }
+            let result = await Task.detached(priority: .background) { HookServer.hermesSupportsApprovalTransport() }.value
+            hermesSupportsApprovals = result
+        }
+
+        ClaudeDesktopChatSettingsSection()
+
+        HubLabel(String(localized: "plan.title"))
+        HubCard {
+            HubRow(title: String(localized: "hub.plan.claude", defaultValue: "Claude plan in the notch"),
+                   detail: String(localized: "plan.description")) {
+                hubSwitch(planToggleBinding)
+            }
+            HStack(spacing: 10) {
+                HubStatusPill(text: state.planRelayInstalled ? String(localized: "plan.relay.installed") : String(localized: "plan.relay.not-installed"),
+                              tone: state.planRelayInstalled ? .on : .off)
+                Spacer()
+                if state.planRelayInstalled {
+                    Button(String(localized: "plan.relay.uninstall")) { uninstallStatusLine() }.buttonStyle(HubButtonStyle())
+                } else {
+                    Button(String(localized: "plan.relay.install")) { installStatusLine() }.buttonStyle(HubButtonStyle(primary: true))
+                }
+            }
+            if showStatusLineDiff {
+                HubDiffPanel(text: pendingStatusLineJSON, height: 110, onConfirm: confirmStatusLine,
+                             onCancel: { showStatusLineDiff = false; pendingStatusLineJSON = ""; planTogglePending = false })
+            }
+            HubDivider()
+            HubRow(title: String(localized: "Show Codex plan in the notch"),
+                   detail: String(localized: "hub.plan.codex-detail", defaultValue: "Weekly limit and free resets left, asked from the Codex CLI when the pill shows; nothing is installed. Codex must be signed in with ChatGPT.")) {
+                hubSwitch(Binding(get: { state.showCodexPlanInNotch }, set: { state.showCodexPlanInNotch = $0 }))
+            }
+        }
+    }
+
+    private var claudeHero: some View {
+        let tone: HubStatusPill.Tone = hookNeedsUpdate ? .warn : hubClaudeHooksOn ? .on : .off
+        return HubGlowCard(color: Color(hex: "#E07950"), padding: 22) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HubStatusPill(text: hookNeedsUpdate ? String(localized: "hub.agents.update-needed", defaultValue: "Update needed")
+                                        : hubClaudeHooksOn ? String(localized: "hub.agents.connected", defaultValue: "Connected")
+                                        : String(localized: "hub.agents.not-connected", defaultValue: "Not connected"),
+                                  tone: tone)
+                    Text(verbatim: "Claude Code")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundColor(HubTheme.text)
+                    Text(hookNeedsUpdate ? String(localized: "hooks.outdated")
+                         : hubClaudeHooksOn ? String(localized: "hub.agents.claude-on", defaultValue: "Mochi follows every Claude Code session (Cursor's too): what it does, its questions and permissions, and when it's done.")
+                         : String(localized: "hub.agents.claude-off", defaultValue: "Install Coucou's hooks so Mochi can follow your Claude Code sessions. Cursor sessions use them too."))
+                        .font(.system(size: 13))
+                        .foregroundColor(HubTheme.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(verbatim: "nb-hook · \(HookServer.hookScriptPath)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(HubTheme.muted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 8) {
+                    Button(hookNeedsUpdate ? String(localized: "hooks.update")
+                           : hubClaudeHooksOn ? String(localized: "hub.reinstall", defaultValue: "Reinstall")
+                           : String(localized: "hooks.install")) { installHooks() }
+                        .buttonStyle(HubButtonStyle(primary: !hubClaudeHooksOn || hookNeedsUpdate))
+                    if hubClaudeHooksOn {
+                        Button(String(localized: "hooks.uninstall")) { uninstallHooks() }.buttonStyle(HubButtonStyle())
+                    }
+                }
+            }
+            if showDiff {
+                HubDiffPanel(text: pendingHookJSON, onConfirm: confirmInstall,
+                             onCancel: { showDiff = false; pendingHookJSON = "" })
+            }
+        }
+    }
+
+    private func agentTile(_ name: String, _ symbol: String, _ hex: String, installed: Bool, path: String, plugin: Bool = false,
+                           install: @escaping () -> Void, uninstall: @escaping () -> Void,
+                           diff: String?, confirm: @escaping () -> Void, cancel: @escaping () -> Void) -> some View {
+        HubTile(name: name, symbol: symbol, color: Color(hex: hex),
+                status: HubStatusPill(text: installed ? String(localized: "hub.status.installed", defaultValue: "Installed")
+                                                      : String(localized: "hub.status.not-installed", defaultValue: "Not installed"),
+                                      tone: installed ? .on : .off)) {
+            Text(verbatim: path)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(HubTheme.muted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if installed {
+                HubNote(text: String(localized: "hub.agents.restart", defaultValue: "Restart the agent after an install or an update."))
+            }
+            if let diff {
+                HubDiffPanel(text: diff, height: 120, onConfirm: confirm, onCancel: cancel)
+            } else {
+                HStack(spacing: 8) {
+                    Spacer()
+                    if installed {
+                        Button(String(localized: "hooks.uninstall"), action: uninstall).buttonStyle(HubButtonStyle())
+                        Button(String(localized: "hub.update", defaultValue: "Update"), action: install).buttonStyle(HubButtonStyle())
+                    } else {
+                        Button(plugin ? String(localized: "plugin.install") : String(localized: "hooks.install"), action: install)
+                            .buttonStyle(HubButtonStyle(primary: true))
+                    }
+                }
+            }
+        }
+    }
+
+    private var hermesTile: some View {
+        HubTile(name: "Hermes Agent", symbol: "wand.and.stars", color: Color(hex: "#E07950"),
+                status: HubStatusPill(text: hermesPluginInstalled ? String(localized: "hub.status.installed", defaultValue: "Installed")
+                                                                  : String(localized: "hub.status.not-installed", defaultValue: "Not installed"),
+                                      tone: hermesPluginInstalled ? .on : .off)) {
+            Text(verbatim: "~/.hermes/plugins/coucou/__init__.py")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(HubTheme.muted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if hermesPluginInstalled {
+                HubRow(title: String(localized: "plugin.hermes.approvals"),
+                       detail: hermesSupportsApprovals
+                           ? (hermesApprovalsEnabled ? String(localized: "plugin.hermes.approvals.enabled")
+                                                     : String(localized: "plugin.hermes.approvals.disabled"))
+                           : String(localized: "Requires a newer version of Hermes — run: hermes update")) {
+                    hubSwitch($hermesApprovalsEnabled)
+                        .disabled(!hermesSupportsApprovals)
+                        .onChange(of: hermesApprovalsEnabled) { _, _ in triggerHermesConfigPreview() }
+                }
+                if showHermesConfigDiff {
+                    HubDiffPanel(text: pendingHermesConfigContent, height: 110, onConfirm: confirmHermesConfigOp,
+                                 onCancel: { showHermesConfigDiff = false; pendingHermesConfigContent = "" })
+                }
+            }
+            if showHermesPluginDiff {
+                HubDiffPanel(text: pendingHermesPluginContent, height: 150, onConfirm: confirmHermesPluginOp,
+                             onCancel: { showHermesPluginDiff = false; pendingHermesPluginContent = "" })
+            } else {
+                HStack {
+                    Spacer()
+                    if hermesPluginInstalled {
+                        Button(String(localized: "hooks.uninstall")) { triggerHermesPluginPreview(install: false) }.buttonStyle(HubButtonStyle())
+                    } else {
+                        Button(String(localized: "plugin.install")) { triggerHermesPluginPreview(install: true) }
+                            .buttonStyle(HubButtonStyle(primary: true))
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Chat
+
+    private var activeModelLabel: String {
+        let id = state.activeChatModel
+        if state.chatProvider == .anthropic, let m = displayModels.first(where: { $0.id == id }) { return m.label }
+        return state.fetchedProviderModels[state.chatProvider]?.first { $0.id == id }?.label ?? id
+    }
+
+    private var visibleProviders: [ChatProvider] {
+        ChatProvider.allCases.filter { p in
+            if p == .ollama { return !state.ollamaServerURL.isEmpty || state.chatProvider == .ollama }
+            if p == .lmstudio { return !state.lmstudioServerURL.isEmpty || state.chatProvider == .lmstudio }
+            return true
+        }
+    }
+
+    @ViewBuilder private var hubChat: some View {
+        HubGlowCard(color: Color(hex: state.chatProvider.accentHex), padding: 22) {
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HubStatusPill(text: String(localized: "hub.chat.answering", defaultValue: "Answers in the notch"), tone: .on)
+                    Text(verbatim: "\(state.chatProvider.displayName) · \(activeModelLabel)")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundColor(HubTheme.text)
+                        .lineLimit(1)
+                    Text(chatHeroDetail)
+                        .font(.system(size: 13))
+                        .foregroundColor(HubTheme.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Picker("", selection: $state.chatProvider) {
+                    ForEach(visibleProviders, id: \.self) { Text($0.displayName).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help(String(localized: "hub.chat.provider-help", defaultValue: "Also in the chat's model chip."))
+            }
+        }
+
+        HubLabel("Claude")
+        HubCard {
+            HubRow(title: String(localized: "chat.claude-code-login.toggle", defaultValue: "Use my Claude Code login instead of a key"),
+                   detail: ClaudeCodeCLI.isInstalled
+                       ? String(localized: "chat.claude-code-login.description", defaultValue: "Chat and search run through the claude command on this Mac, on your Pro or Max plan. Flow clean-up and OK Coucou use it too. The Notetaker still needs an API key.")
+                       : String(localized: "chat.claude-code-login.missing", defaultValue: "Install Claude Code and sign in with `claude` to use your subscription.")) {
+                hubSwitch($state.useClaudeCodeLogin)
+                    .disabled(!ClaudeCodeCLI.isInstalled && !state.useClaudeCodeLogin)
+                    .onChange(of: state.useClaudeCodeLogin) { _, on in claudeLoginChanged(on) }
+            }
+            HubDivider()
+            HubRow(title: String(localized: "chat.model"),
+                   detail: state.useClaudeCodeLogin
+                       ? String(localized: "hub.chat.model-login", defaultValue: "The models your Claude Code login can use. The aliases follow the newest of each family.")
+                       : String(localized: "chat.model.description")) {
+                Picker("", selection: $modelChoice) {
+                    ForEach(displayModels, id: \.id) { Text($0.label).tag($0.id) }
+                    Text(String(localized: "chat.model.custom")).tag(Self.customModelTag)
+                }
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: modelChoice) { _, choice in
+                    if choice != Self.customModelTag { state.claudeModel = choice } else { applyCustomModel(customModel) }
+                }
+            }
+            if modelChoice == Self.customModelTag {
+                HubField(placeholder: String(localized: "chat.model.custom-id"), text: $customModel)
+                    .onChange(of: customModel) { _, value in applyCustomModel(value) }
+            }
+            HubDivider()
+            HubRow(title: String(localized: "hub.chat.anthropic-key", defaultValue: "Anthropic API key"),
+                   detail: state.useClaudeCodeLogin
+                       ? String(localized: "hub.chat.key-with-login", defaultValue: "Not needed for the chat with your login. The Notetaker summary still uses it.")
+                       : String(localized: "hub.chat.key-detail", defaultValue: "Stored in the Keychain.")) {
+                savedPill("anthropic-api-key")
+            }
+            keyField(String(localized: "chat.api-key.claude"), $apiKey) {
+                KeychainStore.shared.set("anthropic-api-key", value: apiKey)
+                statusMessage = String(localized: "status.key-saved")
+            }
+        }
+
+        HubLabel(String(localized: "hub.chat.others", defaultValue: "Other providers"))
+        HubTileGrid {
+            providerTile("Google AI", "#4285F4", "google-api-key", String(localized: "chat.api-key.google"), $googleKey,
+                         saved: String(localized: "status.google-key-saved"))
+            providerTile("OpenAI", "#10A37F", "openai-api-key", String(localized: "chat.api-key.openai"), $openAIKey,
+                         saved: String(localized: "status.openai-key-saved"))
+            providerTile("DeepSeek", "#5B8FF9", "deepseek-api-key", "API key", $deepseekKey,
+                         saved: String(localized: "status.deepseek-key-saved"))
+            providerTile("Qwen (Alibaba)", "#FF6A00", "qwen-api-key", "API key", $qwenKey,
+                         saved: String(localized: "status.qwen-key-saved"))
+            providerTile("Moonshot (Kimi)", "#7C5CFC", "moonshot-api-key", "API key", $moonshotKey,
+                         saved: String(localized: "status.moonshot-key-saved"))
+        }
+
+        HubLabel(String(localized: "chat.local.title"))
+        HubTileGrid {
+            localTile("Ollama", "#FACC15", provider: .ollama, url: $ollamaURL, placeholder: "http://127.0.0.1:11434",
+                      serverURL: state.ollamaServerURL, connecting: connectingOllama)
+            localTile("LM Studio", "#A3E635", provider: .lmstudio, url: $lmstudioURL, placeholder: "http://127.0.0.1:1234",
+                      serverURL: state.lmstudioServerURL, connecting: connectingLMStudio)
+        }
+    }
+
+    private var chatHeroDetail: String {
+        if state.chatProvider == .anthropic && state.useClaudeCodeLogin {
+            return String(localized: "hub.chat.via-login", defaultValue: "Through your Claude Code login, on your Pro or Max plan. Switch the model here or from the chat's model chip.")
+        }
+        if state.chatProvider.isLocal {
+            return String(localized: "hub.chat.via-local", defaultValue: "A model on this Mac: nothing leaves it.")
+        }
+        return String(localized: "hub.chat.via-key", defaultValue: "With your own API key, stored in the Keychain. Switch the model from the chat's model chip.")
+    }
+
+    /// The same switch-over as the Chat section's toggle: CLI aliases mean nothing to the API.
+    private func claudeLoginChanged(_ on: Bool) {
+        ClaudeService.shared.clearConversation()
+        let isAlias = ClaudeCodeCLI.models.contains(where: { $0.id == state.claudeModel })
+        if on && !isAlias { state.claudeModel = ClaudeCodeCLI.models[0].id }
+        if !on && isAlias { state.claudeModel = AppState.defaultClaudeModel }
+        if displayModels.contains(where: { $0.id == state.claudeModel }) {
+            modelChoice = state.claudeModel
+        } else {
+            modelChoice = Self.customModelTag
+            customModel = state.claudeModel
+        }
+    }
+
+    private func keyField(_ placeholder: String, _ text: Binding<String>, save: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            HubSecureField(placeholder: placeholder, text: text, onSubmit: save)
+            let empty = text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty
+            Button(String(localized: "Save"), action: save)
+                .buttonStyle(HubButtonStyle(primary: true))
+                .disabled(empty)
+                .opacity(empty ? 0.45 : 1)
+        }
+    }
+
+    private func providerTile(_ name: String, _ hex: String, _ key: String, _ placeholder: String,
+                              _ text: Binding<String>, saved: String) -> some View {
+        HubTile(name: name, symbol: "key.fill", color: Color(hex: hex), status: savedPill(key)) {
+            keyField(placeholder, text) {
+                KeychainStore.shared.set(key, value: text.wrappedValue)
+                statusMessage = saved
+            }
+        }
+    }
+
+    private func localTile(_ name: String, _ hex: String, provider: ChatProvider, url: Binding<String>, placeholder: String,
+                           serverURL: String, connecting: Bool) -> some View {
+        let connected = !serverURL.isEmpty
+        return HubTile(name: name, symbol: "desktopcomputer", color: Color(hex: hex),
+                       status: HubStatusPill(text: connected ? String(localized: "Connected")
+                                                             : String(localized: "hub.status.not-connected", defaultValue: "Not connected"),
+                                             tone: connected ? .on : .off)) {
+            if connected {
+                HStack {
+                    Text(verbatim: serverURL)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(HubTheme.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button(String(localized: "chat.disconnect")) { disconnectLocal(provider) }.buttonStyle(HubButtonStyle())
+                }
+            } else {
+                HStack(spacing: 8) {
+                    HubField(placeholder: placeholder, text: url) { Task { await connectLocal(provider: provider) } }
+                    Button(connecting ? String(localized: "chat.connecting") : String(localized: "chat.connect")) {
+                        Task { await connectLocal(provider: provider) }
+                    }
+                    .buttonStyle(HubButtonStyle(primary: true))
+                    .disabled(connecting)
+                }
+                HubNote(text: String(localized: "chat.local.description"))
+            }
+        }
+    }
+
+    private func disconnectLocal(_ provider: ChatProvider) {
+        if provider == .ollama {
+            state.ollamaServerURL = ""
+            ollamaURL = ""
+            statusMessage = String(localized: "status.local.ollama-disconnected")
+        } else {
+            state.lmstudioServerURL = ""
+            lmstudioURL = ""
+            statusMessage = String(localized: "status.local.lmstudio-disconnected")
+        }
+        state.fetchedProviderModels[provider] = nil
+        state.providerModelFetchError[provider] = nil
+        if state.chatProvider == provider { state.chatProvider = .anthropic }
+    }
+
+    // MARK: Integrations
+
+    private var integrationServices: [(name: String, hex: String, key: String)] {
+        [("Resend", "#22C55E", "resend-api-key"), ("n8n", "#F29B38", "n8n-api-key"), ("Vercel", "#7C5CFF", "vercel-token"),
+         ("GitHub", "#F4505E", "github-token"), ("Stripe", "#0570DE", "stripe-api-key"), ("Cal.com", "#C9956A", "calcom-api-key"),
+         ("Notion", "#E8E8E8", "notion-api-key")]
+    }
+
+    @ViewBuilder private var hubIntegrations: some View {
+        let services = integrationServices
+        let connected = services.filter { hubSavedKeys.contains($0.key) }.count
+        HubGlowCard(color: Color(hex: "#7C5CFF"), padding: 22) {
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HubStatusPill(text: String(format: String(localized: "hub.integrations.count %lld %lld", defaultValue: "%lld of %lld connected"),
+                                               Int64(connected), Int64(services.count)),
+                                  tone: connected > 0 ? .on : .off)
+                    Text(String(localized: "hub.integrations.title", defaultValue: "Your services, in the notch"))
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundColor(HubTheme.text)
+                    HubWrap(spacing: 6) {
+                        ForEach(services, id: \.key) { s in
+                            let on = hubSavedKeys.contains(s.key)
+                            HStack(spacing: 5) {
+                                Circle().fill(Color(hex: s.hex)).frame(width: 6, height: 6)
+                                Text(verbatim: s.name).font(.system(size: 11.5, weight: .semibold))
+                            }
+                            .foregroundColor(on ? HubTheme.text : HubTheme.muted)
+                            .padding(.horizontal, 9)
+                            .frame(height: 24)
+                            .background(Capsule().fill(Color.white.opacity(on ? 0.1 : 0.04)))
+                            .opacity(on ? 1 : 0.7)
+                        }
+                    }
+                }
+                Spacer(minLength: 8)
+                saveIntegrationsButton
+            }
+        }
+
+        HubLabel(String(localized: "hub.integrations.services", defaultValue: "Services"))
+        HubTileGrid {
+            HubTile(name: "Resend", symbol: "paperplane.fill", color: Color(hex: "#22C55E"), status: savedPill("resend-api-key")) {
+                HubSecureField(placeholder: "API key  (re_…)", text: $resendKey)
+                HubField(placeholder: "From address  (you@yourdomain.com)", text: $resendFrom)
+            }
+            HubTile(name: "n8n", symbol: "point.3.connected.trianglepath.dotted", color: Color(hex: "#F29B38"), status: savedPill("n8n-api-key")) {
+                HubField(placeholder: "Instance URL  (https://…)", text: $n8nUrl)
+                HubSecureField(placeholder: "API key", text: $n8nKey)
+                IntegrationFilterRow(label: String(localized: "integrations.workflows"), items: n8nWorkflows,
+                                     filter: $state.n8nWorkflowFilter, loading: loadingN8n, onLoad: loadN8nWorkflows)
+            }
+            HubTile(name: "Vercel", symbol: "triangle.fill", color: Color(hex: "#7C5CFF"), status: savedPill("vercel-token")) {
+                HubSecureField(placeholder: "Token", text: $vercelToken)
+                IntegrationFilterRow(label: String(localized: "integrations.projects"), items: vercelProjects,
+                                     filter: $state.vercelProjectFilter, loading: loadingVercel, onLoad: loadVercelProjects)
+            }
+            HubTile(name: "GitHub", symbol: "arrow.triangle.branch", color: Color(hex: "#F4505E"), status: savedPill("github-token")) {
+                HubSecureField(placeholder: "Personal Access Token", text: $githubToken)
+                HubNote(text: String(localized: "integrations.github.token-hint"))
+            }
+            HubTile(name: "Stripe", symbol: "creditcard.fill", color: Color(hex: "#0570DE"), status: savedPill("stripe-api-key")) {
+                HubSecureField(placeholder: "Secret key  (sk_live_… or sk_test_…)", text: $stripeKey)
+            }
+            HubTile(name: "Cal.com", symbol: "calendar", color: Color(hex: "#C9956A"), status: savedPill("calcom-api-key")) {
+                HubSecureField(placeholder: "API key  (cal_live_…)", text: $calcomKey)
+            }
+            HubTile(name: "Notion", symbol: "doc.text.fill", color: Color(hex: "#E8E8E8"), status: savedPill("notion-api-key")) {
+                HubSecureField(placeholder: "Integration token  (secret_…)", text: $notionKey)
+            }
+        }
+        HStack {
+            HubNote(text: String(localized: "hub.integrations.save-note", defaultValue: "Keys are stored in the Keychain. Save applies every service above."))
+            Spacer()
+            saveIntegrationsButton
+        }
+
+        HubLabel("Crypto")
+        HubCard {
+            HubRow(title: String(localized: "crypto.exchange")) {
+                Picker("", selection: $cryptoExchange) {
+                    ForEach(CryptoExchange.allCases, id: \.rawValue) { Text(verbatim: $0.name).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            HubDivider()
+            HubRow(title: String(localized: "crypto.currency")) {
+                Picker("", selection: $cryptoCurrency) {
+                    Text(verbatim: "EUR €").tag("EUR")
+                    Text(verbatim: "USD $").tag("USD")
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            HubDivider()
+            HubRow(title: String(localized: "hub.crypto.coins", defaultValue: "Coins")) {
+                HubField(placeholder: String(localized: "crypto.coins-placeholder"), text: $cryptoCoins) {
+                    CryptoController.shared.settingsChanged()
+                }
+                .frame(width: 260)
+            }
+            HubDivider()
+            HubRow(title: String(format: String(localized: "crypto.alert %lld"), Int64(cryptoAlertPercent))) {
+                HStack(spacing: 8) {
+                    if cryptoAlert {
+                        Stepper("", value: $cryptoAlertPercent, in: 1...50, step: 1).labelsHidden()
+                    }
+                    hubSwitch($cryptoAlert)
+                }
+            }
+            HubNote(text: String(localized: "crypto.hint"))
+        }
+        .onChange(of: cryptoExchange) { _, _ in CryptoController.shared.settingsChanged() }
+        .onChange(of: cryptoCurrency) { _, _ in CryptoController.shared.settingsChanged() }
+
+        HubLabel(String(localized: "hub.integrations.accounts", defaultValue: "Accounts"))
+        HubCard { PortfolioSettingsSection() }
+
+        HubLabel(String(localized: "hub.integrations.messages", defaultValue: "Messages"))
+        HubCard { WhatsAppSettingsSection() }
+    }
+
+    private var saveIntegrationsButton: some View {
+        Button(String(localized: "integrations.save")) {
+            saveIntegrations()
+            CryptoController.shared.settingsChanged()
+        }
+        .buttonStyle(HubButtonStyle(primary: true))
+    }
+
+    // MARK: Voice
+
+    @ViewBuilder private var hubVoice: some View {
+        let phrase = wakePhrase.trimmingCharacters(in: .whitespaces).isEmpty ? "OK Coucou" : wakePhrase
+        let tone: HubStatusPill.Tone = !voiceEngine.isEnabled ? .off : voicePermissionsGranted ? .on : .warn
+        HubGlowCard(color: Color(hex: "#F97316"), padding: 22) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HubStatusPill(text: !voiceEngine.isEnabled ? String(localized: "hub.voice.off", defaultValue: "Off")
+                                        : voicePermissionsGranted ? String(localized: "hub.voice.listening", defaultValue: "Listening for the wake word")
+                                        : String(localized: "hub.voice.needs-permission", defaultValue: "Needs the microphone"),
+                                  tone: tone)
+                    Text(verbatim: "« \(phrase) »")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundColor(HubTheme.text)
+                    Text(webKeySaved ? String(localized: "voice.setting-web-desc") : String(localized: "voice.setting-web-nokey"))
+                        .font(.system(size: 13))
+                        .foregroundColor(HubTheme.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if voiceEngine.recognizerUnavailable {
+                        HubNote(text: String(localized: "No speech recognition model available on this device. Install one in System Settings \u{2192} Keyboard \u{2192} Dictation."), warning: true)
+                    }
+                    if let err = voiceEngine.audioError {
+                        HubNote(text: "\(String(localized: "Microphone unavailable")): \(err)", warning: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 10) {
+                    hubSwitch($voiceEngine.isEnabled)
+                        .disabled(!voicePermissionsGranted && !voiceEngine.isEnabled)
+                    if !voicePermissionsGranted {
+                        Button(String(localized: "Request permissions")) {
+                            Task { voicePermissionsGranted = await VoiceSettings.requestPermissions() }
+                        }
+                        .buttonStyle(HubButtonStyle(primary: true))
+                    }
+                }
+            }
+        }
+        .onAppear {
+            voicePermissionsGranted = VoiceSettings.micStatus == .granted && VoiceSettings.speechStatus == .granted
+            webKeySaved = !(KeychainStore.shared.get("anthropic-api-key") ?? "").isEmpty || AppState.claudeCodeLoginEnabled
+        }
+
+        HubLabel(String(localized: "hub.voice.wake", defaultValue: "Wake word"))
+        HubCard {
+            HubRow(title: String(localized: "hub.voice.phrase", defaultValue: "Wake phrase"),
+                   detail: String(localized: "voice.wake-phrase.hint", defaultValue: "Say this instead of \"OK Coucou\", e.g. \"Hey Jarvis\". Two words or more avoid waking up by mistake. Takes effect on the next wake.")) {
+                HubField(placeholder: "OK Coucou", text: $wakePhrase).frame(width: 240)
+            }
+            HubDivider()
+            HubRow(title: String(localized: "hub.voice.city", defaultValue: "Your city"),
+                   detail: String(localized: "hub.voice.city-detail", defaultValue: "For the weather and local questions. Empty: no weather.")) {
+                HubField(placeholder: String(localized: "hub.voice.city-placeholder", defaultValue: "e.g. Chennai"), text: $weatherCity)
+                    .frame(width: 240)
+                    .onChange(of: weatherCity) { _, city in
+                        VoiceSettings.weatherEnabled = !city.trimmingCharacters(in: .whitespaces).isEmpty
+                    }
+            }
+        }
+
+        HubLabel(String(localized: "Language"))
+        HubCard {
+            HubRow(title: String(localized: "voice.listen-language")) {
+                Picker("", selection: $listenLanguage) {
+                    Text(String(localized: "voice.lang-auto")).tag("auto")
+                    Text(verbatim: "Français").tag("fr")
+                    Text(verbatim: "English").tag("en")
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            HubDivider()
+            HubRow(title: String(localized: "voice.language")) {
+                Picker("", selection: $voiceLanguage) {
+                    Text(verbatim: "Français").tag("fr")
+                    Text(verbatim: "English").tag("en")
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .onChange(of: voiceLanguage) { _, _ in
+                    VoiceSettings.languageOfferDone = true
+                    ElevenLabsTTS.shared.reset()
+                }
+            }
+        }
+
+        HubLabel(String(localized: "hub.voice.voice", defaultValue: "Coucou's voice"))
+        HubCard {
+            HubRow(title: String(localized: "hub.voice.engine", defaultValue: "Engine")) {
+                Picker("", selection: $ttsEngine) {
+                    Text(String(localized: "voice.tts-system")).tag("system")
+                    Text(verbatim: "ElevenLabs").tag("elevenlabs")
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            if ttsEngine == "elevenlabs" {
+                HubDivider()
+                HubRow(title: String(localized: "hub.voice.eleven-key", defaultValue: "ElevenLabs key")) {
+                    HubStatusPill(text: elevenKeySaved ? String(localized: "hub.status.saved", defaultValue: "Key saved")
+                                                       : String(localized: "hub.status.no-key", defaultValue: "No key"),
+                                  tone: elevenKeySaved ? .on : .off)
+                }
+                keyField(elevenKeySaved ? String(localized: "voice.tts-key-saved") : String(localized: "voice.tts-key"), $elevenKeyDraft) {
+                    let k = elevenKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if k.isEmpty { KeychainStore.shared.remove(ElevenLabsTTS.keyName) } else { KeychainStore.shared.set(ElevenLabsTTS.keyName, value: k) }
+                    elevenKeyDraft = ""
+                    elevenKeySaved = !k.isEmpty
+                    ElevenLabsTTS.shared.reset()
+                }
+            }
+            HubDivider()
+            HubRow(title: String(localized: "voice.tts-gender")) {
+                Picker("", selection: $elevenGender) {
+                    Text(String(localized: "voice.tts-female")).tag("female")
+                    Text(String(localized: "voice.tts-male")).tag("male")
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .onChange(of: elevenGender) { _, _ in ElevenLabsTTS.shared.reset() }
+            }
+            if ttsEngine == "system" {
+                HubDivider()
+                HubRow(title: String(localized: "voice.tts-pitch"),
+                       detail: String(format: String(localized: "voice.mac-voice-current %@"),
+                                      VoiceSpeaker.macVoiceName(for: Locale(identifier: voiceLanguage == "fr" ? "fr-FR" : "en-US"), gender: elevenGender))) {
+                    Slider(value: elevenGender == "male" ? $pitchMale : $pitchFemale, in: 0.8...1.6, step: 0.05,
+                           onEditingChanged: { editing in if !editing { speakVoiceSample() } })
+                        .frame(width: 220)
+                }
+                HubDivider()
+                HubRow(title: String(localized: "hub.voice.mac-voices", defaultValue: "More Mac voices"),
+                       detail: String(localized: "voice.mac-voices-help")) {
+                    Button(String(localized: "voice.mac-voices-open")) {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Accessibility-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(HubButtonStyle())
+                }
+            }
+            HubDivider()
+            HStack {
+                Spacer()
+                Button {
+                    speakVoiceSample()
+                } label: {
+                    Label(String(localized: "voice.tts-test"), systemImage: "speaker.wave.2.fill")
+                }
+                .buttonStyle(HubButtonStyle(primary: true))
+            }
+        }
+
+        FlowSettingsBox()
+    }
+}
+#endif
