@@ -53,6 +53,8 @@ final class HookServer: @unchecked Sendable {
     @MainActor var hasRealPendingQuestion: Bool { pendingQuestionFD >= 0 }
     private var questionPillId: String = ""           // pill that owns the pending question
     private var questionSessionId: String = ""        // sessionId for the pending question (recap tracking)
+    /// coucou-custom fork: questions that arrived while another was on the card (QuestionQueue).
+    private var questionLine = QuestionLine()
     private var focusBeforeQuestion: String? = nil    // saved focus to restore after question
     private var activeSessionId: String? = nil        // current Claude Code session
     private var focusBeforeApproval: String? = nil    // saved focus to restore after approval
@@ -198,6 +200,41 @@ final class HookServer: @unchecked Sendable {
         } else {
             state.view = state.tasks.isEmpty ? .empty : .overview
         }
+        promoteNextQuestion()
+    }
+
+    // MARK: coucou-custom fork: question line
+
+    /// The next waiting question takes the card, on the next run-loop turn so the card sees a
+    /// change even when two sessions ask the same thing.
+    @MainActor
+    private func promoteNextQuestion() {
+        QuestionQueueModel.shared.shownProject = ""
+        QuestionQueueModel.shared.shownSessionId = ""
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.pendingQuestionFD < 0 else { return }
+            let (next, expired) = self.questionLine.next()
+            expired.forEach(self.releaseQueuedQuestion)
+            self.publishQuestionLine()
+            guard let next else { return }
+            nbLog("[Question] next in line: \(next.projectName) (\(self.questionLine.count) still waiting)")
+            self.processQuestionRequest(fd: next.fd, parsed: next.parsed, payload: next.payload,
+                                        receivedAt: next.receivedAt)
+        }
+    }
+
+    /// Back to its terminal: the relay gets "ask" and prints nothing; the dialog is already there.
+    nonisolated private func releaseQueuedQuestion(_ q: QueuedQuestion) {
+        let fd = q.fd   // only the fd crosses: the payload is not Sendable
+        Task.detached { [weak self] in
+            self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
+            close(fd)
+        }
+    }
+
+    @MainActor
+    private func publishQuestionLine() {
+        QuestionQueueModel.shared.waitingSessions = questionLine.entries.map(\.sessionId)
     }
 
     /// Called by QuestionView. Sends answers JSON and cleans up.
@@ -244,6 +281,7 @@ final class HookServer: @unchecked Sendable {
             self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
             DispatchQueue.main.async { source?.cancel() }
         }
+        promoteNextQuestion()   // coucou-custom fork
     }
 
     /// coucou-custom fork: Settings → Agents → "Answer questions in the notch or the terminal".
@@ -257,10 +295,17 @@ final class HookServer: @unchecked Sendable {
     /// the sign. The relay gets "ask" and prints nothing; the card goes.
     @MainActor
     private func questionAnsweredElsewhere(event: String, sessionId: String, tool: String) -> Bool {
-        guard pendingQuestionFD >= 0, !questionSessionId.isEmpty, sessionId == questionSessionId else { return false }
         let ends = ["Stop", "StopFailure", "UserPromptSubmit", "SessionEnd", "Interrupt"].contains(event)
         let questionDone = (event == "PostToolUse" || event == "PostToolUseFailure") && tool == "AskUserQuestion"
         guard ends || questionDone else { return false }
+        // A question waiting in line, answered in its own terminal: out of the line.
+        let gone = questionLine.remove(session: sessionId)
+        if !gone.isEmpty {
+            nbLog("[Question] \(gone.count) waiting question(s) answered in the terminal (\(event))")
+            gone.forEach(releaseQueuedQuestion)
+            publishQuestionLine()
+        }
+        guard pendingQuestionFD >= 0, !questionSessionId.isEmpty, sessionId == questionSessionId else { return !gone.isEmpty }
         nbLog("[Question] answered in the terminal (\(event)): card dismissed")
         let fd = pendingQuestionFD
         pendingQuestionFD = -1
@@ -1112,7 +1157,8 @@ final class HookServer: @unchecked Sendable {
     // MARK: - Question request
 
     @MainActor
-    private func processQuestionRequest(fd: Int32, parsed: AskQuestion, payload: [String: Any]) {
+    private func processQuestionRequest(fd: Int32, parsed: AskQuestion, payload: [String: Any],
+                                        receivedAt: Date = Date()) {
         let state = AppState.shared
         let sessionId = payload["session_id"] as? String
                      ?? payload["conversation_id"] as? String
@@ -1152,16 +1198,22 @@ final class HookServer: @unchecked Sendable {
             return
         }
 
-        // Displace any previous question waiting for an answer.
+        // coucou-custom fork: another question is on the card. Upstream displaced it (sent back
+        // to its terminal for good); this one waits in line instead and comes up next.
         if pendingQuestionFD >= 0 {
-            let old = pendingQuestionFD
-            let oldSrc = questionFDSource
-            questionFDSource = nil
-            Task.detached { [weak self] in
-                self?.sendLine(fd: old, text: #"{"permissionDecision":"ask"}"#)
-                DispatchQueue.main.async { oldSrc?.cancel() }
+            let entry = QueuedQuestion(fd: fd, parsed: parsed, payload: payload, sessionId: sessionId,
+                                       projectName: projectName, receivedAt: receivedAt)
+            if questionLine.enqueue(entry) {
+                nbLog("[Question] \(projectName) waits in line (\(questionLine.count) waiting)")
+                publishQuestionLine()
+                SoundEngine.shared.play("approval")
+            } else {
+                releaseQueuedQuestion(entry)
             }
+            return
         }
+        QuestionQueueModel.shared.shownProject = projectName
+        QuestionQueueModel.shared.shownSessionId = sessionId
         pendingQuestionFD = fd
         activeSessionId = sessionId
         questionPillId = pillId
@@ -1193,7 +1245,9 @@ final class HookServer: @unchecked Sendable {
         questionFDSource = source
 
         let captured = fd
-        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
+        // A question that waited in line has less time left before its hook gives up.
+        let remaining = max(5, 120 - Date().timeIntervalSince(receivedAt))
+        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [weak self] in
             guard let self, self.pendingQuestionFD == captured else { return }
             // Send "ask" so nb-hook exits cleanly; Claude Code re-asks in terminal.
             let askFD = self.pendingQuestionFD

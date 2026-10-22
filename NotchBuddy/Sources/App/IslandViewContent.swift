@@ -436,6 +436,7 @@ struct ApprovalView: View {
 
 struct QuestionView: View {
     @ObservedObject var state: AppState
+    @ObservedObject private var line = QuestionQueueModel.shared   // coucou-custom fork
     @State private var questionIndex = 0
     // Per-question selected labels (empty = none chosen yet)
     @State private var selections: [[String]] = []
@@ -463,8 +464,15 @@ struct QuestionView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // Header row: agent name + question counter + "Reply in terminal" link
                     HStack(spacing: 4) {
-                        AgentWho(task: nil, label: "Claude Code is asking")
+                        // coucou-custom fork: which session asks, and how many wait in line.
+                        AgentWho(task: nil, label: line.shownProject.isEmpty ? "Claude Code is asking"
+                                                                            : "\(line.shownProject) is asking")
                         Spacer(minLength: 4)
+                        if line.waiting > 0 {
+                            Text("+\(line.waiting) waiting")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(Color(hex: "#67E8F9"))
+                        }
                         if q.questions.count > 1 {
                             Text("\(qi + 1)/\(q.questions.count)")
                                 .font(.system(size: 10))
