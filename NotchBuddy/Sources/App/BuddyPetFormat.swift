@@ -438,6 +438,36 @@ final class BuddyAnimator {
     }
 }
 
+// MARK: - Window margins
+
+/// Room around the pet's square in its window, as fractions of the square's side, so what is
+/// drawn past the square is not cut off by the window. Measured on BotEngine (every state, emote
+/// and outfit, dancing): Mochi reaches 24 % above its square (the proud emote, "zZ", hearts, the
+/// party hat), 7 % right ("zZ"), 1 % left (witch hat), never below; hover scales it 1.07 about
+/// its centre. A pet's frame stays inside its 192 × 208 cell; hover scales it 1.05 from its feet.
+struct BuddyInsets: Equatable {
+    let top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat
+
+    static let mochi = BuddyInsets(top: 0.32, left: 0.12, bottom: 0.04, right: 0.12)
+    static let pet = BuddyInsets(top: 0.08, left: 0.05, bottom: 0.02, right: 0.05)
+
+    /// The window around a square of `side`, in whole points.
+    func panelSize(side s: CGFloat) -> CGSize {
+        CGSize(width: s + (s * left).rounded() + (s * right).rounded(),
+               height: s + (s * top).rounded() + (s * bottom).rounded())
+    }
+
+    /// The square inside the window: AppKit (y up) from the window's bottom-left.
+    func innerOrigin(side s: CGFloat) -> CGPoint {
+        CGPoint(x: (s * left).rounded(), y: (s * bottom).rounded())
+    }
+
+    /// The square inside the window, SwiftUI (y down) from its top-left.
+    func innerRectTopDown(side s: CGFloat) -> CGRect {
+        CGRect(x: (s * left).rounded(), y: (s * top).rounded(), width: s, height: s)
+    }
+}
+
 // MARK: - Placement
 
 /// Where the Buddy stands. Its spot is kept per display, as OpenPets does, keyed by the display's

@@ -14,6 +14,7 @@ enum BuddyTests {
         testGaze()
         testSizes()
         testGeometry()
+        testInsets()
         testPlacement()
         testSpeech()
         testAtlas()
@@ -195,6 +196,27 @@ enum BuddyTests {
 
         precondition(BuddySpriteGeometry.gazeAnchor(panelSide: 208, anchor: nil, flipped: false) == CGPoint(x: 104, y: 208), "default bottom centre")
         precondition(BuddySpriteGeometry.gazeAnchor(panelSide: 208, anchor: CGPoint(x: 0.25, y: 0.5), flipped: true) == CGPoint(x: 152, y: 104), "flipped anchor")
+    }
+
+    // MARK: - Window margins
+
+    static func testInsets() {
+        let m = BuddyInsets.mochi
+        // Mochi Huge (200 pt square): measured overflow 24 % top, 7 % right, 1 % left, plus 1.07 hover.
+        let size = m.panelSize(side: 200)
+        precondition(size == CGSize(width: 200 + 24 + 24, height: 200 + 64 + 8), "Mochi window: \(size)")
+        precondition(m.innerOrigin(side: 200) == CGPoint(x: 24, y: 8), "square from the bottom-left (y up)")
+        precondition(m.innerRectTopDown(side: 200) == CGRect(x: 24, y: 64, width: 200, height: 200), "square from the top-left (y down)")
+        // Room for the measured overflow and hover, in points, at the largest size
+        let hover = (1.07 - 1) / 2   // grows this much past each side of the square
+        precondition(m.top >= 0.242 + hover, "top room for proud / zZ / party hat")
+        precondition(m.right >= 0.067 + hover && m.left >= 0.008 + hover, "side room for zZ / witch hat")
+        let p = BuddyInsets.pet
+        precondition(p.top >= 0.05 && p.left >= 0.025 && p.right >= 0.025, "pet: 1.05 hover from its feet")
+        precondition(p.panelSize(side: 156) == CGSize(width: 156 + 8 + 8, height: 156 + 12 + 3), "pet Medium window")
+        // y-up and y-down placements agree: the square's bottom is `bottom` above the window's bottom
+        let r = p.innerRectTopDown(side: 156), sz = p.panelSize(side: 156)
+        precondition(sz.height - r.maxY == p.innerOrigin(side: 156).y, "both spaces agree")
     }
 
     // MARK: - Placement

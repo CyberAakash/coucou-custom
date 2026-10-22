@@ -83,7 +83,8 @@ final class BuddyController {
     private var speechPick = 0
 
     private var dragStartMouse: NSPoint?
-    private var dragStartOrigin: NSPoint = .zero
+    /// The square's origin when the drag began.
+    private var dragStartSquare: NSPoint = .zero
     private var dragging = false
     private var lastDragX: CGFloat = 0
     private var lastMouse: NSPoint = .zero
@@ -118,6 +119,37 @@ final class BuddyController {
 
     private var side: CGFloat { settings.size.panelSide(isMochi: pet == nil) }
 
+    /// The square the window shows now and the room around it (BuddyInsets): placement, hit
+    /// testing, gaze and the bubble go by the square, never by the window.
+    private var shownSide: CGFloat = 0
+    private var shownInsets = BuddyInsets.mochi
+
+    /// The pet's square on screen (AppKit, y up).
+    private func inner(_ p: NSPanel) -> NSRect {
+        let o = shownInsets.innerOrigin(side: shownSide)
+        return NSRect(x: p.frame.minX + o.x, y: p.frame.minY + o.y, width: shownSide, height: shownSide)
+    }
+
+    /// The window origin that puts the square's bottom-left at `squareOrigin`.
+    private func panelOrigin(square squareOrigin: CGPoint) -> CGPoint {
+        let o = shownInsets.innerOrigin(side: shownSide)
+        return CGPoint(x: squareOrigin.x - o.x, y: squareOrigin.y - o.y)
+    }
+
+    /// The square's foot (bottom centre) on screen.
+    private func foot(_ p: NSPanel) -> CGPoint {
+        let r = inner(p)
+        return CGPoint(x: r.midX, y: r.minY)
+    }
+
+    /// Puts the square's foot at `target`, kept inside the display's usable area (the room
+    /// around the square may go past it: it is transparent).
+    private func place(_ p: NSPanel, foot target: CGPoint, on screen: NSScreen) {
+        let square = BuddyPlacement.clamp(origin: BuddyPlacement.origin(foot: target, side: shownSide),
+                                          side: shownSide, visibleFrame: screen.visibleFrame)
+        p.setFrameOrigin(panelOrigin(square: square))
+    }
+
     private func apply(force: Bool = false) {
         guard settings.enabled else { hide(); return }
         let key = "\(resolvedPetId)|\(settings.size.rawValue)"
@@ -127,21 +159,21 @@ final class BuddyController {
     private func show(key: String) {
         let firstShow = panel == nil
         let p = panel ?? makePanel()
-        let oldFoot = firstShow ? nil : BuddyPlacement.foot(origin: p.frame.origin, side: p.frame.width)
+        let oldFoot = firstShow ? nil : foot(p)
 
-        let hosting = makeContent()   // sets pet, which decides the side
-        let s = side
-        let container = BuddyContainerView(frame: CGRect(x: 0, y: 0, width: s, height: s))
+        let hosting = makeContent()   // sets pet, which decides the side, and the room around it
+        let s = shownSide
+        let size = shownInsets.panelSize(side: s)
+        let container = BuddyContainerView(frame: CGRect(origin: .zero, size: size))
         container.controller = self
         hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
         container.addSubview(hosting)
 
         let screen = oldFoot.flatMap { screenAt($0) } ?? startScreen()
-        let foot = oldFoot ?? savedFoot(on: screen) ?? BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: s)
-        let origin = BuddyPlacement.clamp(origin: BuddyPlacement.origin(foot: foot, side: s), side: s,
-                                          visibleFrame: screen.visibleFrame)
-        p.setFrame(NSRect(origin: origin, size: CGSize(width: s, height: s)), display: false)
+        let target = oldFoot ?? savedFoot(on: screen) ?? BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: s)
+        p.setFrame(NSRect(origin: p.frame.origin, size: size), display: false)
+        place(p, foot: target, on: screen)
         p.contentView = container
         viewState?.lookOrigin = lookOrigin(p)
         panel = p
@@ -190,13 +222,19 @@ final class BuddyController {
         if resolvedPetId != BuddySettings.mochiId, let loaded = BuddyLoadedPet.load(id: resolvedPetId) {
             pet = loaded
             syncPetOptions(loaded)
-            return NSHostingView(rootView: BuddyPetView(pet: loaded, viewState: vs))
+            shownSide = side
+            shownInsets = .pet
+            return NSHostingView(rootView: BuddyPetView(pet: loaded, viewState: vs,
+                                                        inner: shownInsets.innerRectTopDown(side: shownSide)))
         }
         let eng = BotEngine()
         eng.setState(isSleeping ? .sleeping : AppState.shared.effectiveState, force: true)
         eng.setOutfit(AppState.shared.resolvedOutfit, animated: false)
         engine = eng
-        return NSHostingView(rootView: DesktopBotView(appState: AppState.shared, engine: eng, viewState: vs))
+        shownSide = side
+        shownInsets = .mochi
+        return NSHostingView(rootView: BuddyMochiView(appState: AppState.shared, engine: eng, viewState: vs,
+                                                      inner: shownInsets.innerRectTopDown(side: shownSide)))
     }
 
     // MARK: - Where it stands
@@ -225,10 +263,10 @@ final class BuddyController {
 
     private func saveSpot() {
         guard let p = panel else { return }
-        let foot = BuddyPlacement.foot(origin: p.frame.origin, side: p.frame.width)
-        guard let screen = screenAt(foot) else { return }
+        let f = foot(p)
+        guard let screen = screenAt(f) else { return }
         settings.spots = BuddyPlacement.remembering(
-            BuddySpot(screen: BuddyPlacement.screenKey(screen.frame), x: Double(foot.x), y: Double(foot.y)),
+            BuddySpot(screen: BuddyPlacement.screenKey(screen.frame), x: Double(f.x), y: Double(f.y)),
             in: settings.spots)
     }
 
@@ -238,10 +276,8 @@ final class BuddyController {
             settings.spots = []
             return
         }
-        let s = p.frame.width
-        let screen = screenAt(BuddyPlacement.foot(origin: p.frame.origin, side: s)) ?? startScreen()
-        let foot = BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: s)
-        p.setFrameOrigin(BuddyPlacement.origin(foot: foot, side: s))
+        let screen = screenAt(foot(p)) ?? startScreen()
+        place(p, foot: BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: shownSide), on: screen)
         saveSpot()
         moveBubble()
     }
@@ -249,14 +285,12 @@ final class BuddyController {
     /// Displays plugged, unplugged or rearranged: stay on a display, inside its usable area.
     private func reclamp() {
         guard let p = panel else { return }
-        let s = p.frame.width
-        let foot = BuddyPlacement.foot(origin: p.frame.origin, side: s)
-        let onScreen = NSScreen.screens.contains { $0.frame.contains(foot) }
-        let screen = onScreen ? (screenAt(foot) ?? startScreen()) : startScreen()
-        let target = onScreen ? foot : (savedFoot(on: screen)
-            ?? BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: s))
-        p.setFrameOrigin(BuddyPlacement.clamp(origin: BuddyPlacement.origin(foot: target, side: s), side: s,
-                                              visibleFrame: screen.visibleFrame))
+        let f = foot(p)
+        let onScreen = NSScreen.screens.contains { $0.frame.contains(f) }
+        let screen = onScreen ? (screenAt(f) ?? startScreen()) : startScreen()
+        let target = onScreen ? f : (savedFoot(on: screen)
+            ?? BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: shownSide))
+        place(p, foot: target, on: screen)
     }
 
     // MARK: - Per frame
@@ -279,9 +313,9 @@ final class BuddyController {
     private func tick() {
         guard let p = panel else { return }
         let mouse = NSEvent.mouseLocation
-        let pf = p.frame
-        let s = pf.width
-        let local = CGPoint(x: mouse.x - pf.minX, y: mouse.y - pf.minY)
+        let sq = inner(p)
+        let s = shownSide
+        let local = CGPoint(x: mouse.x - sq.minX, y: mouse.y - sq.minY)   // in the square, y up
 
         // Click-through everywhere but on what is drawn.
         let over = isOverPet(local: local, side: s)
@@ -303,7 +337,7 @@ final class BuddyController {
         if effective != .idle && effective != .sleeping { lastAgentActive = .now }
         let shouldSleep = DesktopMochiLogic.shouldSleep(
             lastAgentActiveInterval: Date.now.timeIntervalSince(lastAgentActive),
-            mouseDistanceToPanelCenter: hypot(mouse.x - pf.midX, mouse.y - pf.midY))
+            mouseDistanceToPanelCenter: hypot(mouse.x - sq.midX, mouse.y - sq.midY))
         if shouldSleep != isSleeping {
             isSleeping = shouldSleep
             viewState?.isSleeping = shouldSleep
@@ -314,7 +348,7 @@ final class BuddyController {
             stateChanged(from: lastState, to: effective)
             lastState = effective
         }
-        if let pet { updatePet(pet, mouse: mouse, frame: pf, side: s) }
+        if let pet { updatePet(pet, mouse: mouse, square: sq) }
         if bubble != nil { moveBubble() }
     }
 
@@ -325,7 +359,9 @@ final class BuddyController {
         say(BuddySpeech.line(c, pick: speechPick))
     }
 
+    /// `local`: in the pet's square, y up. The room around the square never takes clicks.
     private func isOverPet(local: CGPoint, side s: CGFloat) -> Bool {
+        guard local.x >= 0, local.y >= 0, local.x < s, local.y < s else { return false }
         if let pet {
             let c = pet.animator.cell(now: .now, gaze: pet.gaze)
             guard let px = BuddySpriteGeometry.atlasPixel(localTopDown: CGPoint(x: local.x, y: s - local.y),
@@ -343,7 +379,7 @@ final class BuddyController {
 
     /// The pet's reaction from Coucou's state, and the V2 gaze (idle, not dragged, the cursor
     /// moved in the last 1.2 s).
-    private func updatePet(_ pet: BuddyLoadedPet, mouse: NSPoint, frame pf: NSRect, side s: CGFloat) {
+    private func updatePet(_ pet: BuddyLoadedPet, mouse: NSPoint, square sq: NSRect) {
         syncPetOptions(pet)
         let state = isSleeping ? BotState.sleeping : AppState.shared.effectiveState
         pet.animator.setReaction(settings.animation(for: .forState(state)))
@@ -352,16 +388,17 @@ final class BuddyController {
         if mouse != lastMouse { lastMouse = mouse; lastMouseMove = now }
         guard pet.entry.manifest.layout.hasGaze, settings.cursorGaze, !dragging,
               BuddyGaze.isActive(lastCursorMove: lastMouseMove, now: now) else { pet.gaze = nil; return }
-        let a = BuddySpriteGeometry.gazeAnchor(panelSide: s, anchor: pet.entry.manifest.gazeAnchor,
+        let a = BuddySpriteGeometry.gazeAnchor(panelSide: sq.width, anchor: pet.entry.manifest.gazeAnchor,
                                                flipped: pet.animator.flipped)
         // Both points y-down for BuddyGaze: AppKit y negated.
         pet.gaze = BuddyGaze.direction(cursor: CGPoint(x: mouse.x, y: -mouse.y),
-                                       anchor: CGPoint(x: pf.minX + a.x, y: -(pf.maxY - a.y)))
+                                       anchor: CGPoint(x: sq.minX + a.x, y: -(sq.maxY - a.y)))
     }
 
     private func lookOrigin(_ p: NSPanel) -> CGPoint {
-        DesktopMochiLogic.lookOrigin(panelMinX: p.frame.minX, panelMinY: p.frame.minY,
-                                     desktopTop: IslandWindowController.desktopTop, panelSize: p.frame.width)
+        let sq = inner(p)
+        return DesktopMochiLogic.lookOrigin(panelMinX: sq.minX, panelMinY: sq.minY,
+                                            desktopTop: IslandWindowController.desktopTop, panelSize: sq.width)
     }
 
     // MARK: - Mouse
@@ -370,7 +407,7 @@ final class BuddyController {
     fileprivate func mouseDown(at m: NSPoint) {
         guard let p = panel else { return }
         dragStartMouse = m
-        dragStartOrigin = p.frame.origin
+        dragStartSquare = inner(p).origin
         lastDragX = m.x
         dragging = false
     }
@@ -382,12 +419,11 @@ final class BuddyController {
             dragging = true
             hideBubble()
         }
-        let s = p.frame.width
         let screen = screenAt(m) ?? startScreen()
-        let origin = BuddyPlacement.clamp(origin: CGPoint(x: dragStartOrigin.x + m.x - start.x,
-                                                          y: dragStartOrigin.y + m.y - start.y),
-                                          side: s, visibleFrame: screen.visibleFrame)
-        p.setFrameOrigin(origin)
+        let square = BuddyPlacement.clamp(origin: CGPoint(x: dragStartSquare.x + m.x - start.x,
+                                                          y: dragStartSquare.y + m.y - start.y),
+                                          side: shownSide, visibleFrame: screen.visibleFrame)
+        p.setFrameOrigin(panelOrigin(square: square))
         viewState?.lookOrigin = lookOrigin(p)
         // A pet runs the way it is dragged (OpenPets' running-left / running-right rows).
         if let pet {
@@ -505,10 +541,11 @@ final class BuddyController {
     private func moveBubble() {
         guard let b = bubble, let p = panel else { return }
         let size = b.frame.size
-        let screen = screenAt(CGPoint(x: p.frame.midX, y: p.frame.minY))?.visibleFrame ?? p.frame
-        var origin = CGPoint(x: p.frame.midX - size.width / 2, y: p.frame.maxY - 6)
+        let sq = inner(p)
+        let screen = screenAt(CGPoint(x: sq.midX, y: sq.minY))?.visibleFrame ?? sq
+        var origin = CGPoint(x: sq.midX - size.width / 2, y: sq.maxY - 6)
         origin.x = min(max(origin.x, screen.minX), screen.maxX - size.width)
-        if origin.y + size.height > screen.maxY { origin.y = p.frame.minY - size.height }
+        if origin.y + size.height > screen.maxY { origin.y = sq.minY - size.height }
         if b.frame.origin != origin { b.setFrameOrigin(origin) }
     }
 
