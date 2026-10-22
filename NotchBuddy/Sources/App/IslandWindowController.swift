@@ -193,7 +193,8 @@ final class IslandWindowController: NSWindowController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newView in
                 guard let self else { return }
-                if newView == .prompt {
+                // coucou-custom fork: the Sessions view has a message box too.
+                if newView == .prompt || newView == .sessions {
                     self.islandPanel.makeKey()
                 }
             }
