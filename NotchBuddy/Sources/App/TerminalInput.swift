@@ -1,31 +1,28 @@
 #if !APPSTORE
 import AppKit
-import Carbon.HIToolbox
 
 // MARK: - TerminalInput (coucou-custom fork)
 //
-// The Sessions view's message box: the text reaches the session as if typed at its prompt, so
-// Claude Code treats it as a real user prompt and answers in the terminal (the hooks then show
-// the turn in the notch). Claude Code has no supported way for another app to inject a prompt
-// into a running interactive session (channels need a launch flag; the cross-session socket
-// speaks as another session, not the user), so the terminal itself carries it:
-//   • iTerm2 (`write text`), Terminal.app (`do script … in tab`), tmux (`send-keys`), kitty
-//     (`kitten @ send-text`), WezTerm (`wezterm cli send-text`): straight into the tab, no focus.
-//   • Warp and the rest: TerminalFocus brings the session's tab forward, the text is pasted
-//     (⌘V: a bracketed paste, so several lines stay one message) and Return pressed; the
-//     clipboard and the app that was in front come back.
+// The Sessions view's message box. Nothing ever switches app or tab:
+//   • First choice: the session's cross-session inbox (Claude Code v2.1.224+, on by default). Every
+//     session listens on a per-user Unix socket, exported to its hooks as
+//     CLAUDE_CODE_MESSAGING_SOCKET / _TOKEN (the relay records them). Claude reads a message
+//     between tool calls while busy, and starts a turn with it when idle. It arrives as a message
+//     from another session ("Message from …"), so it can't approve permissions or run commands.
+//   • Otherwise the terminal's own no-focus input: iTerm2 `write text`, Terminal.app
+//     `do script … in tab`, tmux `send-keys`, kitty `kitten @ send-text`, WezTerm `send-text`.
+//   • Otherwise (e.g. Warp before the session's next hook event): not sent, never a focus switch.
 
 @MainActor
 enum TerminalInput {
 
     enum Failure: LocalizedError {
-        case empty, noAccessibility, tabNotInFront, failed
+        case empty, noRoute, failed
         var errorDescription: String? {
             switch self {
             case .empty: return "Nothing to send."
-            case .noAccessibility: return "Coucou needs the Accessibility permission to type in this terminal."
-            case .tabNotInFront: return "Couldn't bring the session's tab forward."
-            case .failed: return "The terminal didn't take the message."
+            case .noRoute: return "This session can't take messages yet: it will after its next step."
+            case .failed: return "The session didn't take the message."
             }
         }
     }
@@ -36,6 +33,11 @@ enum TerminalInput {
         let oneLine = text.replacingOccurrences(of: "\r\n", with: " ").replacingOccurrences(of: "\n", with: " ")
         let t = s.terminal
         let app = s.hostApp ?? s.bundleId ?? ""
+
+        if let path = inboxPath(t["messaging_socket"]) {
+            if await postToInbox(path: path, token: t["messaging_token"], text: text) { return .success(()) }
+            appendAppLog("nb.log", "[Sessions] inbox of \(s.projectName) refused the connection; trying the terminal")
+        }
 
         // tmux first: it owns the pane whatever the host terminal.
         if let pane = t["tmux_pane"], pane.range(of: #"^%\d+$"#, options: .regularExpression) != nil,
@@ -95,63 +97,59 @@ enum TerminalInput {
         default:
             break
         }
-        return await pasteIntoFocusedTab(text, session: s)
+        return .failure(.noRoute)
     }
 
-    // MARK: Warp and the rest: focus the tab, paste, Return
+    // MARK: Cross-session inbox
 
-    private static func pasteIntoFocusedTab(_ text: String, session s: SessionTracker.Session) async -> Result<Void, Failure> {
-        guard AXIsProcessTrusted() else { return .failure(.noAccessibility) }
-        guard let app = s.hostApp ?? s.bundleId else { return .failure(.tabNotInFront) }
-        let previous = NSWorkspace.shared.frontmostApplication
-        TerminalFocus.open(s) { TerminalFocus.activate(app) }
-        // Warp switches tab on its URL and comes forward a moment later.
-        for _ in 0..<12 {
-            try? await Task.sleep(for: .milliseconds(80))
-            if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app { break }
-        }
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app else { return .failure(.tabNotInFront) }
-        try? await Task.sleep(for: .milliseconds(180))
+    /// The socket the session's own hooks were given, if it is still a socket of this user.
+    nonisolated static func inboxPath(_ raw: String?) -> String? {
+        guard var path = raw?.trimmingCharacters(in: .whitespaces), !path.isEmpty else { return nil }
+        if path.hasPrefix("uds:") { path.removeFirst(4) }
+        guard path.hasPrefix("/"), !path.contains("\0") else { return nil }
+        var st = stat()
+        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFSOCK, st.st_uid == getuid() else { return nil }
+        return path
+    }
 
-        let board = NSPasteboard.general
-        let saved = (board.pasteboardItems ?? []).map { item in
-            Dictionary(uniqueKeysWithValues: item.types.compactMap { t in item.data(forType: t).map { (t, $0) } })
-        }
-        board.clearContents()
-        board.setString(text, forType: .string)
-        let stamp = board.changeCount
-
-        key(FlowPaste.vKeyCode(), flags: .maskCommand)
-        try? await Task.sleep(for: .milliseconds(160))
-        key(CGKeyCode(kVK_Return), flags: [])
-
-        // Put the clipboard back (unless the user copied something meanwhile) and give the
-        // front back to the app the user was in.
-        try? await Task.sleep(for: .milliseconds(450))
-        if board.changeCount == stamp {
-            board.clearContents()
-            if !saved.isEmpty {
-                board.writeObjects(saved.map { entry in
-                    let item = NSPasteboardItem()
-                    for (type, data) in entry { item.setData(data, forType: type) }
-                    return item
-                })
+    /// One newline-delimited JSON user message, after the auth line when a token is known
+    /// (optional on macOS). Claude Code acknowledges nothing: a clean write is success.
+    private static func postToInbox(path: String, token: String?, text: String) async -> Bool {
+        var lines: [[String: Any]] = []
+        if let token, !token.isEmpty { lines.append(["type": "auth", "token": token]) }
+        lines.append(["type": "user", "message": ["role": "user", "content": text]])
+        let payload = lines.compactMap { try? JSONSerialization.data(withJSONObject: $0) }
+            .map { String(decoding: $0, as: UTF8.self) }.joined(separator: "\n") + "\n"
+        let bytes = Array(payload.utf8)
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+                guard fd >= 0 else { cont.resume(returning: false); return }
+                defer { close(fd) }
+                var timeout = timeval(tv_sec: 3, tv_usec: 0)
+                setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+                var addr = sockaddr_un()
+                addr.sun_family = sa_family_t(AF_UNIX)
+                let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+                guard path.utf8.count < maxLen else { cont.resume(returning: false); return }
+                withUnsafeMutableBytes(of: &addr.sun_path) { raw in
+                    for (i, b) in path.utf8.enumerated() { raw[i] = b }
+                }
+                let connected = withUnsafePointer(to: &addr) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                    }
+                }
+                guard connected == 0 else { cont.resume(returning: false); return }
+                var sent = 0
+                while sent < bytes.count {
+                    let n = bytes[sent...].withUnsafeBufferPointer { write(fd, $0.baseAddress, $0.count) }
+                    if n <= 0 { cont.resume(returning: false); return }
+                    sent += n
+                }
+                cont.resume(returning: true)
             }
         }
-        if let previous, previous.bundleIdentifier != app, previous.bundleIdentifier != Bundle.main.bundleIdentifier {
-            previous.activate()
-        }
-        return .success(())
-    }
-
-    private static func key(_ code: CGKeyCode, flags: CGEventFlags) {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true)
-        let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
-        down?.flags = flags
-        up?.flags = flags
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
     }
 
     // MARK: Helpers

@@ -81,9 +81,15 @@ final class NotchPulse: ObservableObject {
         let r = Ring(color: kind.color, companion: kind.companion, start: now)
         ring = r
         wiggle += 1
-        if kind == .agentDone || kind == .finishedQuiet {
-            NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
+        // Mochi reacts to every pulse, so a start is as visible as an end.
+        let emote: BotEmote = switch kind {
+        case .sessionStart:  .surprised
+        case .agentStart:    .wink
+        case .agentsRunning: .proud
+        case .agentDone, .finishedQuiet: .happy
+        case .errorQuiet:    .annoyed
         }
+        NotificationCenter.default.post(name: .triggerEmote, object: emote)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.ringDuration + 0.1) { [weak self] in
             if self?.ring?.id == r.id { self?.ring = nil }
         }
@@ -111,7 +117,7 @@ struct NotchHalo: View {
                     let p = t / d
                     // Quick rise, long soft fall.
                     let intensity = min(1, t / 0.25) * pow(max(0, 1 - p), 1.6)
-                    let bloom = reduceMotion ? 1.06 : 1.0 + 0.14 * (1 - pow(1 - p, 3))
+                    let bloom = reduceMotion ? 1.08 : 1.0 + 0.2 * (1 - pow(1 - p, 3))
                     let turn = reduceMotion ? 0.0 : 180.0 * p
                     let shape = IslandShape(width: width, height: height, cornerRadius: cornerRadius, topRadius: topRadius)
                     ZStack {
@@ -121,16 +127,16 @@ struct NotchHalo: View {
                                                            ring.companion, ring.color],
                                                   center: .center, angle: .degrees(turn)))
                             .scaleEffect(x: bloom, y: 1 + (bloom - 1) * 2.4, anchor: .top)
-                            .blur(radius: 14 + 10 * p)
-                            .opacity(0.95 * intensity)
+                            .blur(radius: 16 + 12 * p)
+                            .opacity(min(1, 1.15 * intensity))
                         // Spotlight cast down from the notch.
                         Ellipse()
                             .fill(RadialGradient(colors: [ring.color.opacity(0.75), ring.companion.opacity(0.35), .clear],
                                                  center: .center, startRadius: 0, endRadius: width * 0.55))
-                            .frame(width: width * 1.25, height: height * 2.6 + 30)
-                            .offset(y: height * 0.55)
-                            .blur(radius: 18)
-                            .opacity(0.7 * intensity)
+                            .frame(width: width * 1.4, height: height * 3 + 40)
+                            .offset(y: height * 0.6)
+                            .blur(radius: 20)
+                            .opacity(0.85 * intensity)
                     }
                     .frame(width: width, height: height, alignment: .top)
                 }

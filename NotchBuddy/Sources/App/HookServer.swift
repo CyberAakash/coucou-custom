@@ -707,7 +707,9 @@ final class HookServer: @unchecked Sendable {
                 let siblingDone = LiveSessions.shared.session(sessionId)
                 if NotchAlertRules.sessionDone(siblingDone?.status), siblingDone?.announcedDone == false,
                    NotchAlertRules.setting(NotchAlertRules.openOnFinishKey) {
-                    if !terminalInFront && showsAlert(for: agentId, focused: focused) {
+                    let quietForTerminal = terminalInFront
+                        && !NotchAlertRules.setting(NotchAlertRules.openWhenTerminalInFrontKey)
+                    if !quietForTerminal && showsAlert(for: agentId, focused: focused) {
                         nbLog("[Notch] open: session \(sessionId.prefix(8)) done (another session still works)")
                         LiveSessions.shared.markAnnounced(sessionId)
                         LiveSessions.shared.select(sessionId)
@@ -717,7 +719,7 @@ final class HookServer: @unchecked Sendable {
                         SoundEngine.shared.play("finish")
                         expandIfNeeded(to: .finished)
                     } else {
-                        nbLog("[Notch] Stop \(sessionId.prefix(8)) done: \(terminalInFront ? "its terminal is in front" : "another card is open"), light only")
+                        nbLog("[Notch] Stop \(sessionId.prefix(8)) done: \(quietForTerminal ? "its terminal is in front" : "another card is open"), light only")
                         NotchPulse.shared.signal(.finishedQuiet, quiet: true)
                     }
                 } else if !NotchAlertRules.sessionDone(siblingDone?.status) {
@@ -747,13 +749,16 @@ final class HookServer: @unchecked Sendable {
                 NotchPulse.shared.signal(.finishedQuiet, quiet: terminalInFront)
                 setPillBadge(id: agentId, badge: .finished)
             } else {
-                if !terminalInFront { SoundEngine.shared.play("finish") }
-                if !terminalInFront && showsAlert(for: agentId, focused: focused) {
+                // coucou-custom fork: by default the finish opens even with its terminal in front.
+                let quietForTerminal = terminalInFront
+                    && !NotchAlertRules.setting(NotchAlertRules.openWhenTerminalInFrontKey)
+                if !quietForTerminal { SoundEngine.shared.play("finish") }
+                if !quietForTerminal && showsAlert(for: agentId, focused: focused) {
                     nbLog("[Notch] open: session \(sessionId.prefix(8)) done")
                     LiveSessions.shared.markAnnounced(sessionId)
                     expandIfNeeded(to: .finished)
                 } else {
-                    nbLog("[Notch] Stop \(sessionId.prefix(8)) done: \(terminalInFront ? "its terminal is in front" : "another card is open"), light only")
+                    nbLog("[Notch] Stop \(sessionId.prefix(8)) done: \(quietForTerminal ? "its terminal is in front" : "another card is open"), light only")
                     NotchPulse.shared.signal(.finishedQuiet, quiet: true)
                     setPillBadge(id: agentId, badge: .finished)
                 }
@@ -3535,7 +3540,10 @@ def add_terminal_ids(payload):
     ids = {}
     for key, var in (('warp_focus_url', 'WARP_FOCUS_URL'), ('kitty_window_id', 'KITTY_WINDOW_ID'),
                      ('kitty_listen_on', 'KITTY_LISTEN_ON'), ('wezterm_pane', 'WEZTERM_PANE'),
-                     ('tmux', 'TMUX'), ('tmux_pane', 'TMUX_PANE')):
+                     ('tmux', 'TMUX'), ('tmux_pane', 'TMUX_PANE'),
+                     # The session's cross-session inbox: the Sessions view's message box posts there.
+                     ('messaging_socket', 'CLAUDE_CODE_MESSAGING_SOCKET'),
+                     ('messaging_token', 'CLAUDE_CODE_MESSAGING_TOKEN')):
         if env.get(var):
             ids[key] = env[var]
     # The hook's stdin is a pipe and Claude Code may run it detached: the session's tty is the

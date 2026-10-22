@@ -13,6 +13,8 @@ enum NotchAlertRules {
     static let openOnFinishKey = "coucouOpenOnFinish"
     static let openOnErrorKey = "coucouOpenOnError"
     static let ambientKey = "coucouAmbientPulse"
+    /// Open on finish even while the session's terminal is the front app (upstream: light only).
+    static let openWhenTerminalInFrontKey = "coucouOpenWhenTerminalInFront"
 
     /// Bursts (five subagents starting together) make one sound, not five.
     static let soundSpacing: TimeInterval = 0.8
