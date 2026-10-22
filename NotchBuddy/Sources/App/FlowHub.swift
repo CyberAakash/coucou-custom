@@ -248,6 +248,8 @@ struct FlowHubView: View {
                         .padding(.horizontal, 28)
                         .padding(.top, 24)
                     SettingsView(embeddedSection: section)
+                        .groupBoxStyle(HubGroupBoxStyle())   // coucou-custom fork: window style
+                        .toggleStyle(HubSwitchRowStyle())
                         .id(section)
                 }
             }
