@@ -8,7 +8,6 @@ struct HubSettingsPage: View {
     @ObservedObject private var store = FlowStore.shared
     @AppStorage("dictationLanguage") private var language = MacDictation.automatic
     @State private var confirmClear = false
-    @State private var runInBackground = BackgroundMode.isOn
     @State private var openAtLaunch = FlowHubController.openAtLaunch
 
     var body: some View {
@@ -132,21 +131,13 @@ struct HubSettingsPage: View {
 
             HubLabel(String(localized: "hub.settings.app"))
             HubCard {
-                HubRow(title: String(localized: "hub.settings.background", defaultValue: "Run in background"),
-                       detail: String(localized: "hub.settings.background-detail",
-                                      defaultValue: "No Dock icon, not in ⌘-Tab. Closing the window or ⌘Q only hides Coucou: open it again from the menu bar icon.")) {
-                    Toggle("", isOn: Binding(get: { runInBackground }, set: { runInBackground = $0; BackgroundMode.isOn = $0 }))
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-                HubDivider()
-                HubRow(title: String(localized: "hub.settings.quit", defaultValue: "Quit Coucou completely"),
-                       detail: String(localized: "hub.settings.quit-detail",
-                                      defaultValue: "Stops the notch, voice and dictation until you open Coucou again.")) {
-                    Button(String(localized: "hub.settings.quit-button", defaultValue: "Quit")) {
-                        BackgroundMode.quitCompletely()
-                    }
-                    .buttonStyle(HubButtonStyle())
+                // coucou-custom fork: BackgroundMode (⌘W soft close, ⌘Q quit).
+                HubRow(title: String(localized: "hub.settings.close-quit", defaultValue: "Closing and quitting"),
+                       detail: String(localized: "hub.settings.close-quit-detail",
+                                      defaultValue: "⌘W closes this window: Coucou keeps running in the notch and the menu bar, without a Dock icon. ⌘Q quits it.")) {
+                    Text("⌘W · ⌘Q")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(HubTheme.secondary)
                 }
                 HubDivider()
                 HubRow(title: String(localized: "hub.settings.open-at-launch")) {
