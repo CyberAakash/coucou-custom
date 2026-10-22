@@ -92,6 +92,10 @@ private struct SessionDetail: View {
     @ObservedObject private var line = QuestionQueueModel.shared
     @State private var promptExpanded = false
     @State private var agentsExpanded = false
+    @State private var draft = ""
+    @State private var sending = false
+    @State private var sendNote: String?
+    @FocusState private var draftFocused: Bool
 
     private var s: SessionTracker.Session { session }
 
@@ -120,8 +124,77 @@ private struct SessionDetail: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 6)
             }
+            #if !APPSTORE
+            messageBar
+            #endif
         }
     }
+
+    #if !APPSTORE
+    // MARK: Message box: typed into the session's terminal (TerminalInput)
+
+    /// A dialog (question, permission) is up for this session: what is typed would answer it.
+    private var dialogUp: Bool {
+        s.status == .waiting || hasQuestion || state.pendingApproval?.sessionId == s.id
+    }
+
+    private var messageBar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                TextField(dialogUp ? "Answer the question above first" : "Message \(s.projectName)…",
+                          text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .lineLimit(1...4)
+                    .focused($draftFocused)
+                    .disabled(dialogUp || sending)
+                    .onSubmit(send)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.07)))
+                Button(action: send) {
+                    Image(systemName: sending ? "ellipsis" : "arrow.up")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.black)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color(hex: canSend ? "#F5F6F8" : "#6B7079")))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .keyboardShortcut(.return, modifiers: [.command])
+            }
+            if let sendNote {
+                Text(sendNote).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C"))
+            }
+        }
+    }
+
+    private var canSend: Bool {
+        !sending && !dialogUp && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func send() {
+        guard canSend else { return }
+        let text = draft
+        let target = s
+        sending = true
+        sendNote = nil
+        Task { @MainActor in
+            let result = await TerminalInput.send(text, to: target)
+            sending = false
+            switch result {
+            case .success:
+                draft = ""
+                sendNote = s.isBusy ? "Sent: queued after the current step." : "Sent to \(target.projectName)."
+                appendAppLog("nb.log", "[Sessions] message sent to \(target.projectName) (\(target.hostApp ?? target.bundleId ?? "?"))")
+            case .failure(let error):
+                sendNote = error.localizedDescription
+                appendAppLog("nb.log", "[Sessions] message to \(target.projectName) failed: \(error.localizedDescription)")
+            }
+            try? await Task.sleep(for: .seconds(4))
+            if !sending { sendNote = nil }
+        }
+    }
+    #endif
 
     // MARK: Header: agent · status · elapsed · Open terminal
 
