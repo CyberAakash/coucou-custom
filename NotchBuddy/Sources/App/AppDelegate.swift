@@ -328,6 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MailController.shared.start()
         WhatsAppController.shared.start()
         MacUpdater.shared.start()
+        BuddyController.shared.start()   // coucou-custom fork: the desktop Buddy (Settings → Buddy)
         ClaudeDesktopChatWatcher.shared.start()
         #endif
         CryptoController.shared.start()

@@ -14,6 +14,8 @@ enum BuddyTests {
         testGaze()
         testSizes()
         testGeometry()
+        testPlacement()
+        testSpeech()
         testAtlas()
         testStore()
         testSettings()
@@ -195,6 +197,57 @@ enum BuddyTests {
         precondition(BuddySpriteGeometry.gazeAnchor(panelSide: 208, anchor: CGPoint(x: 0.25, y: 0.5), flipped: true) == CGPoint(x: 152, y: 104), "flipped anchor")
     }
 
+    // MARK: - Placement
+
+    static func testPlacement() {
+        let vf = CGRect(x: 0, y: 80, width: 1512, height: 870)   // under the menu bar, above the Dock
+        let foot = BuddyPlacement.defaultFoot(visibleFrame: vf, side: 156)
+        precondition(foot == CGPoint(x: 1512 - 24 - 78, y: 104), "default: bottom right, 24 pt margin")
+        let o = BuddyPlacement.origin(foot: foot, side: 156)
+        precondition(BuddyPlacement.foot(origin: o, side: 156) == foot, "foot ↔ origin")
+        // A size change keeps the foot: same centre x and bottom
+        let big = BuddyPlacement.origin(foot: foot, side: 260)
+        precondition(big.x + 130 == foot.x && big.y == foot.y, "bigger pet stands on the same spot")
+
+        precondition(BuddyPlacement.clamp(origin: CGPoint(x: -50, y: 0), side: 100, visibleFrame: vf) == CGPoint(x: 0, y: 80), "clamp bottom-left")
+        precondition(BuddyPlacement.clamp(origin: CGPoint(x: 2000, y: 2000), side: 100, visibleFrame: vf) == CGPoint(x: 1412, y: 850), "clamp top-right")
+        precondition(BuddyPlacement.clamp(origin: CGPoint(x: 300, y: 300), side: 100, visibleFrame: vf) == CGPoint(x: 300, y: 300), "inside untouched")
+        // Second display left of the main one (negative x)
+        let left = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+        precondition(BuddyPlacement.screenKey(left) == "-1920,0,1920x1080", "OpenPets key format")
+        precondition(BuddyPlacement.clamp(origin: CGPoint(x: -10, y: 5), side: 100, visibleFrame: left) == CGPoint(x: -100, y: 5), "clamp on a left display")
+
+        var spots: [BuddySpot] = []
+        for i in 0..<10 { spots = BuddyPlacement.remembering(BuddySpot(screen: "s\(i)", x: Double(i), y: 0), in: spots) }
+        precondition(spots.count == 8 && spots.first?.screen == "s9" && spots.last?.screen == "s2", "8 most recent displays")
+        spots = BuddyPlacement.remembering(BuddySpot(screen: "s5", x: 99, y: 1), in: spots)
+        precondition(spots.count == 8 && spots.first == BuddySpot(screen: "s5", x: 99, y: 1), "updated display moves first")
+        precondition(spots.filter { $0.screen == "s5" }.count == 1, "one spot per display")
+        precondition(BuddyPlacement.spot(for: "s5", in: spots)?.x == 99 && BuddyPlacement.spot(for: "zz", in: spots) == nil, "lookup")
+    }
+
+    // MARK: - Speech
+
+    static func testSpeech() {
+        precondition(BuddySpeech.category(for: .approval) == .permission, "approval speaks")
+        precondition(BuddySpeech.category(for: .question) == .question, "question speaks")
+        precondition(BuddySpeech.category(for: .error) == .error, "error speaks")
+        for s in [BotState.idle, .working, .thinking, .finished, .sleeping, .searching, .ratelimit, .dizzy] {
+            precondition(BuddySpeech.category(for: s) == nil, "\(s) is silent (as OpenPets' hook)")
+        }
+        var sp = BuddySpeech()
+        let t = Date(timeIntervalSince1970: 0)
+        precondition(sp.shouldSpeak(.permission, now: t), "first permission speaks")
+        precondition(!sp.shouldSpeak(.permission, now: t.addingTimeInterval(2.9)), "3 s cooldown")
+        precondition(sp.shouldSpeak(.permission, now: t.addingTimeInterval(3)), "after 3 s")
+        precondition(sp.shouldSpeak(.error, now: t), "categories are separate")
+        precondition(!sp.shouldSpeak(.error, now: t.addingTimeInterval(19)), "20 s cooldown for errors")
+        precondition(sp.shouldSpeak(.error, now: t.addingTimeInterval(20)), "after 20 s")
+        for c in BuddySpeech.Category.allCases {
+            precondition(!BuddySpeech.line(c, pick: -7).isEmpty && BuddySpeech.line(c, pick: 1000).count <= 40, "lines for \(c)")
+        }
+    }
+
     // MARK: - Atlas
 
     /// A v1-sized transparent image with one opaque 4 × 4 block whose top-left is (x, y), y down.
@@ -349,13 +402,18 @@ enum BuddyTests {
         let ud = UserDefaults(suiteName: suite)!
         defer { ud.removePersistentDomain(forName: suite) }
         let s = BuddySettings(defaults: ud)
-        precondition(s.isMochi && s.size == .medium && s.cursorGaze && !s.relaxedWaiting, "defaults = Mochi as it was")
+        precondition(s.isMochi && s.size == .medium && s.cursorGaze && !s.relaxedWaiting, "defaults = Mochi, Medium")
+        precondition(s.enabled && s.speechBubbles && s.spots.isEmpty, "on by default, bubbles on, no spot yet")
+        s.enabled = false; s.speechBubbles = false
+        s.spots = [BuddySpot(screen: "0,0,1512x982", x: 10, y: 20)]
         s.petId = "cheddar"; s.size = .large; s.setFlipped("cheddar", true); s.relaxedWaiting = true; s.cursorGaze = false
         s.setAnimation(.waving, for: .success)
         s.setAnimation(.review, for: .thinking)   // the default: not stored
         let t = BuddySettings(defaults: ud)
         precondition(t.petId == "cheddar" && t.size == .large && t.isFlipped("cheddar") && !t.isFlipped("mochi"), "persisted")
         precondition(t.relaxedWaiting && !t.cursorGaze, "toggles persisted")
+        precondition(!t.enabled && !t.speechBubbles, "enabled / bubbles persisted")
+        precondition(t.spots == [BuddySpot(screen: "0,0,1512x982", x: 10, y: 20)], "spots persisted")
         precondition(t.reactionOverrides == ["success": "waving"], "only real overrides stored: \(t.reactionOverrides)")
         precondition(t.animation(for: .success) == .waving && t.animation(for: .thinking) == .review, "lookup")
         t.resetReactions()

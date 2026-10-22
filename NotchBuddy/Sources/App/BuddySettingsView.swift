@@ -11,8 +11,6 @@ struct BuddySettingsView: View {
     @ObservedObject private var settings = BuddySettings.shared
     @ObservedObject private var store = BuddyPetStore.shared
     @ObservedObject private var state = AppState.shared
-    /// Mirrors the stored "on the desktop" flag (DesktopMochiController keeps it).
-    @AppStorage(DesktopMochiController.enabledKey) private var onDesktop = false
 
     @State private var thumbnails: [String: CGImage] = [:]
     @State private var importMessage: String = ""
@@ -33,10 +31,8 @@ struct BuddySettingsView: View {
     private var desktopBox: some View {
         GroupBox("On the desktop") {
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("Show the buddy on the desktop", isOn: Binding(
-                    get: { onDesktop },
-                    set: { DesktopMochiController.shared.setOnDesktop($0) }))
-                Text("It floats above your windows on every Space. Drag it anywhere, click it to play, double-click it (or drag it onto the notch) to send it home. It steps aside to the notch while a permission or a question waits.")
+                Toggle("Show the buddy on the desktop", isOn: $settings.enabled)
+                Text("Its own companion, apart from the Mochi in the notch: it floats above your windows on every Space and reacts to your agents. Drag it anywhere (it remembers its spot on each display), click it to play, right-click it for its menu.")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -46,9 +42,14 @@ struct BuddySettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
+                Toggle("Speech bubbles", isOn: $settings.speechBubbles)
+                Text("A short line when a permission or a question waits, or something fails.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+
                 HStack {
-                    Button("Reset position") { DesktopMochiController.shared.resetPosition() }
-                    Text("Back to the bottom-right corner.")
+                    Button("Reset position") { BuddyController.shared.resetPosition() }
+                    Text("Back to the bottom-right corner of its display.")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -114,7 +115,7 @@ struct BuddySettingsView: View {
                     Picker("Mochi's outfit", selection: $state.mochiOutfitSelection) {
                         ForEach(Outfit.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
-                    Text("The same wardrobe as in the notch. Right-click Mochi on the desktop to open it.")
+                    Text("The same wardrobe as the notch's Mochi.")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }

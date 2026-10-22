@@ -1,8 +1,8 @@
 import Foundation
 import Combine
 
-// coucou-custom fork: Settings → Buddy. What the desktop pet is and how it behaves, stored in
-// UserDefaults. Defaults reproduce the desktop Mochi as it was: Mochi, Medium (120 pt).
+// coucou-custom fork: Settings → Buddy. The desktop pet (its own window, apart from the notch's
+// Mochi): which pet, its size and how it behaves, stored in UserDefaults.
 
 @MainActor
 final class BuddySettings: ObservableObject {
@@ -11,6 +11,9 @@ final class BuddySettings: ObservableObject {
     /// The built-in pet: Coucou's own Mochi, drawn in code.
     static let mochiId = "mochi"
 
+    static let enabledKey = "buddyEnabled"
+    static let speechKey = "buddySpeechBubbles"
+    static let spotsKey = "buddySpots"
     static let petKey = "buddyPetId"
     static let sizeKey = "buddySize"
     static let flippedKey = "buddyFlippedPets"
@@ -19,6 +22,19 @@ final class BuddySettings: ObservableObject {
     static let overridesKey = "buddyReactionOverrides"
 
     private let defaults: UserDefaults
+
+    /// The Buddy is on the desktop.
+    @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: Self.enabledKey) } }
+    /// It says a short line when a permission or a question waits, or something fails.
+    @Published var speechBubbles: Bool { didSet { defaults.set(speechBubbles, forKey: Self.speechKey) } }
+    /// Where it stands, per display (BuddyPlacement).
+    var spots: [BuddySpot] {
+        get {
+            guard let d = defaults.data(forKey: Self.spotsKey) else { return [] }
+            return (try? JSONDecoder().decode([BuddySpot].self, from: d)) ?? []
+        }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: Self.spotsKey) }
+    }
 
     /// Which pet is on the desktop: `mochiId` or an installed pet's id.
     @Published var petId: String { didSet { defaults.set(petId, forKey: Self.petKey) } }
@@ -42,6 +58,8 @@ final class BuddySettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        enabled = defaults.object(forKey: Self.enabledKey) == nil ? true : defaults.bool(forKey: Self.enabledKey)
+        speechBubbles = defaults.object(forKey: Self.speechKey) == nil ? true : defaults.bool(forKey: Self.speechKey)
         petId = defaults.string(forKey: Self.petKey) ?? Self.mochiId
         size = defaults.object(forKey: Self.sizeKey) == nil ? .medium : BuddySize.from(stored: defaults.double(forKey: Self.sizeKey))
         flippedPets = Set(defaults.stringArray(forKey: Self.flippedKey) ?? [])

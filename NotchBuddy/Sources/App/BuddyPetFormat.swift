@@ -437,3 +437,98 @@ final class BuddyAnimator {
         return (animation.row, f ?? 0)
     }
 }
+
+// MARK: - Placement
+
+/// Where the Buddy stands. Its spot is kept per display, as OpenPets does, keyed by the display's
+/// frame ("x,y,wxh") because display ids change across reboots; up to 8 displays are remembered.
+/// The spot is the pet's foot (bottom centre), so a size change keeps it standing in place.
+struct BuddySpot: Codable, Equatable {
+    let screen: String
+    let x: Double
+    let y: Double
+}
+
+enum BuddyPlacement {
+    static let maxRememberedScreens = 8
+    static let defaultMargin: CGFloat = 24
+
+    static func screenKey(_ frame: CGRect) -> String {
+        "\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width))x\(Int(frame.height))"
+    }
+
+    static func origin(foot: CGPoint, side: CGFloat) -> CGPoint {
+        CGPoint(x: foot.x - side / 2, y: foot.y)
+    }
+
+    static func foot(origin: CGPoint, side: CGFloat) -> CGPoint {
+        CGPoint(x: origin.x + side / 2, y: origin.y)
+    }
+
+    /// Bottom-right of the display's usable area.
+    static func defaultFoot(visibleFrame vf: CGRect, side: CGFloat, margin: CGFloat = defaultMargin) -> CGPoint {
+        CGPoint(x: vf.maxX - margin - side / 2, y: vf.minY + margin)
+    }
+
+    /// Keeps the whole panel inside the display's usable area (no menu bar, no Dock).
+    static func clamp(origin: CGPoint, side: CGFloat, visibleFrame vf: CGRect) -> CGPoint {
+        CGPoint(x: min(max(origin.x, vf.minX), max(vf.minX, vf.maxX - side)),
+                y: min(max(origin.y, vf.minY), max(vf.minY, vf.maxY - side)))
+    }
+
+    static func spot(for screen: String, in spots: [BuddySpot]) -> BuddySpot? {
+        spots.first { $0.screen == screen }
+    }
+
+    /// The display's new spot first, then the others, at most 8.
+    static func remembering(_ spot: BuddySpot, in spots: [BuddySpot]) -> [BuddySpot] {
+        Array(([spot] + spots.filter { $0.screen != spot.screen }).prefix(maxRememberedScreens))
+    }
+}
+
+// MARK: - Speech bubbles
+
+/// When the Buddy says something. As OpenPets' Claude Code hook: it speaks when a permission or a
+/// question waits (3 s cooldown) and when something fails (20 s cooldown), with short canned lines,
+/// never the agent's own text; a bubble stays about 4 s.
+struct BuddySpeech {
+    enum Category: String, CaseIterable { case permission, question, error }
+
+    static let permissionCooldown: TimeInterval = 3
+    static let speechCooldown: TimeInterval = 20
+    static let displayDuration: TimeInterval = 4
+
+    private(set) var lastSpoken: [Category: Date] = [:]
+
+    static func category(for state: BotState) -> Category? {
+        switch state {
+        case .approval: return .permission
+        case .question: return .question
+        case .error: return .error
+        default: return nil
+        }
+    }
+
+    static func cooldown(_ c: Category) -> TimeInterval {
+        c == .error ? speechCooldown : permissionCooldown
+    }
+
+    /// True, and the category's clock restarts, when it has not spoken within its cooldown.
+    mutating func shouldSpeak(_ c: Category, now: Date) -> Bool {
+        if let last = lastSpoken[c], now.timeIntervalSince(last) < Self.cooldown(c) { return false }
+        lastSpoken[c] = now
+        return true
+    }
+
+    static let lines: [Category: [String]] = [
+        .permission: ["Need your OK", "Can I go ahead?", "Permission, please", "Waiting on you", "Approve this?"],
+        .question: ["Quick question", "Your call", "Need an answer", "Which way?", "Got a question"],
+        .error: ["Hit a snag", "Something broke", "That failed", "Needs a look", "Uh-oh"],
+    ]
+
+    static func line(_ c: Category, pick: Int) -> String {
+        let pool = lines[c] ?? []
+        guard !pool.isEmpty else { return "" }
+        return pool[((pick % pool.count) + pool.count) % pool.count]
+    }
+}
