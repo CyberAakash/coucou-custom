@@ -44,8 +44,18 @@ enum BuddySize: Double, CaseIterable, Identifiable {
 
     static let mochiMediumPanel: CGFloat = 120
 
+    /// A custom size, as a scale like the presets' (0.25 is a 40 pt Mochi, 2 a 320 pt one).
+    static let customRange: ClosedRange<Double> = 0.25...2
+
     /// Side of Mochi's square.
-    var side: CGFloat { (Self.mochiMediumPanel * rawValue / BuddySize.medium.rawValue).rounded() }
+    var side: CGFloat { Self.side(scale: rawValue) }
+
+    static func side(scale: Double) -> CGFloat {
+        (mochiMediumPanel * min(max(scale, customRange.lowerBound), customRange.upperBound) / medium.rawValue).rounded()
+    }
+
+    /// The preset at exactly this scale; nil for a custom one.
+    static func preset(scale: Double) -> BuddySize? { allCases.first { abs($0.rawValue - scale) < 0.001 } }
 }
 
 // MARK: - Window margins
@@ -248,6 +258,12 @@ enum BuddyShadow: String, CaseIterable, Identifiable {
         case .strong: return 0.36
         }
     }
+
+    /// A custom shadow's opacity, up to twice Strong's darkness.
+    static let customRange: ClosedRange<Double> = 0...0.7
+
+    /// The preset at exactly this opacity; nil for a custom one.
+    static func preset(opacity: Double) -> BuddyShadow? { allCases.first { abs($0.opacity - opacity) < 0.001 } }
 
     /// Under the body, on the floor (y down in the window); `lift`: how far up the body is, as a
     /// fraction of the square (0 on the floor). A jump makes it smaller and lighter.

@@ -104,7 +104,7 @@ final class BuddyController {
     private var engine: BotEngine?
     private var viewState: BuddyViewState?
     /// The size and companion count the panel was built for: rebuilt only when they change.
-    private var shownSize: BuddySize?
+    private var shownScale: Double?
     private var shownCompanionCount: Int?
     private var shownCompanionSide: BuddyCompanionSide?
     private var companions: BuddyCompanions?
@@ -222,14 +222,14 @@ final class BuddyController {
 
     // MARK: - Show / hide / rebuild
 
-    private var side: CGFloat { (shownSize ?? settings.size).side }
+    private var side: CGFloat { BuddySize.side(scale: shownScale ?? settings.sizeScale) }
     private let insets = BuddyInsets.mochi
     /// The companions' roaming room on each side of the window.
     private var strip: CGFloat { companions?.layout.roam ?? 0 }
 
     private func apply() {
         guard settings.enabled else { hide(); return }
-        if panel == nil || shownSize != settings.size || shownCompanionCount != settings.companions
+        if panel == nil || shownScale != settings.sizeScale || shownCompanionCount != settings.companions
             || shownCompanionSide != settings.companionSide { show() }
         applyLook()
     }
@@ -241,7 +241,7 @@ final class BuddyController {
         let worn = settings.resolvedOutfit()
         engine.setOutfit(worn.engineOutfit ?? .none, animated: animated)
         viewState?.nightcap = worn == .nightcap
-        viewState?.shadow = settings.shadow.opacity
+        viewState?.shadow = settings.shadowOpacity
         engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
         companions?.recolor { [settings] in settings.companionColor($0) }
     }
@@ -251,7 +251,7 @@ final class BuddyController {
         let p = panel ?? makePanel()
         let oldFoot = firstShow ? nil : foot(p)
 
-        shownSize = settings.size
+        shownScale = settings.sizeScale
         shownCompanionCount = settings.companions
         shownCompanionSide = settings.companionSide
         let s = side
@@ -308,7 +308,7 @@ final class BuddyController {
         viewState = nil
         companions = nil
         pressedCompanion = nil
-        shownSize = nil
+        shownScale = nil
         shownCompanionCount = nil
         shownCompanionSide = nil
         shownState = nil
@@ -727,8 +727,8 @@ final class BuddyController {
 
         let sizeMenu = NSMenu()
         for size in BuddySize.allCases {
-            sizeMenu.addItem(BuddyMenuItem(size.label, checked: settings.size == size) { [weak self] in
-                self?.settings.size = size
+            sizeMenu.addItem(BuddyMenuItem(size.label, checked: BuddySize.preset(scale: settings.sizeScale) == size) { [weak self] in
+                self?.settings.sizeScale = size.rawValue
             })
         }
         let sizeItem = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")

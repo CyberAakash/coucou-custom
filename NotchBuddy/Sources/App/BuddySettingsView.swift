@@ -15,8 +15,12 @@ struct HubBuddyPage: View {
 
             HubLabel("Look")
             HubCard {
-                HubRow(title: "Size", detail: "\(settings.size.label) · \(Int(settings.size.side)) pt") {
-                    BuddySizeChips(selection: $settings.size)
+                HubRow(title: "Size", detail: "\(BuddySize.preset(scale: settings.sizeScale)?.label ?? "Custom") · \(Int(BuddySize.side(scale: settings.sizeScale))) pt") {
+                    BuddySizeChips(scale: $settings.sizeScale)
+                }
+                if BuddySize.preset(scale: settings.sizeScale) == nil {
+                    BuddyCustomSlider(value: $settings.sizeScale, range: BuddySize.customRange, step: 0.05,
+                                      low: "40 pt", high: "320 pt") { "\(Int(BuddySize.side(scale: $0))) pt" }
                 }
                 HubDivider()
                 HubRow(title: "Colour", detail: "Any colour, or Mochi's own.") {
@@ -38,7 +42,11 @@ struct HubBuddyPage: View {
                 }
                 HubDivider()
                 HubRow(title: "Shadow", detail: "On the floor under it and its companions; lighter as they jump.") {
-                    BuddyShadowChips(selection: $settings.shadow)
+                    BuddyShadowChips(opacity: $settings.shadowOpacity)
+                }
+                if BuddyShadow.preset(opacity: settings.shadowOpacity) == nil {
+                    BuddyCustomSlider(value: $settings.shadowOpacity, range: BuddyShadow.customRange, step: 0.01,
+                                      low: "None", high: "Dark", live: true) { "\(Int(($0 * 100).rounded())) %" }
                 }
             }
 
@@ -148,7 +156,7 @@ private struct BuddyHeroCard: View {
         .onAppear { preview.dress(settings) }
         .onChange(of: settings.alwaysWear) { _, _ in preview.dress(settings) }
         .onChange(of: settings.userSchedule) { _, _ in preview.dress(settings) }
-        .onChange(of: settings.shadow) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.shadowOpacity) { _, _ in preview.dress(settings) }
         .onChange(of: settings.color) { _, _ in preview.dress(settings) }
         .onChange(of: settings.companions) { _, _ in preview.dress(settings) }
         .onChange(of: settings.companionsMatch) { _, _ in preview.dress(settings) }
@@ -178,7 +186,7 @@ private final class BuddyPreview: ObservableObject {
         let worn = settings.resolvedOutfit()
         engine.setOutfit(worn.engineOutfit ?? .none, animated: true)
         state.nightcap = worn == .nightcap
-        state.shadow = settings.shadow.opacity
+        state.shadow = settings.shadowOpacity
         engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
         if (companions?.layout.count ?? 0) != settings.companions || companions?.layout.placement != settings.companionSide {
             let layout = BuddyCompanionLayout(count: settings.companions, side: side, placement: settings.companionSide)
@@ -209,13 +217,15 @@ private final class BuddyPreview: ObservableObject {
 // MARK: - Look
 
 private struct BuddySizeChips: View {
-    @Binding var selection: BuddySize
+    @Binding var scale: Double
+    @State private var custom = false
 
     var body: some View {
+        let preset = BuddySize.preset(scale: scale)
         HStack(spacing: 4) {
             ForEach(BuddySize.allCases) { size in
-                let on = selection == size
-                Button { selection = size } label: {
+                let on = preset == size && !custom
+                Button { custom = false; scale = size.rawValue } label: {
                     Text(size.short)
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
@@ -227,7 +237,13 @@ private struct BuddySizeChips: View {
                 .buttonStyle(.plain)
                 .help(size.label)
             }
+            BuddyCustomChip(on: preset == nil || custom) {
+                // Nudge off the preset so the slider shows, starting where the Buddy is now.
+                if preset != nil { scale = min(scale + 0.05, BuddySize.customRange.upperBound) }
+                custom = true
+            }
         }
+        .onChange(of: scale) { _, s in if BuddySize.preset(scale: s) != nil && !custom { custom = false } }
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))

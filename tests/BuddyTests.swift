@@ -269,16 +269,16 @@ enum BuddyTests {
         precondition(BuddySettings(defaults: ud).companionSide == .both, "companions on both sides by default")
         defer { ud.removePersistentDomain(forName: suite) }
         let s = BuddySettings(defaults: ud)
-        precondition(s.enabled && s.size == .medium && s.alwaysWear == nil && s.userSchedule == nil && s.color.isEmpty, "defaults")
+        precondition(s.enabled && s.sizeScale == BuddySize.medium.rawValue && s.alwaysWear == nil && s.userSchedule == nil && s.color.isEmpty, "defaults")
         precondition(s.reactToAgents && s.speechBubbles && s.followCursor && s.napWhenIdle && s.spots.isEmpty, "behaviour defaults")
-        precondition(s.shadow == .soft && s.clicks == BuddyClickBinding.defaults && s.schedule == BuddyWardrobe.defaultSchedule, "shadow, clicks, schedule")
+        precondition(s.shadowOpacity == BuddyShadow.soft.opacity && s.clicks == BuddyClickBinding.defaults && s.schedule == BuddyWardrobe.defaultSchedule, "shadow, clicks, schedule")
 
-        s.enabled = false; s.size = .large; s.alwaysWear = .crown; s.color = "#F472B6"; s.shadow = .strong
+        s.enabled = false; s.sizeScale = BuddySize.large.rawValue; s.alwaysWear = .crown; s.color = "#F472B6"; s.shadowOpacity = BuddyShadow.strong.opacity
         s.reactToAgents = false; s.speechBubbles = false; s.followCursor = false; s.napWhenIdle = false
         s.spots = [BuddySpot(screen: "0,0,1512x982", x: 10, y: 20)]
         s.setBinding(.init(action: .shortcut, parameter: "Focus"), for: .double)
         let t = BuddySettings(defaults: ud)
-        precondition(!t.enabled && t.size == .large && t.alwaysWear == .crown && t.color == "#F472B6" && t.shadow == .strong, "look persisted")
+        precondition(!t.enabled && t.sizeScale == BuddySize.large.rawValue && t.alwaysWear == .crown && t.color == "#F472B6" && t.shadowOpacity == BuddyShadow.strong.opacity, "look persisted")
         precondition(!t.reactToAgents && !t.speechBubbles && !t.followCursor && !t.napWhenIdle, "behaviour persisted")
         precondition(t.spots == [BuddySpot(screen: "0,0,1512x982", x: 10, y: 20)], "spots persisted")
         precondition(t.binding(.double) == .init(action: .shortcut, parameter: "Focus") && t.binding(.click).action == .hello, "clicks persisted, others default")
@@ -318,9 +318,26 @@ enum BuddyTests {
         t.color = "not a colour"
         precondition(t.color.isEmpty && BuddySettings(defaults: ud).color.isEmpty, "a bad colour → Mochi's own")
         ud.set("zzz", forKey: BuddySettings.colorKey); ud.set("cape", forKey: BuddySettings.outfitKey)
-        ud.set("neon", forKey: BuddySettings.shadowKey); ud.set(Data("x".utf8), forKey: BuddySettings.clicksKey)
+        ud.set("neon", forKey: BuddySettings.shadowKey); ud.set("neon", forKey: BuddySettings.shadowOpacityKey); ud.set(Data("x".utf8), forKey: BuddySettings.clicksKey)
         let u = BuddySettings(defaults: ud)
-        precondition(u.color.isEmpty && u.alwaysWear == nil && u.shadow == .soft && u.clicks == BuddyClickBinding.defaults, "bad stored values → defaults")
+        precondition(u.color.isEmpty && u.alwaysWear == nil && u.shadowOpacity == BuddyShadow.soft.opacity && u.clicks == BuddyClickBinding.defaults, "bad stored values → defaults")
+
+        // Custom size and shadow: any value in range, clamped, stored; the presets are shortcuts.
+        u.sizeScale = 0.9
+        precondition(BuddySize.preset(scale: u.sizeScale) == nil && BuddySettings(defaults: ud).sizeScale == 0.9, "custom size stored")
+        precondition(BuddySize.side(scale: 0.9) == 144, "custom side relative to Medium")
+        u.sizeScale = 9
+        precondition(u.sizeScale == BuddySize.customRange.upperBound, "size clamped")
+        u.sizeScale = BuddySize.large.rawValue
+        precondition(BuddySize.preset(scale: u.sizeScale) == .large, "a preset is still a preset")
+        u.shadowOpacity = 0.5
+        precondition(BuddyShadow.preset(opacity: 0.5) == nil && BuddySettings(defaults: ud).shadowOpacity == 0.5, "custom shadow stored")
+        u.shadowOpacity = -1
+        precondition(u.shadowOpacity == 0 && BuddyShadow.preset(opacity: 0) == .off, "shadow clamped")
+        let old = UserDefaults(suiteName: "buddy-migrate-\(UUID().uuidString)")!
+        old.set(BuddySize.small.rawValue, forKey: BuddySettings.sizeKey); old.set("strong", forKey: BuddySettings.shadowKey)
+        let m = BuddySettings(defaults: old)
+        precondition(m.sizeScale == BuddySize.small.rawValue && m.shadowOpacity == BuddyShadow.strong.opacity, "older presets carried over")
 
         // Companions
         precondition(u.companions == 0 && !u.companionsMatch, "no companions by default")
