@@ -51,6 +51,13 @@ struct BotCanvasView: View {
                         ? cgColorFromHex(state.focusTask!.color)
                         : nil
                 }
+                // A new Coucou waits and Mochi has nothing else to say: he turns blue, with an arrow.
+                let updateHint = MacUpdater.shared.hintActive
+                    && (state.effectiveState == .idle || state.effectiveState == .sleeping)
+                    && state.pendingApproval == nil && state.pendingQuestion == nil
+                    && !state.showingPlanDetail
+                if updateHint { engine.bodyColor = BotEngine.updateBlue }
+                engine.setUpdateHint(updateHint)
                 #else
                 engine.bodyColor = (state.focusTask?.isIntegration == true)
                     ? cgColorFromHex(state.focusTask!.color)
@@ -218,7 +225,7 @@ struct BotCanvasView: View {
         let botX = botPoint(islandH: islandH)
         // The chat view grows with the conversation: vertical look uses its real height.
         let actualH: CGFloat = (state.mode == .expanded && state.view == .prompt)
-            ? min(300, 240 + CGFloat(state.chatHistory.count) * 40)
+            ? ChatLayout.height   // coucou-custom fork: measured (ChatFit)
             : islandH
         let botY = actualH == islandH ? botX : botPoint(islandH: actualH)
         return (tanh((mouse.x - botX.x) / 260),

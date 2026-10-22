@@ -224,7 +224,7 @@ final class VoiceCaptionManager {
                                      nw: app.notchWidth, nh: app.notchHeight)
         var islandH = fixedH
         if app.mode == .expanded && app.view == .prompt {
-            islandH = min(300, 240 + CGFloat(app.chatHistory.count) * 40)
+            islandH = ChatLayout.height   // coucou-custom fork: measured (ChatFit)
         }
         let visibleH = max(islandH, app.notchHeight)
         let sf = screen.frame

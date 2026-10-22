@@ -30,11 +30,18 @@ final class MacUpdater: ObservableObject {
 
     enum CheckResult: Equatable { case none, checking, upToDate, unreachable }
 
-    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var phase: Phase = .idle {
+        didSet { if busy != (oldValue.isBusy) { refreshHint() } }
+    }
     /// For "Check now" in Settings.
     @Published private(set) var lastCheck: CheckResult = .none
     /// The newest release found, kept even after "Later" (the menu bar and Settings offer it).
-    @Published private(set) var latest: MacUpdate.Release? = nil
+    @Published private(set) var latest: MacUpdate.Release? = nil {
+        didSet { refreshHint() }
+    }
+    /// A newer Coucou waits: Mochi is blue and a click opens the update first (BotCanvasView,
+    /// IslandWindowController.defaultView). Off for a day after Later.
+    @Published private(set) var hintActive = false
 
     /// coucou-custom fork: off. The release it installs is Louis's official build, and it takes the
     /// place of the running app, so Coucou Custom would lose every customization (and its local
@@ -59,6 +66,15 @@ final class MacUpdater: ObservableObject {
         get { UserDefaults.standard.object(forKey: "updateSnoozedAt") as? Date }
         set { UserDefaults.standard.set(newValue, forKey: "updateSnoozedAt") }
     }
+    /// "Later" on the card: no blue Mochi for that version for a day (the announcement has its own snooze).
+    private var laterVersion: String? {
+        get { UserDefaults.standard.string(forKey: "updateLaterVersion") }
+        set { UserDefaults.standard.set(newValue, forKey: "updateLaterVersion") }
+    }
+    private var laterAt: Date? {
+        get { UserDefaults.standard.object(forKey: "updateLaterAt") as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: "updateLaterAt") }
+    }
     private var askedAt: Date? {
         get { UserDefaults.standard.object(forKey: "updateConsentAskedAt") as? Date }
         set { UserDefaults.standard.set(newValue, forKey: "updateConsentAskedAt") }
@@ -68,11 +84,19 @@ final class MacUpdater: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
-    var busy: Bool {
-        switch phase {
-        case .downloading, .verifying, .installing, .relaunching: return true
-        default: return false
-        }
+    var busy: Bool { phase.isBusy }
+
+    private func refreshHint() {
+        let on = !busy && MacUpdate.showsHint(latest, current: Self.currentVersion, consent: Self.consent,
+                                              laterVersion: laterVersion, laterAt: laterAt, now: Date())
+        if hintActive != on { hintActive = on }
+    }
+
+    /// The island opens on the update while Mochi is blue (a click, a hover, the keyboard).
+    func prepareCard() {
+        guard let release = latest, !busy else { return }
+        if case .available = phase { return }
+        phase = .available(release)
     }
 
     private var timer: Timer?
@@ -104,6 +128,7 @@ final class MacUpdater: ObservableObject {
     }
 
     private func tick(launch: Bool = false) {
+        refreshHint()   // a day after Later, Mochi turns blue again
         switch Self.consent {
         case nil:
             askIfFree()
@@ -139,6 +164,7 @@ final class MacUpdater: ObservableObject {
     /// Settings: the toggle.
     func setEnabled(_ on: Bool) {
         Self.consent = on
+        refreshHint()
         if on { Task { await check(manual: false) } }
         else if case .asking = phase { phase = .idle }
     }
@@ -198,6 +224,9 @@ final class MacUpdater: ObservableObject {
         if case .available(let r) = phase {
             snoozedVersion = r.version
             snoozedAt = Date()
+            laterVersion = r.version
+            laterAt = Date()
+            refreshHint()
         }
         if !busy { phase = .idle }
         NotificationCenter.default.post(name: .islandCollapse, object: nil)
@@ -353,6 +382,15 @@ final class MacUpdater: ObservableObject {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NSApp.terminate(nil) }
+    }
+}
+
+extension MacUpdater.Phase {
+    var isBusy: Bool {
+        switch self {
+        case .downloading, .verifying, .installing, .relaunching: return true
+        default: return false
+        }
     }
 }
 
