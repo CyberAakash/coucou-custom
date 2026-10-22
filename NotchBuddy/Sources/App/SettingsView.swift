@@ -152,6 +152,7 @@ struct SettingsView: View {
     @AppStorage("iPhoneInstructionsEnabled") private var iPhoneInstructionsEnabled = false
     #endif
     @AppStorage(ClaudeHost.terminalCardsKey) private var terminalCardsEnabled = false
+    @AppStorage(HookServer.questionsBothWaysKey) private var questionsBothWays = true   // coucou-custom fork
     // coucou-custom fork: NotchAlertRules / NotchPulse.
     @AppStorage(NotchAlertRules.openOnFinishKey) private var openOnFinish = true
     @AppStorage(NotchAlertRules.openOnErrorKey) private var openOnError = true
@@ -642,6 +643,10 @@ struct SettingsView: View {
                 }
                 #endif
                 Toggle("Answer questions and permissions from terminal sessions in the notch", isOn: $terminalCardsEnabled)
+                Toggle(String(localized: "questions.both-ways", defaultValue: "Questions: answer in the notch or in the terminal"),
+                       isOn: $questionsBothWays)
+                    .help(String(localized: "questions.both-ways.help",
+                                 defaultValue: "The terminal shows the question at the same time; whichever you answer first wins."))
                 Text("Off: sessions in Warp, Terminal, iTerm… show in the notch, but their questions and permission requests are asked in the terminal. On: the notch shows them first, and the terminal waits until you answer there or close the island (up to 2 min).")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)

@@ -246,6 +246,35 @@ final class HookServer: @unchecked Sendable {
         }
     }
 
+    /// coucou-custom fork: Settings → Agents → "Answer questions in the notch or the terminal".
+    nonisolated static let questionsBothWaysKey = "coucouQuestionsBothWays"
+    nonisolated static var questionsBothWays: Bool {
+        UserDefaults.standard.object(forKey: questionsBothWaysKey) as? Bool ?? true
+    }
+
+    /// The question was answered in the terminal: Claude Code does not end the waiting hook, so
+    /// the session's next event (the question's PostToolUse, the turn's end, a new prompt) is
+    /// the sign. The relay gets "ask" and prints nothing; the card goes.
+    @MainActor
+    private func questionAnsweredElsewhere(event: String, sessionId: String, tool: String) -> Bool {
+        guard pendingQuestionFD >= 0, !questionSessionId.isEmpty, sessionId == questionSessionId else { return false }
+        let ends = ["Stop", "StopFailure", "UserPromptSubmit", "SessionEnd", "Interrupt"].contains(event)
+        let questionDone = (event == "PostToolUse" || event == "PostToolUseFailure") && tool == "AskUserQuestion"
+        guard ends || questionDone else { return false }
+        nbLog("[Question] answered in the terminal (\(event)): card dismissed")
+        let fd = pendingQuestionFD
+        pendingQuestionFD = -1
+        let source = questionFDSource
+        questionFDSource = nil
+        questionSessionId = ""
+        Task.detached { [weak self] in
+            self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
+            DispatchQueue.main.async { source?.cancel() }
+        }
+        dismissQuestionCard(note: "")
+        return true
+    }
+
     /// Called by QuestionView "Reply in terminal" button.
     @MainActor
     func sendQuestionAsk() {
@@ -382,6 +411,14 @@ final class HookServer: @unchecked Sendable {
 
         // AskUserQuestion via --ask PreToolUse hook — hold fd open like PermissionRequest
         if coucouKind == "ask_user_question" {
+            // coucou-custom fork: questions answerable in the notch AND the terminal. The
+            // PreToolUse hook blocks the terminal's dialog, so it passes at once; the card is
+            // driven by the PermissionRequest that follows, which leaves the dialog on screen.
+            if Self.questionsBothWays {
+                sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
+                close(fd)
+                return
+            }
             let toolInput = payload["tool_input"] as? [String: Any] ?? [:]
             if let parsed = AskQuestion.parse(toolInput: toolInput) {
                 Task { @MainActor in self.processQuestionRequest(fd: fd, parsed: parsed, payload: payload) }
@@ -470,6 +507,9 @@ final class HookServer: @unchecked Sendable {
             nbLog("Ignored \(name) from \(termProgram.isEmpty ? bundleId : termProgram) (\(projectName))")
             return
         }
+        // coucou-custom fork: a question card the user answered in the terminal goes.
+        _ = questionAnsweredElsewhere(event: name, sessionId: sessionId,
+                                      tool: payload["tool_name"] as? String ?? "")
         // Per-session detail for the Sessions view (coucou-custom fork).
         LiveSessions.shared.record(event: name, payload: payload, pill: agentId,
                                    projectName: isExternalAgent ? (validAgent ?? projectName) : projectName,
@@ -937,6 +977,13 @@ final class HookServer: @unchecked Sendable {
         // If it still arrives here as a PermissionRequest, reply "ask" so Claude Code
         // re-asks in the terminal — never show the question twice.
         if tool == "AskUserQuestion" {
+            // coucou-custom fork: see questionsBothWays. The relay turns the card's "answer"
+            // into allow + updatedInput {questions, answers}, which closes the terminal dialog.
+            if Self.questionsBothWays,
+               let parsed = AskQuestion.parse(toolInput: payload["tool_input"] as? [String: Any] ?? [:]) {
+                processQuestionRequest(fd: fd, parsed: parsed, payload: payload)
+                return
+            }
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
