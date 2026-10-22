@@ -174,6 +174,9 @@ final class FlowHubController {
 
     func show(_ page: HubPage? = nil) {
         if let page { router.page = page }
+        #if !APPSTORE
+        BackgroundMode.windowWillShow()   // coucou-custom fork: back in the Dock while the window is open
+        #endif
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
