@@ -3,10 +3,10 @@ import AppKit
 import SwiftUI
 import Combine
 
-// coucou-custom fork: the Buddy — a desktop pet in its own window, like OpenPets. It is not the
-// notch's Mochi (DesktopMochiController moves that one out of the notch): the notch keeps its
-// Mochi, and the Buddy stays on the desktop whatever the notch shows. Mochi (drawn by BotEngine)
-// by default, or an OpenPets / Codex pet. Settings → Buddy, or right-click the Buddy.
+// coucou-custom fork: the Buddy — a Mochi of its own on the desktop, in its own window, like an
+// OpenPets pet. It is not the notch's Mochi (DesktopMochiController moves that one out of the
+// notch): it has its own engine, look and settings, and never changes the notch. Settings →
+// Buddy, or right-click it.
 
 /// Takes every mouse event inside the panel: the SwiftUI drawing under it never sees them.
 private final class BuddyContainerView: NSView {
@@ -61,16 +61,14 @@ final class BuddyController {
     static let shared = BuddyController()
 
     private let settings = BuddySettings.shared
-    private let store = BuddyPetStore.shared
 
     private var panel: NSPanel?
     private var bubble: NSPanel?
     private var bubbleHide: DispatchWorkItem?
     private var engine: BotEngine?
-    private var viewState: DesktopBotViewState?
-    private var pet: BuddyLoadedPet?
-    /// What the panel shows now ("petId|size"): rebuilt only when it changes.
-    private var contentKey: String?
+    private var viewState: BuddyViewState?
+    /// The size the panel was built for: rebuilt only when it changes.
+    private var shownSize: BuddySize?
     private var timer: Timer?
     private var cancellables: Set<AnyCancellable> = []
     private var started = false
@@ -78,7 +76,12 @@ final class BuddyController {
     private var screenOff = false
     private var isSleeping = false
     private var lastAgentActive = Date.now
-    private var lastState: BotState = .idle
+    /// The agents' state as last seen, for the speech bubble and the finish emote.
+    private var lastAgentState: BotState = .idle
+    /// The state the engine was last given.
+    private var shownState: BotState?
+    /// "Auto" outfits follow the date: checked once a minute.
+    private var lastLookCheck = Date.distantPast
     private var speech = BuddySpeech()
     private var speechPick = 0
 
@@ -86,9 +89,6 @@ final class BuddyController {
     /// The square's origin when the drag began.
     private var dragStartSquare: NSPoint = .zero
     private var dragging = false
-    private var lastDragX: CGFloat = 0
-    private var lastMouse: NSPoint = .zero
-    private var lastMouseMove: Date?
 
     private init() {}
 
@@ -101,69 +101,53 @@ final class BuddyController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.apply() } }
             .store(in: &cancellables)
-        store.$pets
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.apply(force: true) } }
-            .store(in: &cancellables)
         observeScreen()
         apply()
     }
 
+    /// The Buddy waves (Settings → Buddy → Say hi).
+    func wave() {
+        engine?.triggerEmote(.happy, duration: 1.2, silent: false)
+    }
+
     // MARK: - Show / hide / rebuild
 
-    /// The pet chosen in Settings, or Mochi when it is gone.
-    private var resolvedPetId: String {
-        settings.isMochi || store.pet(id: settings.petId) == nil ? BuddySettings.mochiId : settings.petId
-    }
+    private var side: CGFloat { (shownSize ?? settings.size).side }
+    private let insets = BuddyInsets.mochi
 
-    private var side: CGFloat { settings.size.panelSide(isMochi: pet == nil) }
-
-    /// The square the window shows now and the room around it (BuddyInsets): placement, hit
-    /// testing, gaze and the bubble go by the square, never by the window.
-    private var shownSide: CGFloat = 0
-    private var shownInsets = BuddyInsets.mochi
-
-    /// The pet's square on screen (AppKit, y up).
-    private func inner(_ p: NSPanel) -> NSRect {
-        let o = shownInsets.innerOrigin(side: shownSide)
-        return NSRect(x: p.frame.minX + o.x, y: p.frame.minY + o.y, width: shownSide, height: shownSide)
-    }
-
-    /// The window origin that puts the square's bottom-left at `squareOrigin`.
-    private func panelOrigin(square squareOrigin: CGPoint) -> CGPoint {
-        let o = shownInsets.innerOrigin(side: shownSide)
-        return CGPoint(x: squareOrigin.x - o.x, y: squareOrigin.y - o.y)
-    }
-
-    /// The square's foot (bottom centre) on screen.
-    private func foot(_ p: NSPanel) -> CGPoint {
-        let r = inner(p)
-        return CGPoint(x: r.midX, y: r.minY)
-    }
-
-    /// Puts the square's foot at `target`, kept inside the display's usable area (the room
-    /// around the square may go past it: it is transparent).
-    private func place(_ p: NSPanel, foot target: CGPoint, on screen: NSScreen) {
-        let square = BuddyPlacement.clamp(origin: BuddyPlacement.origin(foot: target, side: shownSide),
-                                          side: shownSide, visibleFrame: screen.visibleFrame)
-        p.setFrameOrigin(panelOrigin(square: square))
-    }
-
-    private func apply(force: Bool = false) {
+    private func apply() {
         guard settings.enabled else { hide(); return }
-        let key = "\(resolvedPetId)|\(settings.size.rawValue)"
-        if panel == nil || key != contentKey || force { show(key: key) }
+        if panel == nil || shownSize != settings.size { show() }
+        applyLook()
     }
 
-    private func show(key: String) {
+    /// Outfit and colour from the Buddy's own settings (never the notch's wardrobe).
+    private func applyLook() {
+        guard let engine else { return }
+        engine.setOutfit(settings.resolvedOutfit(), animated: true)
+        engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
+    }
+
+    private func show() {
         let firstShow = panel == nil
         let p = panel ?? makePanel()
         let oldFoot = firstShow ? nil : foot(p)
 
-        let hosting = makeContent()   // sets pet, which decides the side, and the room around it
-        let s = shownSide
-        let size = shownInsets.panelSize(side: s)
+        shownSize = settings.size
+        let s = side
+        let size = insets.panelSize(side: s)
+        let vs = BuddyViewState()
+        vs.paused = screenOff
+        viewState = vs
+        let eng = BotEngine()
+        shownState = nil
+        engine = eng
+        eng.setOutfit(settings.resolvedOutfit(), animated: false)
+        applyLook()
+        updateEngineState()
+
+        let hosting = NSHostingView(rootView: BuddyMochiView(engine: eng, viewState: vs,
+                                                             inner: insets.innerRectTopDown(side: s), canvas: size))
         let container = BuddyContainerView(frame: CGRect(origin: .zero, size: size))
         container.controller = self
         hosting.frame = container.bounds
@@ -175,11 +159,9 @@ final class BuddyController {
         p.setFrame(NSRect(origin: p.frame.origin, size: size), display: false)
         place(p, foot: target, on: screen)
         p.contentView = container
-        viewState?.lookOrigin = lookOrigin(p)
         panel = p
-        contentKey = key
         p.orderFrontRegardless()
-        if firstShow { engine?.triggerEmote(.happy, duration: 0.6, silent: true) }
+        if firstShow { eng.triggerEmote(.happy, duration: 0.6, silent: true) }
         startTimer()
     }
 
@@ -191,8 +173,8 @@ final class BuddyController {
         panel = nil
         engine = nil
         viewState = nil
-        pet = nil
-        contentKey = nil
+        shownSize = nil
+        shownState = nil
         dragging = false
         dragStartMouse = nil
     }
@@ -211,33 +193,33 @@ final class BuddyController {
         return p
     }
 
-    /// Mochi (its own BotEngine, not the notch's) or the pet's sprite.
-    private func makeContent() -> NSView {
-        let vs = DesktopBotViewState()
-        vs.paused = screenOff
-        vs.isSleeping = isSleeping
-        viewState = vs
-        pet = nil
-        engine = nil
-        if resolvedPetId != BuddySettings.mochiId, let loaded = BuddyLoadedPet.load(id: resolvedPetId) {
-            pet = loaded
-            syncPetOptions(loaded)
-            shownSide = side
-            shownInsets = .pet
-            return NSHostingView(rootView: BuddyPetView(pet: loaded, viewState: vs,
-                                                        inner: shownInsets.innerRectTopDown(side: shownSide)))
-        }
-        let eng = BotEngine()
-        eng.setState(isSleeping ? .sleeping : AppState.shared.effectiveState, force: true)
-        eng.setOutfit(AppState.shared.resolvedOutfit, animated: false)
-        engine = eng
-        shownSide = side
-        shownInsets = .mochi
-        return NSHostingView(rootView: BuddyMochiView(appState: AppState.shared, engine: eng, viewState: vs,
-                                                      inner: shownInsets.innerRectTopDown(side: shownSide)))
+    // MARK: - Where it stands
+
+    /// Mochi's square on screen (AppKit, y up). Placement, hit testing, the eyes and the bubble
+    /// go by the square; the room around it (BuddyInsets) is transparent and never takes clicks.
+    private func inner(_ p: NSPanel) -> NSRect {
+        let o = insets.innerOrigin(side: side)
+        return NSRect(x: p.frame.minX + o.x, y: p.frame.minY + o.y, width: side, height: side)
     }
 
-    // MARK: - Where it stands
+    /// The window origin that puts the square's bottom-left at `squareOrigin`.
+    private func panelOrigin(square squareOrigin: CGPoint) -> CGPoint {
+        let o = insets.innerOrigin(side: side)
+        return CGPoint(x: squareOrigin.x - o.x, y: squareOrigin.y - o.y)
+    }
+
+    /// The square's foot (bottom centre) on screen.
+    private func foot(_ p: NSPanel) -> CGPoint {
+        let r = inner(p)
+        return CGPoint(x: r.midX, y: r.minY)
+    }
+
+    /// Puts the square's foot at `target`, kept inside the display's usable area.
+    private func place(_ p: NSPanel, foot target: CGPoint, on screen: NSScreen) {
+        let square = BuddyPlacement.clamp(origin: BuddyPlacement.origin(foot: target, side: side),
+                                          side: side, visibleFrame: screen.visibleFrame)
+        p.setFrameOrigin(panelOrigin(square: square))
+    }
 
     private func screenAt(_ point: CGPoint) -> NSScreen? {
         NSScreen.screens.first { $0.frame.contains(point) }
@@ -250,8 +232,7 @@ final class BuddyController {
 
     /// The display it last stood on, if still connected; else the main one.
     private func startScreen() -> NSScreen {
-        let spots = settings.spots
-        if let first = spots.first,
+        if let first = settings.spots.first,
            let s = NSScreen.screens.first(where: { BuddyPlacement.screenKey($0.frame) == first.screen }) { return s }
         return NSScreen.main ?? NSScreen.screens[0]
     }
@@ -277,7 +258,7 @@ final class BuddyController {
             return
         }
         let screen = screenAt(foot(p)) ?? startScreen()
-        place(p, foot: BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: shownSide), on: screen)
+        place(p, foot: BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: side), on: screen)
         saveSpot()
         moveBubble()
     }
@@ -289,7 +270,7 @@ final class BuddyController {
         let onScreen = NSScreen.screens.contains { $0.frame.contains(f) }
         let screen = onScreen ? (screenAt(f) ?? startScreen()) : startScreen()
         let target = onScreen ? f : (savedFoot(on: screen)
-            ?? BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: shownSide))
+            ?? BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: side))
         place(p, foot: target, on: screen)
     }
 
@@ -311,94 +292,76 @@ final class BuddyController {
     }
 
     private func tick() {
-        guard let p = panel else { return }
+        guard let p = panel, let engine else { return }
         let mouse = NSEvent.mouseLocation
         let sq = inner(p)
-        let s = shownSide
         let local = CGPoint(x: mouse.x - sq.minX, y: mouse.y - sq.minY)   // in the square, y up
 
-        // Click-through everywhere but on what is drawn.
-        let over = isOverPet(local: local, side: s)
+        // Click-through everywhere but on Mochi's body.
+        let over = local.x >= 0 && local.y >= 0 && local.x < side && local.y < side
+            && DesktopMochiLogic.isOverBody(localPoint: local, panelSize: side)
         let wantsMouse = over || dragStartMouse != nil
         if p.ignoresMouseEvents == wantsMouse { p.ignoresMouseEvents = !wantsMouse }
         let hovering = over && !dragging
         if viewState?.isHovered != hovering { viewState?.isHovered = hovering }
 
-        // Mochi's eyes follow the cursor (same space as the notch's Mochi).
-        viewState?.lookOrigin = lookOrigin(p)
-        if engine != nil {
-            let pos = DesktopSpace.topDown(mouse, desktopTop: IslandWindowController.desktopTop)
-            let cur = AppState.shared.mousePosition
-            if abs(pos.x - cur.x) > 1 || abs(pos.y - cur.y) > 1 { AppState.shared.mousePosition = pos }
+        // Its own eyes: from its own square to the cursor (the notch's Mochi keeps its own).
+        if settings.followCursor {
+            let eye = DesktopSpace.topDown(CGPoint(x: sq.midX, y: sq.midY), desktopTop: IslandWindowController.desktopTop)
+            let m = DesktopSpace.topDown(mouse, desktopTop: IslandWindowController.desktopTop)
+            engine.lookX = tanh((m.x - eye.x) / 260)
+            engine.lookY = -tanh((m.y - eye.y) / 200)
+        } else {
+            engine.lookX = 0
+            engine.lookY = 0
         }
+        engine.moodTarget = MachineVitals.shared.mood
+        engine.setDancing(musicPlaying && [.idle, .working, .thinking, .searching, .finished].contains(agentState))
 
-        // Asleep after 2 idle minutes with the cursor away (as the desktop Mochi).
-        let effective = AppState.shared.effectiveState
-        if effective != .idle && effective != .sleeping { lastAgentActive = .now }
-        let shouldSleep = DesktopMochiLogic.shouldSleep(
+        // Naps after 2 quiet minutes with the cursor away (as the desktop Mochi).
+        let agents = agentState
+        if agents != .idle && agents != .sleeping { lastAgentActive = .now }
+        let nap = settings.napWhenIdle && DesktopMochiLogic.shouldSleep(
             lastAgentActiveInterval: Date.now.timeIntervalSince(lastAgentActive),
             mouseDistanceToPanelCenter: hypot(mouse.x - sq.midX, mouse.y - sq.midY))
-        if shouldSleep != isSleeping {
-            isSleeping = shouldSleep
-            viewState?.isSleeping = shouldSleep
-            engine?.setState(shouldSleep ? .sleeping : effective)
-        }
+        if nap != isSleeping { isSleeping = nap }
 
-        if effective != lastState {
-            stateChanged(from: lastState, to: effective)
-            lastState = effective
+        if agents != lastAgentState {
+            agentsChanged(to: agents)
+            lastAgentState = agents
         }
-        if let pet { updatePet(pet, mouse: mouse, square: sq) }
+        updateEngineState()
         if bubble != nil { moveBubble() }
+        if Date.now.timeIntervalSince(lastLookCheck) > 60 {
+            lastLookCheck = .now
+            applyLook()
+        }
     }
 
-    private func stateChanged(from old: BotState, to new: BotState) {
+    /// What the agents do, or idle when the Buddy does not follow them.
+    private var agentState: BotState {
+        settings.reactToAgents ? AppState.shared.effectiveState : .idle
+    }
+
+    private var musicPlaying: Bool {
+        let app = AppState.shared
+        let music = app.musicPlaying && app.activeIntegrations.contains("integration_music")
+        let spotify = SpotifyController.shared.isPlaying && app.activeIntegrations.contains(SpotifyController.pillId)
+        return music || spotify
+    }
+
+    private func updateEngineState() {
+        let want: BotState = isSleeping ? .sleeping : agentState
+        guard want != shownState, let engine else { return }
+        engine.setState(want, force: shownState == nil)
+        shownState = want
+    }
+
+    private func agentsChanged(to new: BotState) {
         if new == .finished { engine?.triggerEmote(.happy, duration: 1.2, silent: true) }
         guard settings.speechBubbles, let c = BuddySpeech.category(for: new), speech.shouldSpeak(c, now: .now) else { return }
         speechPick += 1
         say(BuddySpeech.line(c, pick: speechPick))
-    }
-
-    /// `local`: in the pet's square, y up. The room around the square never takes clicks.
-    private func isOverPet(local: CGPoint, side s: CGFloat) -> Bool {
-        guard local.x >= 0, local.y >= 0, local.x < s, local.y < s else { return false }
-        if let pet {
-            let c = pet.animator.cell(now: .now, gaze: pet.gaze)
-            guard let px = BuddySpriteGeometry.atlasPixel(localTopDown: CGPoint(x: local.x, y: s - local.y),
-                                                          panelSide: s, row: c.row, column: c.column,
-                                                          flipped: pet.animator.flipped) else { return false }
-            return BuddySpriteGeometry.isOpaque(alphaAt: pet.atlas.alphaAt, x: px.x, y: px.y)
-        }
-        return DesktopMochiLogic.isOverBody(localPoint: local, panelSize: s)
-    }
-
-    private func syncPetOptions(_ pet: BuddyLoadedPet) {
-        pet.animator.flipped = settings.isFlipped(pet.entry.id)
-        pet.animator.relaxedWaiting = settings.relaxedWaiting
-    }
-
-    /// The pet's reaction from Coucou's state, and the V2 gaze (idle, not dragged, the cursor
-    /// moved in the last 1.2 s).
-    private func updatePet(_ pet: BuddyLoadedPet, mouse: NSPoint, square sq: NSRect) {
-        syncPetOptions(pet)
-        let state = isSleeping ? BotState.sleeping : AppState.shared.effectiveState
-        pet.animator.setReaction(settings.animation(for: .forState(state)))
-
-        let now = Date.now
-        if mouse != lastMouse { lastMouse = mouse; lastMouseMove = now }
-        guard pet.entry.manifest.layout.hasGaze, settings.cursorGaze, !dragging,
-              BuddyGaze.isActive(lastCursorMove: lastMouseMove, now: now) else { pet.gaze = nil; return }
-        let a = BuddySpriteGeometry.gazeAnchor(panelSide: sq.width, anchor: pet.entry.manifest.gazeAnchor,
-                                               flipped: pet.animator.flipped)
-        // Both points y-down for BuddyGaze: AppKit y negated.
-        pet.gaze = BuddyGaze.direction(cursor: CGPoint(x: mouse.x, y: -mouse.y),
-                                       anchor: CGPoint(x: sq.minX + a.x, y: -(sq.maxY - a.y)))
-    }
-
-    private func lookOrigin(_ p: NSPanel) -> CGPoint {
-        let sq = inner(p)
-        return DesktopMochiLogic.lookOrigin(panelMinX: sq.minX, panelMinY: sq.minY,
-                                            desktopTop: IslandWindowController.desktopTop, panelSize: sq.width)
     }
 
     // MARK: - Mouse
@@ -408,7 +371,6 @@ final class BuddyController {
         guard let p = panel else { return }
         dragStartMouse = m
         dragStartSquare = inner(p).origin
-        lastDragX = m.x
         dragging = false
     }
 
@@ -422,55 +384,29 @@ final class BuddyController {
         let screen = screenAt(m) ?? startScreen()
         let square = BuddyPlacement.clamp(origin: CGPoint(x: dragStartSquare.x + m.x - start.x,
                                                           y: dragStartSquare.y + m.y - start.y),
-                                          side: shownSide, visibleFrame: screen.visibleFrame)
+                                          side: side, visibleFrame: screen.visibleFrame)
         p.setFrameOrigin(panelOrigin(square: square))
-        viewState?.lookOrigin = lookOrigin(p)
-        // A pet runs the way it is dragged (OpenPets' running-left / running-right rows).
-        if let pet {
-            let step = m.x - lastDragX
-            if abs(step) > 0.5 { pet.animator.motion = step > 0 ? .runningRight : .runningLeft }
-            lastDragX = m.x
-        }
     }
 
     fileprivate func mouseUp(clickCount: Int) {
         defer { dragStartMouse = nil; dragging = false }
         if dragging {
-            pet?.animator.motion = nil
             saveSpot()
             return
         }
+        // A click says hi (no slap: that is the notch Mochi's, and makes the notch dizzy).
         guard dragStartMouse != nil, clickCount == 1 else { return }
-        // A click plays: a pet waves, Mochi is happy (no slap: that would make the notch dizzy).
-        if let pet {
-            pet.animator.play(settings.animation(for: .waving))
-        } else {
-            engine?.triggerEmote(.happy, duration: 0.8, silent: false)
-        }
+        wave()
     }
 
     fileprivate func rightMouseDown(_ e: NSEvent, in view: NSView) {
         NSMenu.popUpContextMenu(contextMenu(), with: e, for: view)
     }
 
-    /// OpenPets' pet menu (size, flip…), plus the pet choice and Coucou's settings.
+    /// OpenPets' pet menu (size…), with the Buddy's own outfit and Coucou's settings.
     private func contextMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-
-        let petMenu = NSMenu()
-        petMenu.addItem(BuddyMenuItem("Mochi", checked: resolvedPetId == BuddySettings.mochiId) { [weak self] in
-            self?.settings.petId = BuddySettings.mochiId
-        })
-        if !store.pets.isEmpty { petMenu.addItem(.separator()) }
-        for p in store.pets {
-            petMenu.addItem(BuddyMenuItem(p.manifest.displayName, checked: resolvedPetId == p.id) { [weak self] in
-                self?.settings.petId = p.id
-            })
-        }
-        let petItem = NSMenuItem(title: "Pet", action: nil, keyEquivalent: "")
-        petItem.submenu = petMenu
-        menu.addItem(petItem)
 
         let sizeMenu = NSMenu()
         for size in BuddySize.allCases {
@@ -482,18 +418,21 @@ final class BuddyController {
         sizeItem.submenu = sizeMenu
         menu.addItem(sizeItem)
 
-        if let pet {
-            let id = pet.entry.id
-            menu.addItem(BuddyMenuItem("Flip horizontally", checked: settings.isFlipped(id)) { [weak self] in
-                guard let self else { return }
-                self.settings.setFlipped(id, !self.settings.isFlipped(id))
+        let outfitMenu = NSMenu()
+        for outfit in Outfit.allCases {
+            outfitMenu.addItem(BuddyMenuItem(outfit.displayName, checked: settings.outfit == outfit) { [weak self] in
+                self?.settings.outfit = outfit
             })
-            if pet.entry.manifest.layout.hasGaze {
-                menu.addItem(BuddyMenuItem("Look at the cursor", checked: settings.cursorGaze) { [weak self] in
-                    self?.settings.cursorGaze.toggle()
-                })
-            }
+            if outfit == .none { outfitMenu.addItem(.separator()) }
         }
+        let outfitItem = NSMenuItem(title: "Outfit", action: nil, keyEquivalent: "")
+        outfitItem.submenu = outfitMenu
+        menu.addItem(outfitItem)
+
+        menu.addItem(.separator())
+        menu.addItem(BuddyMenuItem("React to my agents", checked: settings.reactToAgents) { [weak self] in
+            self?.settings.reactToAgents.toggle()
+        })
         menu.addItem(BuddyMenuItem("Speech bubbles", checked: settings.speechBubbles) { [weak self] in
             self?.settings.speechBubbles.toggle()
         })
@@ -537,7 +476,7 @@ final class BuddyController {
         DispatchQueue.main.asyncAfter(deadline: .now() + BuddySpeech.displayDuration, execute: work)
     }
 
-    /// Centred over the pet's head, kept on its display.
+    /// Centred over Mochi's head, kept on its display.
     private func moveBubble() {
         guard let b = bubble, let p = panel else { return }
         let size = b.frame.size

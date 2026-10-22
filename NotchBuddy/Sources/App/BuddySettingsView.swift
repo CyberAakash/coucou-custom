@@ -1,338 +1,263 @@
 #if !APPSTORE
 import SwiftUI
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
 
-// coucou-custom fork: Settings → Buddy. The desktop pet: Mochi (the default) or an OpenPets /
-// Codex pet, its size, side, animations and where it stands.
+// coucou-custom fork: the Coucou window's Buddy page — the desktop Buddy's look and behaviour,
+// in the window's own style (HubPageScaffold, HubCard, HubRow).
 
-struct BuddySettingsView: View {
+struct HubBuddyPage: View {
     @ObservedObject private var settings = BuddySettings.shared
-    @ObservedObject private var store = BuddyPetStore.shared
-    @ObservedObject private var state = AppState.shared
-
-    @State private var thumbnails: [String: CGImage] = [:]
-    @State private var importMessage: String = ""
-    @State private var pendingReplace: URL?
-    @State private var previewAnimation: BuddyAnimation = .idle
-
-    private var selectedPet: BuddyPetEntry? { settings.isMochi ? nil : store.pet(id: settings.petId) }
 
     var body: some View {
-        desktopBox
-        petBox
-        if let pet = selectedPet { petDetailBox(pet) }
-        if !settings.isMochi { animationsBox }
-    }
+        HubPageScaffold(title: String(localized: "Buddy"), subtitle: String(localized: "hub.notch.buddy")) {
+            BuddyHeroCard(settings: settings)
 
-    // MARK: - On the desktop
-
-    private var desktopBox: some View {
-        GroupBox("On the desktop") {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Show the buddy on the desktop", isOn: $settings.enabled)
-                Text("Its own companion, apart from the Mochi in the notch: it floats above your windows on every Space and reacts to your agents. Drag it anywhere (it remembers its spot on each display), click it to play, right-click it for its menu.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Picker("Size", selection: $settings.size) {
-                    ForEach(BuddySize.allCases) { Text($0.label).tag($0) }
+            HubLabel("Look")
+            HubCard {
+                HubRow(title: "Size", detail: "\(settings.size.label) · \(Int(settings.size.side)) pt") {
+                    BuddySizeChips(selection: $settings.size)
                 }
-                .pickerStyle(.segmented)
-
-                Toggle("Speech bubbles", isOn: $settings.speechBubbles)
-                Text("A short line when a permission or a question waits, or something fails.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-
-                HStack {
-                    Button("Reset position") { BuddyController.shared.resetPosition() }
-                    Text("Back to the bottom-right corner of its display.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                HubDivider()
+                VStack(alignment: .leading, spacing: 10) {
+                    HubRow(title: "Outfit", detail: "Its own wardrobe: the notch's Mochi keeps its own.") { EmptyView() }
+                    BuddyOutfitGrid(selection: $settings.outfit, color: settings.color)
+                }
+                HubDivider()
+                HubRow(title: "Colour") {
+                    BuddyColorSwatches(selection: $settings.color)
                 }
             }
-            .padding(6)
-        }
-    }
 
-    // MARK: - Which pet
-
-    private var petBox: some View {
-        GroupBox("Pet") {
-            VStack(alignment: .leading, spacing: 10) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 92, maximum: 120), spacing: 10)], spacing: 10) {
-                    petTile(id: BuddySettings.mochiId, name: "Mochi", subtitle: "Default") {
-                        MochiStill(showBadge: false).padding(8)
-                    }
-                    ForEach(store.pets) { pet in
-                        petTile(id: pet.id, name: pet.manifest.displayName, subtitle: pet.sourceLabel) {
-                            if let img = thumbnails[pet.id] {
-                                Image(decorative: img, scale: 1).resizable().scaledToFit()
-                            } else {
-                                ProgressView().controlSize(.small)
-                            }
-                        }
-                    }
+            HubLabel("Behaviour")
+            HubCard {
+                HubRow(title: "React to my agents",
+                       detail: "Thinks, works, waits and cheers with your Claude Code and other agent sessions.") {
+                    Toggle("", isOn: $settings.reactToAgents).toggleStyle(.switch).labelsHidden()
                 }
-
-                if store.pets.isEmpty {
-                    Text("No other pets yet. Import an OpenPets or Codex pet (a folder or .zip with pet.json and spritesheet.webp), or put one in ~/.codex/pets.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                HubDivider()
+                HubRow(title: "Speech bubbles",
+                       detail: "A short line when a permission or a question waits, or something fails.") {
+                    Toggle("", isOn: $settings.speechBubbles).toggleStyle(.switch).labelsHidden()
+                        .disabled(!settings.reactToAgents)
                 }
-
-                HStack(spacing: 8) {
-                    Button("Import pet…") { chooseImport() }
-                    Button("Show imported pets") { revealInstallFolder() }
-                    Button("Refresh") { store.refresh(); loadThumbnails() }
+                HubDivider()
+                HubRow(title: "Eyes follow the cursor") {
+                    Toggle("", isOn: $settings.followCursor).toggleStyle(.switch).labelsHidden()
                 }
-                if !importMessage.isEmpty {
-                    Text(importMessage)
-                        .font(.system(size: 11))
-                        .foregroundColor(importMessage.hasPrefix("❌") ? .red : .secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !store.skipped.isEmpty {
-                    DisclosureGroup("\(store.skipped.count) folder(s) not loaded") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(store.skipped, id: \.name) { s in
-                                Text("\(s.name): \(s.reason)")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .font(.system(size: 11))
-                }
-                if settings.isMochi {
-                    Divider()
-                    Picker("Mochi's outfit", selection: $state.mochiOutfitSelection) {
-                        ForEach(Outfit.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                    }
-                    Text("The same wardrobe as the notch's Mochi.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                if !settings.isMochi && selectedPet == nil {
-                    Text("❌ The selected pet (\(settings.petId)) is not on this Mac any more; Mochi is shown.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.red)
+                HubDivider()
+                HubRow(title: "Nap when idle", detail: "After two quiet minutes with the cursor away.") {
+                    Toggle("", isOn: $settings.napWhenIdle).toggleStyle(.switch).labelsHidden()
                 }
             }
-            .padding(6)
-        }
-        .onAppear { loadThumbnails() }
-        .onChange(of: store.pets) { _, _ in loadThumbnails() }
-        .alert("Replace the imported pet?", isPresented: Binding(
-            get: { pendingReplace != nil }, set: { if !$0 { pendingReplace = nil } })) {
-            Button("Replace", role: .destructive) {
-                if let url = pendingReplace { runImport(url, replace: true) }
-                pendingReplace = nil
+
+            HubLabel("Moving it around")
+            HStack(spacing: 12) {
+                BuddyTip(symbol: "hand.draw", title: "Drag", line: "Anywhere, on any display. It remembers its spot on each one.")
+                BuddyTip(symbol: "cursorarrow.click", title: "Click", line: "It says hi.")
+                BuddyTip(symbol: "contextualmenu.and.cursorarrow", title: "Right-click",
+                         line: "Size, outfit, bubbles, or hide it.")
             }
-            Button("Cancel", role: .cancel) { pendingReplace = nil }
-        } message: {
-            Text("A pet with the same id is already imported. Its files will be replaced.")
-        }
-    }
-
-    private func petTile<Art: View>(id: String, name: String, subtitle: String,
-                                    @ViewBuilder art: () -> Art) -> some View {
-        let selected = settings.petId == id || (id == BuddySettings.mochiId && settings.isMochi)
-        return Button {
-            settings.petId = id
-        } label: {
-            VStack(spacing: 4) {
-                art()
-                    .frame(width: 64, height: 64)
-                Text(name)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-            .padding(6)
-            .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(selected ? 0.10 : 0.03)))
-            .overlay(RoundedRectangle(cornerRadius: 8)
-                .stroke(selected ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: selected ? 2 : 1))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - The selected pet
-
-    private func petDetailBox(_ pet: BuddyPetEntry) -> some View {
-        GroupBox(pet.manifest.displayName) {
-            HStack(alignment: .top, spacing: 14) {
-                BuddyPreview(entry: pet, animation: previewAnimation,
-                             flipped: settings.isFlipped(pet.id), relaxedWaiting: settings.relaxedWaiting)
-                    .frame(width: 110, height: 120)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(pet.manifest.description)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("\(pet.sourceLabel) · \(pet.manifest.layout.hasGaze ? "V2 (looks at the cursor)" : "V1")")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                    Picker("Preview", selection: $previewAnimation) {
-                        ForEach(BuddyAnimation.allCases) { Text($0.label).tag($0) }
-                    }
-                    .frame(maxWidth: 260)
-                    Toggle("Face the other way", isOn: Binding(
-                        get: { settings.isFlipped(pet.id) }, set: { settings.setFlipped(pet.id, $0) }))
-                    HStack(spacing: 8) {
-                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([pet.folder]) }
-                        if pet.removable {
-                            Button("Remove", role: .destructive) { remove(pet) }
-                        }
-                    }
-                }
-            }
-            .padding(6)
-        }
-    }
-
-    // MARK: - Animations
-
-    private var animationsBox: some View {
-        GroupBox("Animations") {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Look at the cursor while idle (V2 pets)", isOn: $settings.cursorGaze)
-                Toggle("Relaxed waiting animation", isOn: $settings.relaxedWaiting)
-                Text("Waiting plays in 2.2 s instead of 1 s.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Divider()
-                Text("What the pet plays for each state of your agents")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.secondary)
-                ForEach(BuddyReaction.allCases) { r in
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(r.label).font(.system(size: 12))
-                            Text(r.detail).font(.system(size: 10)).foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Picker("", selection: Binding(
-                            get: { settings.animation(for: r) },
-                            set: { settings.setAnimation($0, for: r); previewAnimation = $0 })) {
-                            ForEach(BuddyAnimation.selectable) { a in
-                                Text(a == r.defaultAnimation ? "\(a.label) (default)" : a.label).tag(a)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 170)
-                    }
-                }
-                Button("Reset to defaults") { settings.resetReactions() }
-                    .disabled(settings.reactionOverrides.isEmpty)
-            }
-            .padding(6)
-        }
-    }
-
-    // MARK: - Actions
-
-    private func chooseImport() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.zip, .folder]
-        panel.message = "Choose a pet folder or .zip (pet.json + spritesheet.webp)"
-        panel.prompt = "Import"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        runImport(url, replace: false)
-    }
-
-    private func runImport(_ url: URL, replace: Bool) {
-        do {
-            let pet = try store.importPackage(at: url, replace: replace)
-            settings.petId = pet.id
-            importMessage = "Imported \(pet.manifest.displayName)."
-        } catch BuddyPetStore.ImportError.alreadyInstalled {
-            pendingReplace = url
-        } catch {
-            importMessage = "❌ \(error)"
-        }
-    }
-
-    private func remove(_ pet: BuddyPetEntry) {
-        if settings.petId == pet.id { settings.petId = BuddySettings.mochiId }
-        do {
-            try store.remove(id: pet.id)
-            importMessage = "Removed \(pet.manifest.displayName)."
-        } catch {
-            importMessage = "❌ \(error.localizedDescription)"
-        }
-    }
-
-    private func revealInstallFolder() {
-        try? FileManager.default.createDirectory(at: store.installDir, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(store.installDir)
-    }
-
-    /// The first idle frame of each pet, decoded off the main thread.
-    private func loadThumbnails() {
-        let missing = store.pets.filter { thumbnails[$0.id] == nil }.map { ($0.id, $0.spritesheetURL) }
-        guard !missing.isEmpty else { return }
-        Task.detached(priority: .utility) {
-            var out: [String: CGImage] = [:]
-            for (id, url) in missing {
-                guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-                      let img = CGImageSourceCreateImageAtIndex(src, 0, nil),
-                      let cell = img.cropping(to: BuddyAtlasLayout.cellRect(row: 0, column: 0)) else { continue }
-                out[id] = cell
-            }
-            let result = out
-            await MainActor.run { thumbnails.merge(result) { $1 } }
         }
     }
 }
 
-/// The selected pet playing one animation on a loop, in Settings.
-private struct BuddyPreview: View {
-    let entry: BuddyPetEntry
-    let animation: BuddyAnimation
-    let flipped: Bool
-    let relaxedWaiting: Bool
+// MARK: - Hero card: live preview, on/off, quick actions
 
-    @State private var atlas: BuddyAtlas?
-    @State private var start = Date()
+private struct BuddyHeroCard: View {
+    @ObservedObject var settings: BuddySettings
+    @StateObject private var preview = BuddyPreview()
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 15)) { tl in
-            Canvas { ctx, size in
-                guard let atlas else { return }
-                // Loop one-shots too, so they can be seen.
-                let d = animation.duration(relaxedWaiting: relaxedWaiting) * Double(animation.iterations ?? 1)
-                let t = tl.date.timeIntervalSince(start).truncatingRemainder(dividingBy: d)
-                let f = animation.frame(at: t, relaxedWaiting: relaxedWaiting) ?? 0
-                guard let img = atlas.cell(row: animation.row, column: f) else { return }
-                var g = ctx
-                if flipped { g.translateBy(x: size.width, y: 0); g.scaleBy(x: -1, y: 1) }
-                let fw = CGFloat(BuddyAtlasLayout.frameWidth), fh = CGFloat(BuddyAtlasLayout.frameHeight)
-                let k = min(size.width / fw, size.height / fh)
-                let w = fw * k, h = fh * k
-                g.draw(Image(decorative: img, scale: 1),
-                       in: CGRect(x: (size.width - w) / 2, y: size.height - h, width: w, height: h))
+        HubGlowCard(color: Color(hex: "#F472B6"), padding: 22) {
+            HStack(alignment: .center, spacing: 26) {
+                preview.view
+                    .frame(width: preview.canvas.width, height: preview.canvas.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { preview.hello() }
+                    .onContinuousHover { phase in
+                        if case .active(let p) = phase { preview.look(at: p) } else { preview.look(at: nil) }
+                    }
+                    .help("Click to say hi")
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Circle().fill(settings.enabled ? HubTheme.green : HubTheme.muted).frame(width: 7, height: 7)
+                        Text(settings.enabled ? "On your desktop" : "Hidden")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(settings.enabled ? HubTheme.green : HubTheme.secondary)
+                    }
+                    Text("Your Mochi, on the desktop")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundColor(HubTheme.text)
+                    Text("A Mochi of its own, apart from the notch's. It floats above your windows on every Space and keeps you company while your agents work.")
+                        .font(.system(size: 13))
+                        .foregroundColor(HubTheme.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        Toggle(isOn: $settings.enabled) {
+                            Text("Show on the desktop").font(.system(size: 13, weight: .semibold))
+                        }
+                        .toggleStyle(.switch)
+                        Spacer(minLength: 8)
+                        Button("Say hi") { BuddyController.shared.wave(); preview.hello() }
+                            .buttonStyle(HubButtonStyle())
+                            .disabled(!settings.enabled)
+                        Button("Reset position") { BuddyController.shared.resetPosition() }
+                            .buttonStyle(HubButtonStyle())
+                            .disabled(!settings.enabled)
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
-        .task(id: entry.id) {
-            atlas = try? BuddyAtlas.load(url: entry.spritesheetURL, layout: entry.manifest.layout)
+        .onAppear { preview.dress(settings) }
+        .onChange(of: settings.outfit) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.color) { _, _ in preview.dress(settings) }
+    }
+}
+
+/// The hero card's Mochi: its own engine, dressed as the Buddy, looking at the cursor over the card.
+@MainActor
+private final class BuddyPreview: ObservableObject {
+    let engine = BotEngine()
+    let state = BuddyViewState()
+    let side: CGFloat = 112
+    var canvas: CGSize { BuddyInsets.mochi.panelSize(side: side) }
+    var view: BuddyMochiView {
+        BuddyMochiView(engine: engine, viewState: state, inner: BuddyInsets.mochi.innerRectTopDown(side: side), canvas: canvas)
+    }
+
+    init() { engine.setState(.idle, force: true) }
+
+    func dress(_ settings: BuddySettings) {
+        engine.setOutfit(settings.resolvedOutfit(), animated: true)
+        engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
+    }
+
+    func hello() { engine.triggerEmote(.happy, duration: 1.2, silent: true) }
+
+    /// `p` in the preview's own coordinates (y down), nil when the cursor leaves it.
+    func look(at p: CGPoint?) {
+        guard let p else { engine.lookX = 0; engine.lookY = 0; return }
+        let r = BuddyInsets.mochi.innerRectTopDown(side: side)
+        engine.lookX = tanh((p.x - r.midX) / 90)
+        engine.lookY = -tanh((p.y - r.midY) / 70)
+    }
+}
+
+// MARK: - Look
+
+private struct BuddySizeChips: View {
+    @Binding var selection: BuddySize
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(BuddySize.allCases) { size in
+                let on = selection == size
+                Button { selection = size } label: {
+                    Text(size.short)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
+                        .frame(width: 36, height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(size.label)
+            }
         }
-        .onChange(of: animation) { _, _ in start = Date() }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+    }
+}
+
+private struct BuddyOutfitGrid: View {
+    @Binding var selection: Outfit
+    let color: String
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 86, maximum: 110), spacing: 10)], spacing: 10) {
+            ForEach(Outfit.allCases, id: \.self) { outfit in
+                let on = selection == outfit
+                let shown = outfit == .auto ? Outfit.resolved(selection: .auto, date: .now, calendar: .current) : outfit
+                Button { selection = outfit } label: {
+                    VStack(spacing: 6) {
+                        BuddyMochiThumb(outfit: shown, color: color)
+                            .frame(width: 58, height: 62)
+                        Text(outfit == .auto ? "Seasons" : outfit.displayName)
+                            .font(.system(size: 11.5, weight: on ? .bold : .medium))
+                            .foregroundColor(on ? HubTheme.text : HubTheme.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(on ? HubTheme.accent.opacity(0.12) : Color.white.opacity(0.03)))
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(on ? HubTheme.accent : Color.white.opacity(0.07), lineWidth: on ? 1.5 : 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+private struct BuddyColorSwatches: View {
+    @Binding var selection: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(BuddySettings.colors, id: \.self) { hex in
+                let on = selection == hex
+                Button { selection = hex } label: {
+                    ZStack {
+                        if hex.isEmpty {
+                            Circle().fill(LinearGradient(colors: [Color(hex: "#DCE6F5"), Color(hex: "#9DB4D8")],
+                                                         startPoint: .top, endPoint: .bottom))
+                        } else {
+                            Circle().fill(Color(hex: hex))
+                        }
+                    }
+                    .frame(width: 22, height: 22)
+                    .overlay(Circle().strokeBorder(Color.white.opacity(on ? 0.95 : 0.12), lineWidth: on ? 2 : 1))
+                    .padding(3)
+                    .overlay(Circle().strokeBorder(on ? HubTheme.accent : .clear, lineWidth: 1.5))
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(hex.isEmpty ? "Mochi's own" : hex)
+            }
+        }
+    }
+}
+
+// MARK: - Tips
+
+private struct BuddyTip: View {
+    let symbol: String
+    let title: String
+    let line: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Color(hex: "#F472B6"))
+                .frame(width: 32, height: 32)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(hex: "#F472B6").opacity(0.12)))
+            Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundColor(HubTheme.text)
+            Text(line)
+                .font(.system(size: 12))
+                .foregroundColor(HubTheme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(HubTheme.card))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(HubTheme.line))
     }
 }
 #endif

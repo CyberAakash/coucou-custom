@@ -1,32 +1,43 @@
 import Foundation
 import Combine
 
-// coucou-custom fork: Settings → Buddy. The desktop pet (its own window, apart from the notch's
-// Mochi): which pet, its size and how it behaves, stored in UserDefaults.
+// coucou-custom fork: Settings → Buddy. The desktop Buddy is a Mochi of its own, apart from the
+// notch's: its own look (outfit, colour, size) and behaviour, stored in UserDefaults.
 
 @MainActor
 final class BuddySettings: ObservableObject {
     static let shared = BuddySettings()
 
-    /// The built-in pet: Coucou's own Mochi, drawn in code.
-    static let mochiId = "mochi"
-
     static let enabledKey = "buddyEnabled"
-    static let speechKey = "buddySpeechBubbles"
-    static let spotsKey = "buddySpots"
-    static let petKey = "buddyPetId"
     static let sizeKey = "buddySize"
-    static let flippedKey = "buddyFlippedPets"
-    static let gazeKey = "buddyCursorGaze"
-    static let relaxedWaitingKey = "buddyRelaxedWaiting"
-    static let overridesKey = "buddyReactionOverrides"
+    static let outfitKey = "buddyOutfit"
+    static let colorKey = "buddyColor"
+    static let reactKey = "buddyReactToAgents"
+    static let speechKey = "buddySpeechBubbles"
+    static let followKey = "buddyFollowCursor"
+    static let napKey = "buddyNapWhenIdle"
+    static let spotsKey = "buddySpots"
+
+    /// Body colours offered in Settings ("" is Mochi's own); the Flow window's palette.
+    static let colors = ["", "#F5F6F8", "#FB923C", "#F472B6", "#A78BFA", "#3B9EFF", "#22D3EE", "#34D399", "#F7B32B"]
 
     private let defaults: UserDefaults
 
     /// The Buddy is on the desktop.
     @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: Self.enabledKey) } }
+    @Published var size: BuddySize { didSet { defaults.set(size.rawValue, forKey: Self.sizeKey) } }
+    /// Its own outfit: the notch's wardrobe does not dress it.
+    @Published var outfit: Outfit { didSet { defaults.set(outfit.rawValue, forKey: Self.outfitKey) } }
+    /// Body colour as "#RRGGBB", or "" for Mochi's own.
+    @Published var color: String { didSet { defaults.set(color, forKey: Self.colorKey) } }
+    /// It plays what your agents do (thinking, working, waiting, done); off, it just hangs out.
+    @Published var reactToAgents: Bool { didSet { defaults.set(reactToAgents, forKey: Self.reactKey) } }
     /// It says a short line when a permission or a question waits, or something fails.
     @Published var speechBubbles: Bool { didSet { defaults.set(speechBubbles, forKey: Self.speechKey) } }
+    /// Its eyes follow the cursor.
+    @Published var followCursor: Bool { didSet { defaults.set(followCursor, forKey: Self.followKey) } }
+    /// It naps after two quiet minutes with the cursor away.
+    @Published var napWhenIdle: Bool { didSet { defaults.set(napWhenIdle, forKey: Self.napKey) } }
     /// Where it stands, per display (BuddyPlacement).
     var spots: [BuddySpot] {
         get {
@@ -36,55 +47,24 @@ final class BuddySettings: ObservableObject {
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: Self.spotsKey) }
     }
 
-    /// Which pet is on the desktop: `mochiId` or an installed pet's id.
-    @Published var petId: String { didSet { defaults.set(petId, forKey: Self.petKey) } }
-    @Published var size: BuddySize { didSet { defaults.set(size.rawValue, forKey: Self.sizeKey) } }
-    /// Ids of the pets drawn mirrored (OpenPets keeps the flip per pet).
-    @Published var flippedPets: Set<String> {
-        didSet { defaults.set(flippedPets.sorted(), forKey: Self.flippedKey) }
-    }
-    /// V2 pets look at the cursor while idle.
-    @Published var cursorGaze: Bool { didSet { defaults.set(cursorGaze, forKey: Self.gazeKey) } }
-    /// OpenPets' "Relaxed" waiting animation (2.2 s instead of 1.01 s).
-    @Published var relaxedWaiting: Bool { didSet { defaults.set(relaxedWaiting, forKey: Self.relaxedWaitingKey) } }
-    /// Reaction → animation, only where it differs from the default.
-    @Published var reactionOverrides: [String: String] {
-        didSet {
-            let n = BuddyReaction.normalized(reactionOverrides)
-            if n != reactionOverrides { reactionOverrides = n; return }
-            defaults.set(n, forKey: Self.overridesKey)
-        }
-    }
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        enabled = defaults.object(forKey: Self.enabledKey) == nil ? true : defaults.bool(forKey: Self.enabledKey)
-        speechBubbles = defaults.object(forKey: Self.speechKey) == nil ? true : defaults.bool(forKey: Self.speechKey)
-        petId = defaults.string(forKey: Self.petKey) ?? Self.mochiId
+        func bool(_ key: String, default value: Bool) -> Bool {
+            defaults.object(forKey: key) == nil ? value : defaults.bool(forKey: key)
+        }
+        enabled = bool(Self.enabledKey, default: true)
         size = defaults.object(forKey: Self.sizeKey) == nil ? .medium : BuddySize.from(stored: defaults.double(forKey: Self.sizeKey))
-        flippedPets = Set(defaults.stringArray(forKey: Self.flippedKey) ?? [])
-        cursorGaze = defaults.object(forKey: Self.gazeKey) == nil ? true : defaults.bool(forKey: Self.gazeKey)
-        relaxedWaiting = defaults.bool(forKey: Self.relaxedWaitingKey)
-        reactionOverrides = BuddyReaction.normalized(defaults.dictionary(forKey: Self.overridesKey) as? [String: String] ?? [:])
+        outfit = defaults.string(forKey: Self.outfitKey).flatMap(Outfit.init(rawValue:)) ?? .auto
+        let c = defaults.string(forKey: Self.colorKey) ?? ""
+        color = Self.colors.contains(c) ? c : ""
+        reactToAgents = bool(Self.reactKey, default: true)
+        speechBubbles = bool(Self.speechKey, default: true)
+        followCursor = bool(Self.followKey, default: true)
+        napWhenIdle = bool(Self.napKey, default: true)
     }
 
-    var isMochi: Bool { petId == Self.mochiId }
-
-    func isFlipped(_ id: String) -> Bool { flippedPets.contains(id) }
-
-    func setFlipped(_ id: String, _ on: Bool) {
-        if on { flippedPets.insert(id) } else { flippedPets.remove(id) }
+    /// The outfit worn today ("Auto" follows the seasons, as the notch's).
+    func resolvedOutfit(on date: Date = .now) -> Outfit {
+        Outfit.resolved(selection: outfit, date: date, calendar: .current)
     }
-
-    func animation(for reaction: BuddyReaction) -> BuddyAnimation {
-        reaction.animation(overrides: reactionOverrides)
-    }
-
-    func setAnimation(_ a: BuddyAnimation, for reaction: BuddyReaction) {
-        var o = reactionOverrides
-        o[reaction.rawValue] = a.rawValue
-        reactionOverrides = o
-    }
-
-    func resetReactions() { reactionOverrides = [:] }
 }

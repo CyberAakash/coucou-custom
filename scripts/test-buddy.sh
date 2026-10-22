@@ -9,9 +9,8 @@ stub="$(sed -n '/^enum BotState/,/^}/p' tests/BuddyStubs.swift)"
 if [ "$real" != "$stub" ]; then echo "tests/BuddyStubs.swift BotState differs from IslandTypes.swift" >&2; exit 1; fi
 swiftc -parse-as-library \
     tests/BuddyStubs.swift \
-    NotchBuddy/Sources/App/BuddyPetFormat.swift \
-    NotchBuddy/Sources/App/BuddyAtlas.swift \
+    NotchBuddy/Sources/CoucouKit/MochiWardrobe.swift \
+    NotchBuddy/Sources/App/BuddyLogic.swift \
     NotchBuddy/Sources/App/BuddySettings.swift \
-    NotchBuddy/Sources/App/BuddyPetStore.swift \
     tests/BuddyTests.swift -o "$TEST_DIR/buddy-tests"
 "$TEST_DIR/buddy-tests"
