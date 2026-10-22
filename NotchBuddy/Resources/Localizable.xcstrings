@@ -73937,6 +73937,184 @@
           }
         }
       }
+    },
+    "Buddy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الرفيق"
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "সঙ্গী"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buddy"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buddy"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compañero"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compagnon"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "साथी"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teman"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Companheiro"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Компаньон"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เพื่อนคู่ใจ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arkadaş"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "伙伴"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "夥伴"
+          }
+        }
+      }
+    },
+    "hub.notch.buddy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "رفيقك على سطح المكتب: Mochi أو حيوان من OpenPets، وحجمه وحركاته."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ডেস্কটপে আপনার সঙ্গী: Mochi বা একটি OpenPets পোষা, তার আকার আর অ্যানিমেশন।"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Begleiter auf dem Schreibtisch: Mochi oder ein OpenPets-Tier, seine Größe und seine Animationen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your pet on the desktop: Mochi or an OpenPets pet, its size and its animations."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu mascota en el escritorio: Mochi o una mascota de OpenPets, su tamaño y sus animaciones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le compagnon du bureau : Mochi ou un animal OpenPets, sa taille et ses animations."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "डेस्कटॉप पर आपका साथी: Mochi या कोई OpenPets पालतू, उसका आकार और एनिमेशन।"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hewan peliharaan Anda di desktop: Mochi atau hewan OpenPets, ukuran dan animasinya."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seu bichinho na área de trabalho: Mochi ou um bichinho do OpenPets, o tamanho e as animações dele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваш питомец на рабочем столе: Mochi или питомец OpenPets, его размер и анимации."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สัตว์เลี้ยงของคุณบนเดสก์ท็อป: Mochi หรือสัตว์เลี้ยงจาก OpenPets ขนาดและแอนิเมชันของมัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masaüstündeki evcil hayvanın: Mochi ya da bir OpenPets hayvanı, boyutu ve animasyonları."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "桌面上的宠物：Mochi 或 OpenPets 宠物，它的大小和动画。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "桌面上的寵物：Mochi 或 OpenPets 寵物，牠的大小與動畫。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
