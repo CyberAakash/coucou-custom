@@ -158,6 +158,13 @@ struct SettingsView: View {
     @AppStorage(NotchAlertRules.openOnErrorKey) private var openOnError = true
     @AppStorage(NotchAlertRules.ambientKey) private var ambientPulse = true
     @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
+    @AppStorage(SpotlightSettings.brightnessKey) private var spotlightBrightness = SpotlightSettings.defaultBrightness
+    @AppStorage(SpotlightSettings.sizeKey) private var spotlightSize = 1.0
+    @AppStorage(SpotlightSettings.softnessKey) private var spotlightSoftness = 1.0
+    @AppStorage(SpotlightSettings.colorModeKey) private var spotlightColorMode = SpotlightSettings.ColorMode.byEvent.rawValue
+    @AppStorage(SpotlightSettings.colorKey) private var spotlightColorHex = SpotlightSettings.defaultColor
+    @AppStorage(SpotlightSettings.motionKey) private var spotlightMoving = true
+    @AppStorage(SpotlightSettings.breatheKey) private var spotlightBreathe = true
     #if !APPSTORE
     @AppStorage(TerminalFocus.defaultKey) private var defaultTerminal = ""   // coucou-custom fork
     #endif
@@ -165,6 +172,68 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+
+    // MARK: - Spotlight (coucou-custom fork)
+
+    private var spotlightSection: some View {
+        GroupBox(String(localized: "spotlight.title", defaultValue: "Spotlight")) {
+            VStack(alignment: .leading, spacing: 10) {
+                spotlightSlider(String(localized: "spotlight.brightness", defaultValue: "Brightness"),
+                                $spotlightBrightness, SpotlightSettings.brightnessRange, "Dim", "Bright")
+                spotlightSlider(String(localized: "spotlight.size", defaultValue: "Size"),
+                                $spotlightSize, SpotlightSettings.sizeRange, "Small", "Large")
+                spotlightSlider(String(localized: "spotlight.softness", defaultValue: "Softness"),
+                                $spotlightSoftness, SpotlightSettings.softnessRange, "Crisp", "Very soft")
+                HStack(spacing: 10) {
+                    Picker(String(localized: "spotlight.colors", defaultValue: "Colours"), selection: $spotlightColorMode) {
+                        Text(String(localized: "spotlight.colors.event", defaultValue: "By event")).tag(SpotlightSettings.ColorMode.byEvent.rawValue)
+                        Text(String(localized: "spotlight.colors.single", defaultValue: "One colour")).tag(SpotlightSettings.ColorMode.single.rawValue)
+                        Text(String(localized: "spotlight.colors.white", defaultValue: "White")).tag(SpotlightSettings.ColorMode.white.rawValue)
+                    }
+                    .frame(maxWidth: 260)
+                    if spotlightColorMode == SpotlightSettings.ColorMode.single.rawValue {
+                        ColorPicker("", selection: Binding(
+                            get: { Color(hex: spotlightColorHex) },
+                            set: { spotlightColorHex = $0.hexString ?? SpotlightSettings.defaultColor }
+                        ), supportsOpacity: false)
+                        .labelsHidden()
+                    }
+                }
+                Toggle(String(localized: "spotlight.motion", defaultValue: "Moving colours"), isOn: $spotlightMoving)
+                Toggle(String(localized: "spotlight.breathe", defaultValue: "Breathe while agents run"), isOn: $spotlightBreathe)
+                HStack(spacing: 8) {
+                    Menu(String(localized: "spotlight.preview", defaultValue: "Preview")) {
+                        Button(String(localized: "spotlight.preview.start", defaultValue: "Session start")) { NotchPulse.shared.preview(.sessionStart) }
+                        Button(String(localized: "spotlight.preview.prompt", defaultValue: "Prompt sent")) { NotchPulse.shared.preview(.promptSent) }
+                        Button(String(localized: "spotlight.preview.agent", defaultValue: "Agent start")) { NotchPulse.shared.preview(.agentStart) }
+                        Button(String(localized: "spotlight.preview.done", defaultValue: "Done")) { NotchPulse.shared.preview(.finishedQuiet) }
+                        Button(String(localized: "spotlight.preview.error", defaultValue: "Error")) { NotchPulse.shared.preview(.errorQuiet) }
+                    }
+                    .fixedSize()
+                    Button(String(localized: "spotlight.reset", defaultValue: "Reset")) {
+                        spotlightBrightness = SpotlightSettings.defaultBrightness
+                        spotlightSize = 1
+                        spotlightSoftness = 1
+                        spotlightColorMode = SpotlightSettings.ColorMode.byEvent.rawValue
+                        spotlightMoving = true
+                        spotlightBreathe = true
+                    }
+                }
+            }
+            .padding(6)
+            .disabled(!ambientPulse)
+        }
+    }
+
+    private func spotlightSlider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>,
+                                 _ low: LocalizedStringKey, _ high: LocalizedStringKey) -> some View {
+        HStack(spacing: 8) {
+            Text(title).frame(width: 80, alignment: .leading)
+            Text(low).font(.system(size: 11)).foregroundColor(.secondary)
+            Slider(value: value, in: range)
+            Text(high).font(.system(size: 11)).foregroundColor(.secondary)
+        }
     }
 
     // MARK: - Body
@@ -388,6 +457,8 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+
+        spotlightSection
 
         GroupBox("Display") {
             VStack(alignment: .leading, spacing: 10) {

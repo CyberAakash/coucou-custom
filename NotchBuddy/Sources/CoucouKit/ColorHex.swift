@@ -16,6 +16,16 @@ extension Color {
     }
 }
 
+extension Color {
+    /// "#RRGGBB" in sRGB (coucou-custom fork: stores a ColorPicker choice).
+    var hexString: String? {
+        guard let c = cgColor?.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil),
+              let comps = c.components, comps.count >= 3 else { return nil }
+        let v = comps.prefix(3).map { Int((min(max($0, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", v[0], v[1], v[2])
+    }
+}
+
 // MARK: - CGColor from hex string
 
 func cgColorFromHex(_ hex: String) -> CGColor? {
