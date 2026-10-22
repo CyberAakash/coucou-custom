@@ -530,7 +530,8 @@ final class HookServer: @unchecked Sendable {
             nbLog("SessionStart \(isExternalAgent ? agentId : projectName) (\(sessionId.prefix(8)))")
             NotificationCenter.default.post(name: .checkMondayRecap, object: nil)
             if state.isPresent { expandIfNeeded(to: .overview) }
-            SoundEngine.shared.play("work")
+            // coucou-custom fork: sound + wiggle + orbit ring (NotchPulse), never an open.
+            NotchPulse.shared.signal(.sessionStart, quiet: false)
             if agentId == "agent_hermes", let platform = payload["platform"] as? String,
                !platform.isEmpty, platform != "cli" {
                 let capitalized = platform.prefix(1).uppercased() + platform.dropFirst()
@@ -615,17 +616,62 @@ final class HookServer: @unchecked Sendable {
             // sound and the idle reset below would land on its work. Its own Stop comes later.
             guard scope == .pill else {
                 nbLog("Stop \(sessionId.prefix(8)) — \(sessions.workingCount(pill: agentId)) session(s) still working on \(agentId)")
+                // coucou-custom fork: this session's work is over even though a sibling session
+                // behind the same pill still works. Open its card once, without touching the
+                // shared pill state (upstream's reason for staying quiet here).
+                let siblingDone = LiveSessions.shared.session(sessionId)
+                if NotchAlertRules.sessionDone(siblingDone?.status), siblingDone?.announcedDone == false,
+                   NotchAlertRules.setting(NotchAlertRules.openOnFinishKey) {
+                    if !terminalInFront && showsAlert(for: agentId, focused: focused) {
+                        nbLog("[Notch] open: session \(sessionId.prefix(8)) done (another session still works)")
+                        LiveSessions.shared.markAnnounced(sessionId)
+                        LiveSessions.shared.select(sessionId)
+                        if !finalText.isEmpty, let idx = state.tasks.firstIndex(where: { $0.id == agentId }) {
+                            state.tasks[idx].finalLine = finalText
+                        }
+                        SoundEngine.shared.play("finish")
+                        expandIfNeeded(to: .finished)
+                    } else {
+                        nbLog("[Notch] Stop \(sessionId.prefix(8)) done: \(terminalInFront ? "its terminal is in front" : "another card is open"), light only")
+                        NotchPulse.shared.signal(.finishedQuiet, quiet: true)
+                    }
+                } else if !NotchAlertRules.sessionDone(siblingDone?.status) {
+                    NotchPulse.shared.signal(.agentsRunning, quiet: terminalInFront)
+                }
+                break
+            }
+            // coucou-custom fork: a Stop that leaves background agents running is not the end
+            // of the session's work: no "finished" card, just a pulse; the pill keeps working.
+            let trackedStatus = LiveSessions.shared.session(sessionId)?.status
+            guard NotchAlertRules.sessionDone(trackedStatus) else {
+                nbLog("[Notch] Stop \(sessionId.prefix(8)): agents still running, no open")
+                state.updateTask(id: agentId, state: .working)
+                NotchPulse.shared.signal(.agentsRunning, quiet: terminalInFront)
                 break
             }
             state.updateTask(id: agentId, state: .finished)
             if !finalText.isEmpty, let idx = state.tasks.firstIndex(where: { $0.id == agentId }) {
                 state.tasks[idx].finalLine = finalText
             }
-            if !terminalInFront { SoundEngine.shared.play("finish") }
-            if !terminalInFront && showsAlert(for: agentId, focused: focused) {
-                expandIfNeeded(to: .finished)
-            } else {
+            let opensOnFinish = NotchAlertRules.opensOnStop(status: trackedStatus,
+                openOnFinish: NotchAlertRules.setting(NotchAlertRules.openOnFinishKey))
+            if LiveSessions.shared.session(sessionId)?.announcedDone == true {
+                // Already announced for this prompt: a background agent's notice turn ended.
+                nbLog("[Notch] Stop \(sessionId.prefix(8)): already announced, no open")
+            } else if !opensOnFinish {
+                NotchPulse.shared.signal(.finishedQuiet, quiet: terminalInFront)
                 setPillBadge(id: agentId, badge: .finished)
+            } else {
+                if !terminalInFront { SoundEngine.shared.play("finish") }
+                if !terminalInFront && showsAlert(for: agentId, focused: focused) {
+                    nbLog("[Notch] open: session \(sessionId.prefix(8)) done")
+                    LiveSessions.shared.markAnnounced(sessionId)
+                    expandIfNeeded(to: .finished)
+                } else {
+                    nbLog("[Notch] Stop \(sessionId.prefix(8)) done: \(terminalInFront ? "its terminal is in front" : "another card is open"), light only")
+                    NotchPulse.shared.signal(.finishedQuiet, quiet: true)
+                    setPillBadge(id: agentId, badge: .finished)
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) {
                 // A session (this one or a sibling) may have started a new turn meanwhile.
@@ -649,11 +695,17 @@ final class HookServer: @unchecked Sendable {
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) {
                 state.tasks[idx].finalLine = Self.stopFailureDetail(payload)
             }
-            if !terminalInFront { SoundEngine.shared.play("error") }
-            if !terminalInFront && showsAlert(for: agentId, focused: focused) {
-                expandIfNeeded(to: .error)
-            } else {
+            if !NotchAlertRules.setting(NotchAlertRules.openOnErrorKey) {
+                // coucou-custom fork: "Open on errors" off.
+                NotchPulse.shared.signal(.errorQuiet, quiet: terminalInFront)
                 setPillBadge(id: agentId, badge: .error)
+            } else {
+                if !terminalInFront { SoundEngine.shared.play("error") }
+                if !terminalInFront && showsAlert(for: agentId, focused: focused) {
+                    expandIfNeeded(to: .error)
+                } else {
+                    setPillBadge(id: agentId, badge: .error)
+                }
             }
 
         case "Interrupt":
@@ -682,9 +734,11 @@ final class HookServer: @unchecked Sendable {
 
         case "SubagentStart":
             appendStep(id: agentId, step: "+ subagent")
+            NotchPulse.shared.signal(.agentStart, quiet: terminalInFront)   // coucou-custom fork
 
         case "SubagentStop":
             appendStep(id: agentId, step: "• subagent done")
+            NotchPulse.shared.signal(.agentDone, quiet: terminalInFront)    // coucou-custom fork
 
         default:
             break

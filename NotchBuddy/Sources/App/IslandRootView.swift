@@ -59,6 +59,12 @@ struct IslandContainer: View {
                         cornerRadius: cornerRadius, topRadius: islandTopRadius)
                 .fill(Color.black)
 
+            // coucou-custom fork: the light that runs around the notch on an ambient pulse.
+            if state.mode != .expanded {
+                NotchOrbitRing(width: islandWidth, height: islandHeight,
+                               cornerRadius: cornerRadius, topRadius: islandTopRadius)
+            }
+
             // Content
             if state.mode == .expanded {
                 if greetingActive {
@@ -134,6 +140,7 @@ struct IslandContainer: View {
             .animation(.easeInOut(duration: 0.25), value: state.mode == .compact)
         }
         .frame(width: islandWidth, height: islandHeight, alignment: .topLeading)
+        .modifier(NotchWiggle())   // coucou-custom fork: shake on an ambient pulse
         .onChange(of: state.mode) { oldMode, newMode in
             let shrinking = modeOrder(newMode) < modeOrder(oldMode)
             let anim = shrinking ? closeEase : openSpring

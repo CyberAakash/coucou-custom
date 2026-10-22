@@ -73,6 +73,9 @@ final class LiveSessions: ObservableObject {
         if let id = shown(for: pill)?.id { markSeen(id) }
     }
 
+    /// The notch opened "done" for this session's current prompt (NotchAlertRules).
+    func markAnnounced(_ id: String) { tracker.markAnnounced(id) }
+
     /// The user saw (or answered) this session: once it is done it leaves the list.
     func markSeen(_ id: String) {
         tracker.markSeen(id)
