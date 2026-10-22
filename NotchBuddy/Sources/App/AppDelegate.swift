@@ -37,8 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if APPSTORE
         NSApp.setActivationPolicy(.accessory)
         #else
-        // In the Dock like a regular app (Coucou → Settings → Flow), or only in the menu bar.
-        NSApp.setActivationPolicy(FlowHubController.showInDock ? .regular : .accessory)
+        // coucou-custom fork: in the Dock only while a Coucou window is open; ⌘W closes the window and
+        // leaves the Dock, ⌘Q quits (BackgroundMode).
+        BackgroundMode.install()
         #endif
         setupMenuBarItem()
         setupIsland()
