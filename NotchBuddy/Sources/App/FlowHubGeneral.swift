@@ -141,7 +141,7 @@ struct HubGeneralPage: View {
             HubRow(title: String(localized: "Show island with shortcut")) {
                 HStack(spacing: 10) {
                     if state.hotkeyEnabled {
-                        ShortcutRecorderButton(flags: $hotkeyFlags, code: $hotkeyCode)
+                        ShortcutRecorderButton(flags: $hotkeyFlags, code: $hotkeyCode, hubStyle: true)
                             .onChange(of: hotkeyFlags) { _, v in
                                 state.hotkeyFlags = v
                                 HotKeyCenter.shared.reregister(.toggleIsland)

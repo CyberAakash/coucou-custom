@@ -13,13 +13,25 @@ struct ShortcutsSettingsView: View {
     // Per-action state (enabled flag + current spec)
     @State private var enabled:  [ShortcutAction: Bool]          = [:]
     @State private var specs:    [ShortcutAction: ShortcutSpec]  = [:]
+    /// coucou-custom fork: drawn as a page of the Coucou window (HubCard rows, keycaps).
+    var hubStyle = false
 
     var body: some View {
+        Group {
+            #if !APPSTORE
+            if hubStyle { hubBody } else { boxedBody }
+            #else
+            boxedBody
+            #endif
+        }
+        .onAppear { reload() }
+    }
+
+    private var boxedBody: some View {
         VStack(alignment: .leading, spacing: 18) {
             globalSection
             islandSection
         }
-        .onAppear { reload() }
     }
 
     // MARK: - Global shortcuts
@@ -194,3 +206,81 @@ struct ShortcutsSettingsView: View {
         internalDups = ShortcutLogic.duplicates(in: all)
     }
 }
+
+#if !APPSTORE
+// MARK: - coucou-custom fork: the Coucou window's Shortcuts page
+
+extension ShortcutsSettingsView {
+    @ViewBuilder fileprivate var hubBody: some View {
+        let conflicts = systemConflicts.count + internalDups.count
+        HubGlowCard(color: Color(hex: "#6366F1"), padding: 22) {
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HubStatusPill(text: conflicts == 0
+                                      ? String(localized: "hub.shortcuts.ok", defaultValue: "No conflicts")
+                                      : String(format: String(localized: "hub.shortcuts.conflicts %lld", defaultValue: "%lld in conflict"), Int64(conflicts)),
+                                  tone: conflicts == 0 ? .on : .warn)
+                    Text(String(localized: "hub.shortcuts.title", defaultValue: "Your keys for Mochi"))
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundColor(HubTheme.text)
+                    Text(String(localized: "hub.shortcuts.detail", defaultValue: "Click a shortcut, then press the new keys. Switch one off to give its keys back to other apps."))
+                        .font(.system(size: 13))
+                        .foregroundColor(HubTheme.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Button(String(localized: "shortcut.reset-defaults")) { resetAll() }
+                    .buttonStyle(HubButtonStyle())
+            }
+        }
+
+        HubLabel(String(localized: "hub.shortcuts.global", defaultValue: "Everywhere"))
+        HubCard {
+            ForEach(globalActions, id: \.self) { action in
+                hubRow(action)
+                if action != globalActions.last { HubDivider() }
+            }
+        }
+
+        HubLabel(String(localized: "hub.shortcuts.island", defaultValue: "While the notch is open"))
+        HubCard {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 18, alignment: .leading)], alignment: .leading, spacing: 12) {
+                ForEach(Array(ShortcutLogic.islandShortcuts.enumerated()), id: \.offset) { _, pair in
+                    HStack(spacing: 12) {
+                        HubKeyCap(text: pair.key)
+                            .frame(minWidth: 64, alignment: .leading)
+                        Text(pair.description)
+                            .font(.system(size: 12.5))
+                            .foregroundColor(HubTheme.body)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+    }
+
+    private func hubRow(_ action: ShortcutAction) -> some View {
+        let isEnabled = enabled[action] ?? action.enabledByDefault
+        return HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(action.displayName).font(.system(size: 13.5, weight: .medium))
+                if systemConflicts.contains(action) {
+                    HubStatusPill(text: String(localized: "shortcut.conflict.system"), tone: .warn)
+                } else if internalDups.contains(action) {
+                    HubStatusPill(text: String(localized: "shortcut.conflict.duplicate"), tone: .warn)
+                }
+            }
+            Spacer(minLength: 8)
+            ShortcutRecorderButton(flags: specFlagsBinding(action), code: specCodeBinding(action), hubStyle: true)
+                .disabled(!isEnabled)
+                .opacity(isEnabled ? 1 : 0.45)
+                .onChange(of: specs[action]) { _, _ in specChanged(action) }
+            Toggle("", isOn: Binding(get: { isEnabled }, set: { toggleAction(action, enabled: $0) }))
+                .toggleStyle(.switch)
+                .labelsHidden()
+        }
+        .padding(.vertical, 2)
+    }
+}
+#endif
