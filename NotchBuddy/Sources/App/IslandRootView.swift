@@ -54,16 +54,17 @@ struct IslandContainer: View {
         let greetingActive = state.mode == .expanded && state.view == .greeting
 
         return ZStack(alignment: .topLeading) {
+            // coucou-custom fork: spotlight halo on an ambient pulse, behind the island so only
+            // the glow around its edges shows.
+            if state.mode != .expanded {
+                NotchHalo(width: islandWidth, height: islandHeight,
+                          cornerRadius: cornerRadius, topRadius: islandTopRadius)
+            }
+
             // Black island shape
             IslandShape(width: islandWidth, height: islandHeight,
                         cornerRadius: cornerRadius, topRadius: islandTopRadius)
                 .fill(Color.black)
-
-            // coucou-custom fork: the light that runs around the notch on an ambient pulse.
-            if state.mode != .expanded {
-                NotchOrbitRing(width: islandWidth, height: islandHeight,
-                               cornerRadius: cornerRadius, topRadius: islandTopRadius)
-            }
 
             // Content
             if state.mode == .expanded {

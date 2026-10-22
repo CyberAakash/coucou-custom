@@ -2,9 +2,9 @@ import SwiftUI
 
 // MARK: - NotchPulse (coucou-custom fork)
 //
-// What the notch does for an event that does not open it: a short sound, a wiggle, and a
-// light that runs once around the notch outline (NotchOrbitRing). See NotchAlertRules for
-// which events open the notch instead. Animates only while a pulse runs (~1.5 s): no CPU
+// What the notch does for an event that does not open it: a short sound, a wiggle, and a soft
+// spotlight halo that blooms around the notch and fades (NotchHalo). See NotchAlertRules for
+// which events open the notch instead. Animates only while a pulse runs (~1.8 s): no CPU
 // when nothing happens.
 
 @MainActor
@@ -25,13 +25,27 @@ final class NotchPulse: ObservableObject {
             }
         }
 
-        var color: Color {
+        var color: Color { Color(hex: hex) }
+
+        /// The second colour of the halo's gradient: the same hue family, shifted, so the glow
+        /// shimmers instead of being one flat colour.
+        var companion: Color {
             switch self {
-            case .sessionStart:  Color(hex: "#E07950")
-            case .agentStart:    Color(hex: "#22D3EE")
-            case .agentDone, .finishedQuiet: Color(hex: "#4ADE80")
-            case .agentsRunning: Color(hex: "#F5A623")
-            case .errorQuiet:    Color(hex: "#F87171")
+            case .sessionStart:  Color(hex: "#F472B6")   // orange → pink
+            case .agentStart:    Color(hex: "#818CF8")   // cyan → indigo
+            case .agentDone, .finishedQuiet: Color(hex: "#22D3EE")   // green → cyan
+            case .agentsRunning: Color(hex: "#FB7185")   // amber → rose
+            case .errorQuiet:    Color(hex: "#F59E0B")   // red → amber
+            }
+        }
+
+        private var hex: String {
+            switch self {
+            case .sessionStart:  "#E07950"
+            case .agentStart:    "#22D3EE"
+            case .agentDone, .finishedQuiet: "#4ADE80"
+            case .agentsRunning: "#F5A623"
+            case .errorQuiet:    "#F87171"
             }
         }
     }
@@ -39,6 +53,7 @@ final class NotchPulse: ObservableObject {
     struct Ring: Equatable {
         let id = UUID()
         let color: Color
+        let companion: Color
         let start: Date
     }
 
@@ -46,7 +61,7 @@ final class NotchPulse: ObservableObject {
     @Published private(set) var wiggle = 0
     private var lastSound = Date.distantPast
 
-    static let ringDuration: TimeInterval = 1.5
+    static let ringDuration: TimeInterval = 1.8
 
     /// `quiet`: the session's terminal is in front (upstream's rule): no sound, still the light.
     func signal(_ kind: Kind, quiet: Bool) {
@@ -63,7 +78,7 @@ final class NotchPulse: ObservableObject {
         appendAppLog("nb.log", "[Notch] pulse: \(kind.rawValue)")
         // Open notch: the card already shows it, no light over the content.
         guard AppState.shared.mode != .expanded else { return }
-        let r = Ring(color: kind.color, start: now)
+        let r = Ring(color: kind.color, companion: kind.companion, start: now)
         ring = r
         wiggle += 1
         if kind == .agentDone || kind == .finishedQuiet {
@@ -75,10 +90,11 @@ final class NotchPulse: ObservableObject {
     }
 }
 
-// MARK: - Orbit ring
+// MARK: - Spotlight halo
 
-/// A short bright segment that travels the notch outline ~1.2 laps and fades, with a glow.
-struct NotchOrbitRing: View {
+/// A blurred colour glow that blooms around the notch and fades, plus a soft spotlight cast
+/// below it. Drawn behind the black island, so only what spills past its edges shows.
+struct NotchHalo: View {
     let width: CGFloat
     let height: CGFloat
     let cornerRadius: CGFloat
@@ -92,47 +108,36 @@ struct NotchOrbitRing: View {
                 let t = context.date.timeIntervalSince(ring.start)
                 let d = NotchPulse.ringDuration
                 if t >= 0 && t < d {
-                    let fade = min(1, t / 0.15) * min(1, (d - t) / 0.4)
+                    let p = t / d
+                    // Quick rise, long soft fall.
+                    let intensity = min(1, t / 0.25) * pow(max(0, 1 - p), 1.6)
+                    let bloom = reduceMotion ? 1.06 : 1.0 + 0.14 * (1 - pow(1 - p, 3))
+                    let turn = reduceMotion ? 0.0 : 180.0 * p
                     let shape = IslandShape(width: width, height: height, cornerRadius: cornerRadius, topRadius: topRadius)
-                    if reduceMotion {
-                        shape.stroke(ring.color, lineWidth: 1.5).opacity(0.8 * fade)
-                    } else {
-                        let head = (t / d * 1.2).truncatingRemainder(dividingBy: 1)
-                        ZStack {
-                            segment(shape, from: head, length: 0.24)
-                                .stroke(ring.color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                                .blur(radius: 5)
-                                .opacity(0.85 * fade)
-                            segment(shape, from: head, length: 0.24)
-                                .stroke(ring.color.opacity(0.95), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                                .opacity(fade)
-                        }
+                    ZStack {
+                        // Aura hugging the notch outline.
+                        shape
+                            .fill(AngularGradient(colors: [ring.color, ring.companion, ring.color.opacity(0.7),
+                                                           ring.companion, ring.color],
+                                                  center: .center, angle: .degrees(turn)))
+                            .scaleEffect(x: bloom, y: 1 + (bloom - 1) * 2.4, anchor: .top)
+                            .blur(radius: 14 + 10 * p)
+                            .opacity(0.95 * intensity)
+                        // Spotlight cast down from the notch.
+                        Ellipse()
+                            .fill(RadialGradient(colors: [ring.color.opacity(0.75), ring.companion.opacity(0.35), .clear],
+                                                 center: .center, startRadius: 0, endRadius: width * 0.55))
+                            .frame(width: width * 1.25, height: height * 2.6 + 30)
+                            .offset(y: height * 0.55)
+                            .blur(radius: 18)
+                            .opacity(0.7 * intensity)
                     }
+                    .frame(width: width, height: height, alignment: .top)
                 }
             }
         }
-        .frame(width: width, height: height)
+        .frame(width: width, height: height, alignment: .top)
         .allowsHitTesting(false)
-    }
-
-    /// `length` of the outline starting at `from`, wrapping past the end of the path.
-    private func segment(_ shape: IslandShape, from: Double, length: Double) -> some Shape {
-        WrappedTrim(base: shape, from: from, length: length)
-    }
-}
-
-private struct WrappedTrim: Shape {
-    let base: IslandShape
-    let from: Double
-    let length: Double
-
-    func path(in rect: CGRect) -> Path {
-        let full = base.path(in: rect)
-        let end = from + length
-        if end <= 1 { return full.trimmedPath(from: from, to: end) }
-        var p = full.trimmedPath(from: from, to: 1)
-        p.addPath(full.trimmedPath(from: 0, to: end - 1))
-        return p
     }
 }
 
