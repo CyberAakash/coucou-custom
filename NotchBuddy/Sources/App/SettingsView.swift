@@ -152,6 +152,10 @@ struct SettingsView: View {
     @AppStorage("iPhoneInstructionsEnabled") private var iPhoneInstructionsEnabled = false
     #endif
     @AppStorage(ClaudeHost.terminalCardsKey) private var terminalCardsEnabled = false
+    // coucou-custom fork: NotchAlertRules / NotchPulse.
+    @AppStorage(NotchAlertRules.openOnFinishKey) private var openOnFinish = true
+    @AppStorage(NotchAlertRules.openOnErrorKey) private var openOnError = true
+    @AppStorage(NotchAlertRules.ambientKey) private var ambientPulse = true
     #if !APPSTORE
     @AppStorage(TerminalFocus.defaultKey) private var defaultTerminal = ""   // coucou-custom fork
     #endif
@@ -350,6 +354,12 @@ struct SettingsView: View {
                     .help("Hovering the island opens it; it folds again shortly after the pointer leaves. Click inside to keep it open.")
                 Toggle(String(localized: "alerts.all-pills"), isOn: $state.alertsFromAllPills)
                     .help(String(localized: "alerts.all-pills.help"))
+                // coucou-custom fork: the notch opens only when a session is done or needs you.
+                Toggle(String(localized: "alerts.open-finish", defaultValue: "Open when a session's work is done"), isOn: $openOnFinish)
+                    .help(String(localized: "alerts.open-finish.help", defaultValue: "Not while its background agents still run. Permissions and questions always open the notch."))
+                Toggle(String(localized: "alerts.open-error", defaultValue: "Open when a session stops on an error"), isOn: $openOnError)
+                Toggle(String(localized: "alerts.ambient", defaultValue: "For everything else: sound, wiggle and a light around the notch"), isOn: $ambientPulse)
+                    .help(String(localized: "alerts.ambient.help", defaultValue: "Session start, agents starting and finishing, a turn that left agents running."))
                 HStack(spacing: 8) {
                     Text("Close after")
                     TextField("60", value: $state.autoCloseInterval, format: .number)

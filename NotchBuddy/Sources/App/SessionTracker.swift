@@ -77,6 +77,9 @@ struct SessionTracker {
         /// How to bring this session's own tab forward: warp_focus_url, tty, iterm_session_id,
         /// kitty_window_id, kitty_listen_on, wezterm_pane, tmux, tmux_pane (relay coucou_terminal).
         var terminal: [String: String] = [:]
+        /// The notch already opened "done" for the current prompt: the extra turns that follow
+        /// background agents' completion notices must not open it again.
+        var announcedDone = false
 
         var runningSubagents: Int { subagents.filter(\.running).count }
         var isBusy: Bool { status == .working || status == .background || status == .waiting }
@@ -135,6 +138,7 @@ struct SessionTracker {
             // but it is not what the user asked.
             s.seenAt = nil
             if !prompt.hasPrefix("<task-notification>") {
+                s.announcedDone = false
                 s.prompt = prompt
                 s.turnStartedAt = now
                 s.finalMessage = nil
@@ -269,6 +273,10 @@ struct SessionTracker {
     }
 
     mutating func remove(_ id: String) { sessions[id] = nil }
+
+    mutating func markAnnounced(_ id: String) {
+        sessions[id]?.announcedDone = true
+    }
 
     mutating func markSeen(_ id: String, now: Date = Date()) {
         guard var s = sessions[id], s.seenAt == nil, !s.isBusy else { return }
