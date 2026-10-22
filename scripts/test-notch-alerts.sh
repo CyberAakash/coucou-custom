@@ -6,5 +6,6 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 swiftc -parse-as-library \
     NotchBuddy/Sources/App/NotchAlertRules.swift \
     NotchBuddy/Sources/App/SessionTracker.swift \
+    NotchBuddy/Sources/App/SpotlightSettings.swift \
     tests/NotchAlertRulesTests.swift -o "$TEST_DIR/notch-alert-tests"
 "$TEST_DIR/notch-alert-tests"

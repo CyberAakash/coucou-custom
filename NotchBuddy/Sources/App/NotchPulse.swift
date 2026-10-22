@@ -80,6 +80,9 @@ final class NotchPulse: ObservableObject {
     private var lastSound = Date.distantPast
     private var breathingSince: Date?
 
+    /// Settings → Spotlight → Preview: the real path, so sound, wiggle and Mochi play too.
+    func preview(_ kind: Kind) { signal(kind, quiet: false) }
+
     /// `quiet`: the session's terminal is in front: no sound, still the light.
     func signal(_ kind: Kind, quiet: Bool) {
         guard NotchAlertRules.setting(NotchAlertRules.ambientKey) else {
@@ -113,7 +116,8 @@ final class NotchPulse: ObservableObject {
     /// On while any session waits on background agents; capped at 15 min so a lost event can't
     /// leave it breathing forever.
     private func updateBreathing(now: Date) {
-        let running = LiveSessions.shared.sessions.contains { $0.status == .background || ($0.isBusy && $0.runningSubagents > 0) }
+        let running = NotchAlertRules.setting(SpotlightSettings.breatheKey)
+            && LiveSessions.shared.sessions.contains { $0.status == .background || ($0.isBusy && $0.runningSubagents > 0) }
         if running {
             if breathingSince == nil { breathingSince = now }
             breathing = now.timeIntervalSince(breathingSince ?? now) < 15 * 60
@@ -170,9 +174,9 @@ enum Motion: Equatable {
 
 // MARK: - Breathing aura
 
-/// The aura: a coloured glow hugging the notch, a wider soft bloom, and a faint light cast below,
-/// all on the notch's own shape. Drawn behind the black island, so only the glow around its
-/// edges shows. Colours flow around it; the whole thing swells with the motion's intensity.
+/// The aura: a coloured light under the notch, brightest at the notch and fading out with no
+/// visible edge. Drawn behind the black island, so only the light around its edges shows.
+/// Brightness, size, softness, colours and motion come from Settings → Spotlight.
 struct NotchHalo: View {
     let width: CGFloat
     let height: CGFloat
@@ -180,9 +184,13 @@ struct NotchHalo: View {
     let topRadius: CGFloat
     @ObservedObject private var pulse = NotchPulse.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(SpotlightSettings.brightnessKey) private var brightness = SpotlightSettings.defaultBrightness
+    @AppStorage(SpotlightSettings.sizeKey) private var size = 1.0
+    @AppStorage(SpotlightSettings.softnessKey) private var softness = 1.0
+    @AppStorage(SpotlightSettings.colorModeKey) private var colorMode = SpotlightSettings.ColorMode.byEvent.rawValue
+    @AppStorage(SpotlightSettings.colorKey) private var colorHex = SpotlightSettings.defaultColor
+    @AppStorage(SpotlightSettings.motionKey) private var moving = true
 
-    /// Calm: noticeable at the edge of vision, never glaring.
-    private static let strength = 0.85
     private static let breathPalette = NotchPulse.Kind.agentsRunning.palette
 
     var body: some View {
@@ -193,58 +201,67 @@ struct NotchHalo: View {
             // The breath: slow, low, ~2.8 s period, only while agents run.
             let breath = pulse.breathing ? 0.22 + 0.18 * (0.5 - 0.5 * cos(2 * .pi * now.timeIntervalSinceReferenceDate / 2.8)) : 0
             let shot = oneShot?.1 ?? 0
-            let level = max(shot, breath) * Self.strength
+            let level = max(shot, breath) * SpotlightSettings.clamped(brightness, SpotlightSettings.brightnessRange)
             if level > 0.01 {
                 let palette = shot >= breath ? (oneShot?.0.palette ?? Self.breathPalette) : Self.breathPalette
-                aura(level: level, palette: palette, time: now.timeIntervalSinceReferenceDate, calm: shot < breath)
+                aura(level: level, palette: colors(palette), time: now.timeIntervalSinceReferenceDate, calm: shot < breath)
             }
         }
         .frame(width: width, height: height, alignment: .top)
         .allowsHitTesting(false)
     }
 
-    /// A filled semicircle of light under the notch (Siri aura / Samsung edge-lighting feel): the
-    /// lower half of an ellipse centred on the screen's top edge, feathered at its rim, with a
-    /// bright core at the notch fading outward and large blurred colour blobs drifting inside.
-    /// Blobs move in mirrored pairs so the two sides always match.
+    /// The event's palette, or the user's single colour / white in three tints.
+    private func colors(_ event: [Color]) -> [Color] {
+        switch SpotlightSettings.ColorMode(rawValue: colorMode) ?? .byEvent {
+        case .byEvent: return event
+        case .single:
+            let c = Color(hex: colorHex)
+            return [c.mix(with: .white, by: 0.25), c, c.mix(with: .black, by: 0.15)]
+        case .white: return [.white, Color(white: 0.88), Color(white: 0.75)]
+        }
+    }
+
+    /// The lower half of an ellipse centred on the screen's top edge. An elliptical gradient
+    /// (it follows the ellipse, so it reaches 0 at the bottom too, unlike a circular one) falls off
+    /// steeply from the notch; a wide feathered mask and a blur dissolve the rim. Faint colour
+    /// blobs drift near the core in mirrored pairs so the two sides match.
     @ViewBuilder
     private func aura(level: Double, palette: [Color], time: TimeInterval, calm: Bool) -> some View {
+        let reach = SpotlightSettings.clamped(size, SpotlightSettings.sizeRange)
+        let soft = SpotlightSettings.clamped(softness, SpotlightSettings.softnessRange)
         let grow = reduceMotion ? 1.04 : 1 + 0.1 * level
-        let w = (width * 1.35 + 72) * grow           // semicircle width
-        let depth = (height + 46) * grow             // how far it reaches below the screen edge
+        let w = (width * 1.35 + 72) * grow * reach   // semicircle width
+        let depth = (height + 46) * grow * reach     // how far it reaches below the screen edge
         let h = depth * 2                            // full ellipse height (top half is off screen)
-        let speed = reduceMotion ? 0 : (calm ? 0.45 : 1.1)
+        let speed = (reduceMotion || !moving) ? 0 : (calm ? 0.45 : 1.1)
         let t = time * speed
-        // Mirrored drift: x swings out and back, y rises and falls, never the same for long.
-        let dx = w * (0.17 + 0.07 * sin(t * 1.3))
-        let dy = depth * (0.42 + 0.12 * sin(t * 0.9 + 1.2))
-        let cy = depth * (0.6 + 0.1 * sin(t * 1.1 + 2.4))
+        let dx = w * (0.11 + 0.04 * sin(t * 1.3))
+        let dy = depth * (0.16 + 0.06 * sin(t * 0.9 + 1.2))
+        let stopColors = [palette[0], palette[0], palette[1], palette[2], palette[2]]
+        let stops = SpotlightSettings.falloff(softness: soft).enumerated().map { i, s in
+            Gradient.Stop(color: stopColors[i].opacity(s.opacity), location: s.location)
+        }
         ZStack {
-            // Spotlight core: brightest at the notch, fading toward the rim.
-            Ellipse()
-                .fill(RadialGradient(colors: [palette[0].opacity(0.95), palette[1].opacity(0.55), palette[2].opacity(0.2), .clear],
-                                     center: .center, startRadius: 0, endRadius: w * 0.5))
-            // Colour blobs (Siri-style), mirrored left/right.
+            Ellipse().fill(EllipticalGradient(gradient: Gradient(stops: stops), center: .center,
+                                              startRadiusFraction: 0, endRadiusFraction: 0.5))
             Group {
-                blob(palette[1], size: w * 0.5).offset(x: -dx, y: dy)
-                blob(palette[1], size: w * 0.5).offset(x: dx, y: dy)
-                blob(palette[2], size: w * 0.42).offset(x: -dx * 0.45, y: cy)
-                blob(palette[2], size: w * 0.42).offset(x: dx * 0.45, y: cy)
-                blob(palette[0], size: w * 0.55).offset(y: depth * 0.25)
+                blob(palette[1], size: w * 0.3).offset(x: -dx, y: dy)
+                blob(palette[1], size: w * 0.3).offset(x: dx, y: dy)
+                blob(palette[2], size: w * 0.24).offset(y: depth * 0.08)
             }
-            .blendMode(.screen)
+            .opacity(0.35)
         }
         .frame(width: w, height: h)
-        // Feathered semicircle: the ellipse as a soft mask, so no hard edge and no empty gap.
-        .mask(Ellipse().frame(width: w, height: h).blur(radius: 12))
-        .blur(radius: 6)
+        .mask(Ellipse().frame(width: w, height: h).blur(radius: depth * 0.25 * soft))
+        .blur(radius: 10 * soft)
         .opacity(level)
         // Centre on the notch's top edge: only the lower half is on screen.
         .position(x: width / 2, y: 0)
     }
 
     private func blob(_ color: Color, size: CGFloat) -> some View {
-        Circle().fill(color.opacity(0.85)).frame(width: size, height: size).blur(radius: size * 0.28)
+        Circle().fill(color).frame(width: size, height: size).blur(radius: size * 0.35)
     }
 }
 
