@@ -239,6 +239,7 @@ struct FlowHubView: View {
         case .snippets:   HubSnippetsPage()
         case .styles:     HubStylesPage(router: router)
         case .settings:   HubSettingsPage()
+        case .buddy:      HubBuddyPage()   // coucou-custom fork
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
         default:
             if let section = router.page.settingsSection {
