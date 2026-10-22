@@ -17,9 +17,8 @@ final class BuddySettings: ObservableObject {
     static let followKey = "buddyFollowCursor"
     static let napKey = "buddyNapWhenIdle"
     static let spotsKey = "buddySpots"
-
-    /// Body colours offered in Settings ("" is Mochi's own); the Flow window's palette.
-    static let colors = ["", "#F5F6F8", "#FB923C", "#F472B6", "#A78BFA", "#3B9EFF", "#22D3EE", "#34D399", "#F7B32B"]
+    static let companionsKey = "buddyCompanions"
+    static let companionsMatchKey = "buddyCompanionsMatch"
 
     private let defaults: UserDefaults
 
@@ -28,8 +27,24 @@ final class BuddySettings: ObservableObject {
     @Published var size: BuddySize { didSet { defaults.set(size.rawValue, forKey: Self.sizeKey) } }
     /// Its own outfit: the notch's wardrobe does not dress it.
     @Published var outfit: Outfit { didSet { defaults.set(outfit.rawValue, forKey: Self.outfitKey) } }
-    /// Body colour as "#RRGGBB", or "" for Mochi's own.
-    @Published var color: String { didSet { defaults.set(color, forKey: Self.colorKey) } }
+    /// Body colour as "#RRGGBB" (any colour), or "" for Mochi's own.
+    @Published var color: String {
+        didSet {
+            let n = color.isEmpty ? "" : (BuddyColor.normalized(color) ?? "")
+            if n != color { color = n; return }
+            defaults.set(color, forKey: Self.colorKey)
+        }
+    }
+    /// Little Mochis around it (0…6), as on the Coucou window's banner.
+    @Published var companions: Int {
+        didSet {
+            let n = min(max(companions, 0), BuddyCompanionLayout.maxCount)
+            if n != companions { companions = n; return }
+            defaults.set(companions, forKey: Self.companionsKey)
+        }
+    }
+    /// The companions take the Buddy's colour; otherwise each has one of the window's palette.
+    @Published var companionsMatch: Bool { didSet { defaults.set(companionsMatch, forKey: Self.companionsMatchKey) } }
     /// It plays what your agents do (thinking, working, waiting, done); off, it just hangs out.
     @Published var reactToAgents: Bool { didSet { defaults.set(reactToAgents, forKey: Self.reactKey) } }
     /// It says a short line when a permission or a question waits, or something fails.
@@ -55,12 +70,19 @@ final class BuddySettings: ObservableObject {
         enabled = bool(Self.enabledKey, default: true)
         size = defaults.object(forKey: Self.sizeKey) == nil ? .medium : BuddySize.from(stored: defaults.double(forKey: Self.sizeKey))
         outfit = defaults.string(forKey: Self.outfitKey).flatMap(Outfit.init(rawValue:)) ?? .auto
-        let c = defaults.string(forKey: Self.colorKey) ?? ""
-        color = Self.colors.contains(c) ? c : ""
+        color = BuddyColor.normalized(defaults.string(forKey: Self.colorKey) ?? "") ?? ""
+        companions = min(max(defaults.integer(forKey: Self.companionsKey), 0), BuddyCompanionLayout.maxCount)
+        companionsMatch = bool(Self.companionsMatchKey, default: false)
         reactToAgents = bool(Self.reactKey, default: true)
         speechBubbles = bool(Self.speechKey, default: true)
         followCursor = bool(Self.followKey, default: true)
         napWhenIdle = bool(Self.napKey, default: true)
+    }
+
+    /// Companion `i`'s colour ("" for Mochi's own).
+    func companionColor(_ i: Int) -> String {
+        if companionsMatch { return color }   // "" = Mochi's own, like the Buddy
+        return BuddyColor.companions[i % BuddyColor.companions.count]
     }
 
     /// The outfit worn today ("Auto" follows the seasons, as the notch's).

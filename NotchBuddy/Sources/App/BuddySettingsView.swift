@@ -23,8 +23,18 @@ struct HubBuddyPage: View {
                     BuddyOutfitGrid(selection: $settings.outfit, color: settings.color)
                 }
                 HubDivider()
-                HubRow(title: "Colour") {
-                    BuddyColorSwatches(selection: $settings.color)
+                HubRow(title: "Colour", detail: "Any colour, or Mochi's own.") {
+                    BuddyColorPicker(hex: $settings.color)
+                }
+                HubDivider()
+                HubRow(title: "Companions", detail: "Little Mochis around it, as on this window's banner. Click one to make it blush.") {
+                    BuddyCountChips(selection: $settings.companions)
+                }
+                if settings.companions > 0 {
+                    HubDivider()
+                    HubRow(title: "Same colour as the Buddy", detail: "Otherwise each wears one of this window's colours.") {
+                        Toggle("", isOn: $settings.companionsMatch).toggleStyle(.switch).labelsHidden()
+                    }
                 }
             }
 
@@ -52,10 +62,10 @@ struct HubBuddyPage: View {
 
             HubLabel("Moving it around")
             HStack(spacing: 12) {
-                BuddyTip(symbol: "hand.draw", title: "Drag", line: "Anywhere, on any display. It remembers its spot on each one.")
+                BuddyTip(symbol: "hand.draw", title: "Drag", line: "Anywhere, right to the edges and even half off them. It remembers its spot on each display.")
                 BuddyTip(symbol: "cursorarrow.click", title: "Click", line: "It says hi.")
                 BuddyTip(symbol: "contextualmenu.and.cursorarrow", title: "Right-click",
-                         line: "Size, outfit, bubbles, or hide it.")
+                         line: "Size, outfit, companions, bubbles, or hide it.")
             }
         }
     }
@@ -69,15 +79,21 @@ private struct BuddyHeroCard: View {
 
     var body: some View {
         HubGlowCard(color: Color(hex: "#F472B6"), padding: 22) {
-            HStack(alignment: .center, spacing: 26) {
+            VStack(alignment: .leading, spacing: 16) {
+                // The stage: the Buddy and its companions, as they look on the desktop.
                 preview.view
                     .frame(width: preview.canvas.width, height: preview.canvas.height)
+                    .id(preview.revision)
                     .contentShape(Rectangle())
                     .onTapGesture { preview.hello() }
                     .onContinuousHover { phase in
                         if case .active(let p) = phase { preview.look(at: p) } else { preview.look(at: nil) }
                     }
                     .help("Click to say hi")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.25)))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
@@ -113,6 +129,8 @@ private struct BuddyHeroCard: View {
         .onAppear { preview.dress(settings) }
         .onChange(of: settings.outfit) { _, _ in preview.dress(settings) }
         .onChange(of: settings.color) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.companions) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.companionsMatch) { _, _ in preview.dress(settings) }
     }
 }
 
@@ -122,9 +140,14 @@ private final class BuddyPreview: ObservableObject {
     let engine = BotEngine()
     let state = BuddyViewState()
     let side: CGFloat = 112
-    var canvas: CGSize { BuddyInsets.mochi.panelSize(side: side) }
+    /// A new set of companions: the stage is rebuilt.
+    @Published private(set) var revision = 0
+    private(set) var companions: BuddyCompanions?
+    private var strip: CGFloat { companions?.layout.stripWidth ?? 0 }
+    var canvas: CGSize { BuddyInsets.mochi.panelSize(side: side, strip: strip) }
+    private var square: CGRect { BuddyInsets.mochi.innerRectTopDown(side: side, strip: strip) }
     var view: BuddyMochiView {
-        BuddyMochiView(engine: engine, viewState: state, inner: BuddyInsets.mochi.innerRectTopDown(side: side), canvas: canvas)
+        BuddyMochiView(engine: engine, viewState: state, inner: square, canvas: canvas, companions: companions)
     }
 
     init() { engine.setState(.idle, force: true) }
@@ -132,16 +155,25 @@ private final class BuddyPreview: ObservableObject {
     func dress(_ settings: BuddySettings) {
         engine.setOutfit(settings.resolvedOutfit(), animated: true)
         engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
+        if (companions?.layout.count ?? 0) != settings.companions {
+            let layout = BuddyCompanionLayout(count: settings.companions, side: side)
+            companions = layout.count > 0 ? BuddyCompanions(layout: layout, colors: { settings.companionColor($0) }) : nil
+            revision += 1
+        } else {
+            companions?.recolor { settings.companionColor($0) }
+        }
     }
 
-    func hello() { engine.triggerEmote(.happy, duration: 1.2, silent: true) }
+    func hello() {
+        engine.triggerEmote(.happy, duration: 1.2, silent: true)
+        companions?.greet()
+    }
 
     /// `p` in the preview's own coordinates (y down), nil when the cursor leaves it.
     func look(at p: CGPoint?) {
         guard let p else { engine.lookX = 0; engine.lookY = 0; return }
-        let r = BuddyInsets.mochi.innerRectTopDown(side: side)
-        engine.lookX = tanh((p.x - r.midX) / 90)
-        engine.lookY = -tanh((p.y - r.midY) / 70)
+        engine.lookX = tanh((p.x - square.midX) / 90)
+        engine.lookY = -tanh((p.y - square.midY) / 70)
     }
 }
 
@@ -205,32 +237,82 @@ private struct BuddyOutfitGrid: View {
     }
 }
 
-private struct BuddyColorSwatches: View {
-    @Binding var selection: String
+/// Any colour: Mochi's own, the system colour picker, or a hex code.
+private struct BuddyColorPicker: View {
+    @Binding var hex: String
+    @State private var text = ""
 
     var body: some View {
         HStack(spacing: 8) {
-            ForEach(BuddySettings.colors, id: \.self) { hex in
-                let on = selection == hex
-                Button { selection = hex } label: {
-                    ZStack {
-                        if hex.isEmpty {
-                            Circle().fill(LinearGradient(colors: [Color(hex: "#DCE6F5"), Color(hex: "#9DB4D8")],
-                                                         startPoint: .top, endPoint: .bottom))
-                        } else {
-                            Circle().fill(Color(hex: hex))
-                        }
-                    }
-                    .frame(width: 22, height: 22)
-                    .overlay(Circle().strokeBorder(Color.white.opacity(on ? 0.95 : 0.12), lineWidth: on ? 2 : 1))
-                    .padding(3)
-                    .overlay(Circle().strokeBorder(on ? HubTheme.accent : .clear, lineWidth: 1.5))
-                    .contentShape(Circle())
+            Button { hex = "" } label: {
+                HStack(spacing: 6) {
+                    Circle().fill(LinearGradient(colors: [Color(hex: "#DCE6F5"), Color(hex: "#9DB4D8")],
+                                                 startPoint: .top, endPoint: .bottom))
+                        .frame(width: 16, height: 16)
+                    Text("Mochi's own").font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundColor(hex.isEmpty ? HubTheme.text : HubTheme.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(hex.isEmpty ? HubTheme.accent.opacity(0.14) : Color.white.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(hex.isEmpty ? HubTheme.accent : Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            ColorPicker("", selection: Binding(
+                get: { Color(hex: hex.isEmpty ? "#C9D6EA" : hex) },
+                set: { hex = BuddyColorPicker.hex(of: $0) ?? hex }), supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 44, height: 30)
+                .help("Pick any colour")
+
+            TextField("#RRGGBB", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5, design: .monospaced))
+                .padding(.horizontal, 10)
+                .frame(width: 96, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(HubTheme.field))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(BuddyColor.normalized(text) == nil && !text.isEmpty ? HubTheme.red : Color.white.opacity(0.1)))
+                .onSubmit { if let n = BuddyColor.normalized(text) { hex = n } }
+        }
+        .onAppear { text = hex }
+        .onChange(of: hex) { _, new in text = new }
+    }
+
+    /// A SwiftUI colour as "#RRGGBB" in sRGB.
+    static func hex(of color: Color) -> String? {
+        guard let c = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        return BuddyColor.hex(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent))
+    }
+}
+
+/// None, 1…6.
+private struct BuddyCountChips: View {
+    @Binding var selection: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0...BuddyCompanionLayout.maxCount, id: \.self) { n in
+                let on = selection == n
+                Button { selection = n } label: {
+                    Text(n == 0 ? "None" : "\(n)")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
+                        .frame(width: n == 0 ? 46 : 30, height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(hex.isEmpty ? "Mochi's own" : hex)
             }
         }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
     }
 }
 

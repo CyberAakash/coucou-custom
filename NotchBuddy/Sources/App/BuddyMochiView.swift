@@ -12,29 +12,43 @@ final class BuddyViewState: ObservableObject {
     @Published var paused = false
     /// Under the cursor: a little bigger.
     @Published var isHovered = false
+    /// 0…1, eased toward `isHovered` frame by frame (drawn in the canvas, so only Mochi grows,
+    /// not its companions).
+    var hoverLevel: CGFloat = 0
 }
 
 /// Mochi drawn as the desktop Mochi is (DesktopBotView), but in a square inside a bigger canvas so
-/// hats, emotes, "zZ" and the hover scale that reach past the square show (BuddyInsets).
+/// hats, emotes, "zZ" and the hover scale that reach past the square show (BuddyInsets), with its
+/// companions on each side.
 struct BuddyMochiView: View {
     let engine: BotEngine
     @ObservedObject var viewState: BuddyViewState
     /// Mochi's square in the view (y down).
     let inner: CGRect
-    /// The view's size: the square plus its room.
+    /// The view's size: the square, its room and the companions' strips.
     let canvas: CGSize
+    var companions: BuddyCompanions? = nil
 
     var body: some View {
         TimelineView(.animation(paused: viewState.paused)) { timeline in
             Canvas { ctx, _ in
                 _ = timeline.date   // redraw every tick (see BotCanvasView)
                 MochiFrameClock.advance(engine)
-                BuddyMochiView.draw(engine, in: ctx, square: inner)
+                if let companions {
+                    companions.step()
+                    companions.draw(ctx, canvas: canvas, square: inner)
+                }
+                // Hover: 1.07 about the square's centre, eased (as DesktopBotView's spring, roughly).
+                let target: CGFloat = viewState.isHovered ? 1 : 0
+                viewState.hoverLevel += (target - viewState.hoverLevel) * 0.3
+                let k = 1 + 0.07 * viewState.hoverLevel
+                var c = ctx
+                c.translateBy(x: inner.midX, y: inner.midY)
+                c.scaleBy(x: k, y: k)
+                c.translateBy(x: -inner.midX, y: -inner.midY)
+                BuddyMochiView.draw(engine, in: c, square: inner)
             }
         }
-        .scaleEffect(viewState.isHovered ? 1.07 : 1.0,
-                     anchor: UnitPoint(x: inner.midX / canvas.width, y: inner.midY / canvas.height))
-        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: viewState.isHovered)
     }
 
     /// One frame of Mochi in `square`, layered as DesktopBotView does (rigid roll with an outfit).

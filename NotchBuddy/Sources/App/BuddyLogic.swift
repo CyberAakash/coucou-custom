@@ -59,20 +59,21 @@ struct BuddyInsets: Equatable {
 
     static let mochi = BuddyInsets(top: 0.32, left: 0.12, bottom: 0.04, right: 0.12)
 
-    /// The window around a square of `side`, in whole points.
-    func panelSize(side s: CGFloat) -> CGSize {
-        CGSize(width: s + (s * left).rounded() + (s * right).rounded(),
+    /// The window around a square of `side`, in whole points; `strip` is the companions' room on
+    /// each side (BuddyCompanionLayout.stripWidth).
+    func panelSize(side s: CGFloat, strip: CGFloat = 0) -> CGSize {
+        CGSize(width: s + (s * left).rounded() + (s * right).rounded() + 2 * strip,
                height: s + (s * top).rounded() + (s * bottom).rounded())
     }
 
     /// The square inside the window: AppKit (y up) from the window's bottom-left.
-    func innerOrigin(side s: CGFloat) -> CGPoint {
-        CGPoint(x: (s * left).rounded(), y: (s * bottom).rounded())
+    func innerOrigin(side s: CGFloat, strip: CGFloat = 0) -> CGPoint {
+        CGPoint(x: strip + (s * left).rounded(), y: (s * bottom).rounded())
     }
 
     /// The square inside the window, SwiftUI (y down) from its top-left.
-    func innerRectTopDown(side s: CGFloat) -> CGRect {
-        CGRect(x: (s * left).rounded(), y: (s * top).rounded(), width: s, height: s)
+    func innerRectTopDown(side s: CGFloat, strip: CGFloat = 0) -> CGRect {
+        CGRect(x: strip + (s * left).rounded(), y: (s * top).rounded(), width: s, height: s)
     }
 }
 
@@ -108,10 +109,26 @@ enum BuddyPlacement {
         CGPoint(x: vf.maxX - margin - side / 2, y: vf.minY + margin)
     }
 
-    /// Keeps the whole panel inside the display's usable area (no menu bar, no Dock).
+    /// Keeps the whole square inside the display's usable area (no menu bar, no Dock): where it
+    /// lands when it is put back on a display.
     static func clamp(origin: CGPoint, side: CGFloat, visibleFrame vf: CGRect) -> CGPoint {
         CGPoint(x: min(max(origin.x, vf.minX), max(vf.minX, vf.maxX - side)),
                 y: min(max(origin.y, vf.minY), max(vf.minY, vf.maxY - side)))
+    }
+
+    /// Where a drag may take it: anywhere its centre stays on the display, so it reaches every edge
+    /// and can hang up to half off it (as OpenPets' roaming pets, which only need their anchor on a
+    /// display). `frame` is the whole display, menu bar and Dock included.
+    static func clampLoose(origin: CGPoint, side: CGFloat, frame f: CGRect) -> CGPoint {
+        CGPoint(x: min(max(origin.x, f.minX - side / 2), f.maxX - side / 2),
+                y: min(max(origin.y, f.minY - side / 2), f.maxY - side / 2))
+    }
+
+    /// The square's centre is on one of the displays, edges included: clampLoose stops it with its
+    /// centre exactly on an edge, where CGRect.contains says no for the top and right ones.
+    static func isOnScreen(origin: CGPoint, side: CGFloat, frames: [CGRect]) -> Bool {
+        let c = CGPoint(x: origin.x + side / 2, y: origin.y + side / 2)
+        return frames.contains { c.x >= $0.minX && c.x <= $0.maxX && c.y >= $0.minY && c.y <= $0.maxY }
     }
 
     static func spot(for screen: String, in spots: [BuddySpot]) -> BuddySpot? {
@@ -122,6 +139,70 @@ enum BuddyPlacement {
     static func remembering(_ spot: BuddySpot, in spots: [BuddySpot]) -> [BuddySpot] {
         Array(([spot] + spots.filter { $0.screen != spot.screen }).prefix(maxRememberedScreens))
     }
+}
+
+// MARK: - Companions
+
+/// The little Mochis around the Buddy, as on the Coucou window's banner: up to 6, half on each
+/// side (the extra one on the left), walking on the Buddy's floor in a strip of their own.
+struct BuddyCompanionLayout: Equatable {
+    static let maxCount = 6
+    /// A companion's drawing is this much of the Buddy's square (its body about two thirds of it).
+    static let scale: CGFloat = 0.42
+
+    let count: Int
+    let side: CGFloat
+
+    init(count: Int, side: CGFloat) {
+        self.count = min(max(count, 0), Self.maxCount)
+        self.side = side
+    }
+
+    var left: Int { (count + 1) / 2 }
+    var right: Int { count / 2 }
+    /// One companion's drawing, in points.
+    var size: CGFloat { (side * Self.scale).rounded() }
+    /// Each side's strip: room for its companions plus a little to walk. Both sides get the
+    /// width of the fuller one, so the Buddy stays centred in its window.
+    var stripWidth: CGFloat {
+        guard count > 0 else { return 0 }
+        return (size * (CGFloat(left) * 0.9 + 0.7)).rounded()
+    }
+    /// Their floor: the Buddy's own (its body ends at 78 % of its square, measured on BotEngine).
+    static let floor: CGFloat = 0.8
+    /// The strip's height above the floor: a hop and an emote.
+    var stripHeight: CGFloat { (size * 1.5).rounded() }
+
+    /// Which side companion `i` is on, and its place in that side's strip (0…1).
+    func slot(_ i: Int) -> (left: Bool, start: CGFloat) {
+        let onLeft = i % 2 == 0
+        let k = i / 2
+        let n = onLeft ? left : right
+        let start: CGFloat = n <= 1 ? 0.5 : CGFloat(k) / CGFloat(n - 1)
+        // The left strip's start is mirrored, so the first ones stand nearest the Buddy.
+        return (onLeft, onLeft ? 1 - start : start)
+    }
+}
+
+// MARK: - Colours
+
+enum BuddyColor {
+    /// "#RRGGBB" (any case, with or without "#") → "#RRGGBB" upper case; nil otherwise.
+    static func normalized(_ text: String) -> String? {
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if t.hasPrefix("#") { t.removeFirst() }
+        guard t.count == 6, t.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return "#" + t
+    }
+
+    /// sRGB components 0…1 → "#RRGGBB".
+    static func hex(red: Double, green: Double, blue: Double) -> String {
+        func byte(_ v: Double) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(red), byte(green), byte(blue))
+    }
+
+    /// The Coucou window's palette: the companions' colours when they do not match the Buddy.
+    static let companions = ["#F5F6F8", "#FB923C", "#F472B6", "#A78BFA", "#3B9EFF", "#34D399", "#F7B32B", "#22D3EE"]
 }
 
 // MARK: - Speech bubbles

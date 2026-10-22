@@ -20,6 +20,12 @@ private final class BuddyContainerView: NSView {
     override func rightMouseDown(with event: NSEvent) { controller?.rightMouseDown(event, in: self) }
 }
 
+/// AppKit keeps windows below the menu bar (constrainFrameRect): the Buddy may go up there too,
+/// like every other edge.
+private final class BuddyPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
 /// A menu item that runs a closure.
 private final class BuddyMenuItem: NSMenuItem {
     private let run: () -> Void
@@ -67,8 +73,12 @@ final class BuddyController {
     private var bubbleHide: DispatchWorkItem?
     private var engine: BotEngine?
     private var viewState: BuddyViewState?
-    /// The size the panel was built for: rebuilt only when it changes.
+    /// The size and companion count the panel was built for: rebuilt only when they change.
     private var shownSize: BuddySize?
+    private var shownCompanionCount: Int?
+    private var companions: BuddyCompanions?
+    /// The companion a click started on, if any.
+    private var pressedCompanion: BuddyCompanions.Mini?
     private var timer: Timer?
     private var cancellables: Set<AnyCancellable> = []
     private var started = false
@@ -105,19 +115,22 @@ final class BuddyController {
         apply()
     }
 
-    /// The Buddy waves (Settings → Buddy → Say hi).
+    /// The Buddy waves (Settings → Buddy → Say hi), and its companions wave back.
     func wave() {
         engine?.triggerEmote(.happy, duration: 1.2, silent: false)
+        companions?.greet()
     }
 
     // MARK: - Show / hide / rebuild
 
     private var side: CGFloat { (shownSize ?? settings.size).side }
     private let insets = BuddyInsets.mochi
+    /// The companions' strip on each side of the window.
+    private var strip: CGFloat { companions?.layout.stripWidth ?? 0 }
 
     private func apply() {
         guard settings.enabled else { hide(); return }
-        if panel == nil || shownSize != settings.size { show() }
+        if panel == nil || shownSize != settings.size || shownCompanionCount != settings.companions { show() }
         applyLook()
     }
 
@@ -126,6 +139,7 @@ final class BuddyController {
         guard let engine else { return }
         engine.setOutfit(settings.resolvedOutfit(), animated: true)
         engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
+        companions?.recolor { [settings] in settings.companionColor($0) }
     }
 
     private func show() {
@@ -134,8 +148,13 @@ final class BuddyController {
         let oldFoot = firstShow ? nil : foot(p)
 
         shownSize = settings.size
+        shownCompanionCount = settings.companions
         let s = side
-        let size = insets.panelSize(side: s)
+        let layout = BuddyCompanionLayout(count: settings.companions, side: s)
+        companions = layout.count > 0 ? BuddyCompanions(layout: layout, colors: { [settings] in settings.companionColor($0) }) : nil
+        companions?.setNapping(isSleeping)
+        pressedCompanion = nil
+        let size = insets.panelSize(side: s, strip: strip)
         let vs = BuddyViewState()
         vs.paused = screenOff
         viewState = vs
@@ -147,7 +166,8 @@ final class BuddyController {
         updateEngineState()
 
         let hosting = NSHostingView(rootView: BuddyMochiView(engine: eng, viewState: vs,
-                                                             inner: insets.innerRectTopDown(side: s), canvas: size))
+                                                             inner: insets.innerRectTopDown(side: s, strip: strip),
+                                                             canvas: size, companions: companions))
         let container = BuddyContainerView(frame: CGRect(origin: .zero, size: size))
         container.controller = self
         hosting.frame = container.bounds
@@ -173,19 +193,23 @@ final class BuddyController {
         panel = nil
         engine = nil
         viewState = nil
+        companions = nil
+        pressedCompanion = nil
         shownSize = nil
+        shownCompanionCount = nil
         shownState = nil
         dragging = false
         dragStartMouse = nil
     }
 
     private func makePanel() -> NSPanel {
-        let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
+        let p = BuddyPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                           backing: .buffered, defer: false)
         p.backgroundColor = .clear
         p.isOpaque = false
         p.hasShadow = false
-        p.level = .floating
+        // Above the menu bar (as OpenPets' native panels): up there it stays visible and grabbable.
+        p.level = .statusBar
         p.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
         p.isReleasedWhenClosed = false
         p.hidesOnDeactivate = false
@@ -198,13 +222,13 @@ final class BuddyController {
     /// Mochi's square on screen (AppKit, y up). Placement, hit testing, the eyes and the bubble
     /// go by the square; the room around it (BuddyInsets) is transparent and never takes clicks.
     private func inner(_ p: NSPanel) -> NSRect {
-        let o = insets.innerOrigin(side: side)
+        let o = insets.innerOrigin(side: side, strip: strip)
         return NSRect(x: p.frame.minX + o.x, y: p.frame.minY + o.y, width: side, height: side)
     }
 
     /// The window origin that puts the square's bottom-left at `squareOrigin`.
     private func panelOrigin(square squareOrigin: CGPoint) -> CGPoint {
-        let o = insets.innerOrigin(side: side)
+        let o = insets.innerOrigin(side: side, strip: strip)
         return CGPoint(x: squareOrigin.x - o.x, y: squareOrigin.y - o.y)
     }
 
@@ -214,11 +238,20 @@ final class BuddyController {
         return CGPoint(x: r.midX, y: r.minY)
     }
 
-    /// Puts the square's foot at `target`, kept inside the display's usable area.
+    /// Puts the square's foot at `target`: anywhere its centre stays on the display (up to half off
+    /// an edge), else back inside the display's usable area.
     private func place(_ p: NSPanel, foot target: CGPoint, on screen: NSScreen) {
-        let square = BuddyPlacement.clamp(origin: BuddyPlacement.origin(foot: target, side: side),
-                                          side: side, visibleFrame: screen.visibleFrame)
+        let origin = BuddyPlacement.origin(foot: target, side: side)
+        let square = BuddyPlacement.isOnScreen(origin: origin, side: side, frames: NSScreen.screens.map(\.frame))
+            ? BuddyPlacement.clampLoose(origin: origin, side: side, frame: screen.frame)
+            : BuddyPlacement.clamp(origin: origin, side: side, visibleFrame: screen.visibleFrame)
         p.setFrameOrigin(panelOrigin(square: square))
+    }
+
+    /// The display the square's centre is on, or the nearest.
+    private func screenOfSquare(_ p: NSPanel) -> NSScreen? {
+        let r = inner(p)
+        return screenAt(CGPoint(x: r.midX, y: r.midY))
     }
 
     private func screenAt(_ point: CGPoint) -> NSScreen? {
@@ -245,7 +278,7 @@ final class BuddyController {
     private func saveSpot() {
         guard let p = panel else { return }
         let f = foot(p)
-        guard let screen = screenAt(f) else { return }
+        guard let screen = screenOfSquare(p) else { return }
         settings.spots = BuddyPlacement.remembering(
             BuddySpot(screen: BuddyPlacement.screenKey(screen.frame), x: Double(f.x), y: Double(f.y)),
             in: settings.spots)
@@ -257,7 +290,7 @@ final class BuddyController {
             settings.spots = []
             return
         }
-        let screen = screenAt(foot(p)) ?? startScreen()
+        let screen = screenOfSquare(p) ?? startScreen()
         place(p, foot: BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: side), on: screen)
         saveSpot()
         moveBubble()
@@ -267,8 +300,8 @@ final class BuddyController {
     private func reclamp() {
         guard let p = panel else { return }
         let f = foot(p)
-        let onScreen = NSScreen.screens.contains { $0.frame.contains(f) }
-        let screen = onScreen ? (screenAt(f) ?? startScreen()) : startScreen()
+        let onScreen = BuddyPlacement.isOnScreen(origin: inner(p).origin, side: side, frames: NSScreen.screens.map(\.frame))
+        let screen = onScreen ? (screenOfSquare(p) ?? startScreen()) : startScreen()
         let target = onScreen ? f : (savedFoot(on: screen)
             ?? BuddyPlacement.defaultFoot(visibleFrame: screen.visibleFrame, side: side))
         place(p, foot: target, on: screen)
@@ -297,10 +330,11 @@ final class BuddyController {
         let sq = inner(p)
         let local = CGPoint(x: mouse.x - sq.minX, y: mouse.y - sq.minY)   // in the square, y up
 
-        // Click-through everywhere but on Mochi's body.
+        // Click-through everywhere but on Mochi's body and its companions.
         let over = local.x >= 0 && local.y >= 0 && local.x < side && local.y < side
             && DesktopMochiLogic.isOverBody(localPoint: local, panelSize: side)
-        let wantsMouse = over || dragStartMouse != nil
+        let overCompanion = !over && companion(at: mouse, in: p) != nil
+        let wantsMouse = over || overCompanion || dragStartMouse != nil
         if p.ignoresMouseEvents == wantsMouse { p.ignoresMouseEvents = !wantsMouse }
         let hovering = over && !dragging
         if viewState?.isHovered != hovering { viewState?.isHovered = hovering }
@@ -325,6 +359,7 @@ final class BuddyController {
             lastAgentActiveInterval: Date.now.timeIntervalSince(lastAgentActive),
             mouseDistanceToPanelCenter: hypot(mouse.x - sq.midX, mouse.y - sq.midY))
         if nap != isSleeping { isSleeping = nap }
+        companions?.setNapping(isSleeping)
 
         if agents != lastAgentState {
             agentsChanged(to: agents)
@@ -359,6 +394,7 @@ final class BuddyController {
 
     private func agentsChanged(to new: BotState) {
         if new == .finished { engine?.triggerEmote(.happy, duration: 1.2, silent: true) }
+        companions?.react(to: new)
         guard settings.speechBubbles, let c = BuddySpeech.category(for: new), speech.shouldSpeak(c, now: .now) else { return }
         speechPick += 1
         say(BuddySpeech.line(c, pick: speechPick))
@@ -366,12 +402,20 @@ final class BuddyController {
 
     // MARK: - Mouse
 
+    /// The companion under a screen point (AppKit, y up), if any.
+    private func companion(at m: NSPoint, in p: NSPanel) -> BuddyCompanions.Mini? {
+        guard let companions else { return nil }
+        let topDown = CGPoint(x: m.x - p.frame.minX, y: p.frame.maxY - m.y)
+        return companions.hit(topDown, canvas: p.frame.size, square: insets.innerRectTopDown(side: side, strip: strip))
+    }
+
     /// Screen points (AppKit, y up).
     fileprivate func mouseDown(at m: NSPoint) {
         guard let p = panel else { return }
         dragStartMouse = m
         dragStartSquare = inner(p).origin
         dragging = false
+        pressedCompanion = companion(at: m, in: p)
     }
 
     fileprivate func mouseDragged(to m: NSPoint) {
@@ -381,21 +425,26 @@ final class BuddyController {
             dragging = true
             hideBubble()
         }
+        // Up to half off any edge of the display under the cursor (OpenPets lets a roaming pet go
+        // anywhere while its anchor is on a display).
         let screen = screenAt(m) ?? startScreen()
-        let square = BuddyPlacement.clamp(origin: CGPoint(x: dragStartSquare.x + m.x - start.x,
-                                                          y: dragStartSquare.y + m.y - start.y),
-                                          side: side, visibleFrame: screen.visibleFrame)
+        let square = BuddyPlacement.clampLoose(origin: CGPoint(x: dragStartSquare.x + m.x - start.x,
+                                                               y: dragStartSquare.y + m.y - start.y),
+                                               side: side, frame: screen.frame)
         p.setFrameOrigin(panelOrigin(square: square))
     }
 
     fileprivate func mouseUp(clickCount: Int) {
-        defer { dragStartMouse = nil; dragging = false }
+        defer { dragStartMouse = nil; dragging = false; pressedCompanion = nil }
         if dragging {
+            reclamp()   // fully off every display: back on one
             saveSpot()
             return
         }
-        // A click says hi (no slap: that is the notch Mochi's, and makes the notch dizzy).
         guard dragStartMouse != nil, clickCount == 1 else { return }
+        // A click on a companion: it blushes. On the Buddy: it says hi (no slap: that is the notch
+        // Mochi's, and makes the notch dizzy).
+        if let m = pressedCompanion { companions?.poke(m); return }
         wave()
     }
 
@@ -429,6 +478,16 @@ final class BuddyController {
         outfitItem.submenu = outfitMenu
         menu.addItem(outfitItem)
 
+        let companionMenu = NSMenu()
+        for n in 0...BuddyCompanionLayout.maxCount {
+            companionMenu.addItem(BuddyMenuItem(n == 0 ? "None" : "\(n)", checked: settings.companions == n) { [weak self] in
+                self?.settings.companions = n
+            })
+        }
+        let companionItem = NSMenuItem(title: "Companions", action: nil, keyEquivalent: "")
+        companionItem.submenu = companionMenu
+        menu.addItem(companionItem)
+
         menu.addItem(.separator())
         menu.addItem(BuddyMenuItem("React to my agents", checked: settings.reactToAgents) { [weak self] in
             self?.settings.reactToAgents.toggle()
@@ -456,7 +515,7 @@ final class BuddyController {
             p.backgroundColor = .clear
             p.isOpaque = false
             p.hasShadow = false
-            p.level = .floating
+            p.level = .statusBar
             p.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
             p.ignoresMouseEvents = true
             p.isReleasedWhenClosed = false

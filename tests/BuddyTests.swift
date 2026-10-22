@@ -8,6 +8,9 @@ enum BuddyTests {
         testSizes()
         testInsets()
         testPlacement()
+        testEdges()
+        testCompanions()
+        testColors()
         testSpeech()
         testSettings()
         print("Buddy: all cases passed")
@@ -73,6 +76,73 @@ enum BuddyTests {
         precondition(BuddyPlacement.spot(for: "s5", in: spots)?.x == 99 && BuddyPlacement.spot(for: "zz", in: spots) == nil, "lookup")
     }
 
+    // MARK: - Edges: up to half off any edge
+
+    static func testEdges() {
+        let f = CGRect(x: 0, y: 0, width: 1800, height: 1169)        // the whole display
+        let s: CGFloat = 120
+        // Every corner and edge is reachable; the centre stays on the display (half of it off at most)
+        precondition(BuddyPlacement.clampLoose(origin: CGPoint(x: -500, y: -500), side: s, frame: f) == CGPoint(x: -60, y: -60), "bottom-left: half off")
+        precondition(BuddyPlacement.clampLoose(origin: CGPoint(x: 5000, y: 5000), side: s, frame: f) == CGPoint(x: 1740, y: 1109), "top-right: half off")
+        precondition(BuddyPlacement.clampLoose(origin: CGPoint(x: -30, y: 1000), side: s, frame: f) == CGPoint(x: -30, y: 1000), "a quarter off is fine")
+        let edge = BuddyPlacement.clampLoose(origin: CGPoint(x: -500, y: 300), side: s, frame: f)
+        precondition(edge.x + s / 2 == f.minX, "centre exactly on the left edge")
+        // Second display to the right, lower
+        let dell = CGRect(x: 1800, y: 89, width: 1920, height: 1080)
+        precondition(BuddyPlacement.clampLoose(origin: CGPoint(x: 9999, y: 0), side: s, frame: dell) == CGPoint(x: 3660, y: 29), "on the other display")
+        // Off every display (centre on none) is detected, so it can be put back
+        precondition(BuddyPlacement.isOnScreen(origin: CGPoint(x: -60, y: -60), side: s, frames: [f, dell]), "centre on the corner counts")
+        precondition(!BuddyPlacement.isOnScreen(origin: CGPoint(x: -61, y: 500), side: s, frames: [f, dell]), "centre past the edge")
+        // Every loose-clamped spot counts as on the display, the top and right edges too
+        for o in [CGPoint(x: 5000, y: 300), CGPoint(x: 300, y: 5000), CGPoint(x: 5000, y: 5000), CGPoint(x: -5000, y: -5000)] {
+            let c = BuddyPlacement.clampLoose(origin: o, side: s, frame: f)
+            precondition(BuddyPlacement.isOnScreen(origin: c, side: s, frames: [f]), "clamped \(o) → \(c) is on screen")
+        }
+        precondition(!BuddyPlacement.isOnScreen(origin: CGPoint(x: 1900, y: -50), side: s, frames: [f, dell]), "gap below the higher display")
+        precondition(BuddyPlacement.isOnScreen(origin: CGPoint(x: 1800, y: 1100), side: s, frames: [f, dell]), "top of the other display")
+    }
+
+    // MARK: - Companions
+
+    static func testCompanions() {
+        // The window widens by a strip on each side; the square stays centred
+        let m = BuddyInsets.mochi, lay = BuddyCompanionLayout(count: 4, side: 120)
+        let size = m.panelSize(side: 120, strip: lay.stripWidth)
+        let sq = m.innerRectTopDown(side: 120, strip: lay.stripWidth)
+        precondition(size.width == m.panelSize(side: 120).width + 2 * lay.stripWidth && size.height == m.panelSize(side: 120).height, "wider, same height")
+        precondition(abs(sq.midX - size.width / 2) < 0.5, "square centred: \(sq.midX) of \(size.width)")
+        precondition(m.innerOrigin(side: 120, strip: lay.stripWidth).x == sq.minX, "both spaces agree in x")
+        // The strip fits in the window above the floor
+        let floor = sq.minY + 120 * BuddyCompanionLayout.floor
+        precondition(floor - lay.stripHeight >= 0 && floor <= size.height, "strip inside the window")
+        let none = BuddyCompanionLayout(count: 0, side: 120)
+        precondition(none.stripWidth == 0 && none.left == 0 && none.right == 0, "none: no strip")
+        precondition(BuddyCompanionLayout(count: 9, side: 120).count == 6 && BuddyCompanionLayout(count: -1, side: 120).count == 0, "0…6")
+        let three = BuddyCompanionLayout(count: 3, side: 120)
+        precondition(three.left == 2 && three.right == 1, "the extra one on the left")
+        precondition(three.size == 50, "42 % of the square")
+        precondition(three.stripWidth == (50 * (2 * 0.9 + 0.7)).rounded(), "strip sized for the fuller side")
+        precondition(three.slot(0) == (true, 1.0) && three.slot(2) == (true, 0.0), "left: first nearest the Buddy (the strip's right end)")
+        precondition(three.slot(1) == (false, 0.5), "a lone one in the middle of its strip")
+        let six = BuddyCompanionLayout(count: 6, side: 200)
+        precondition((0..<6).filter { six.slot($0).left }.count == 3, "3 a side")
+        precondition(six.slot(1) == (false, 0.0) && six.slot(5) == (false, 1.0), "right: first nearest the Buddy")
+        precondition(six.stripHeight == (six.size * 1.5).rounded() && BuddyCompanionLayout.floor == 0.8, "floor and height")
+    }
+
+    // MARK: - Colours
+
+    static func testColors() {
+        precondition(BuddyColor.normalized("#f472b6") == "#F472B6", "lower case")
+        precondition(BuddyColor.normalized(" 3b9eff ") == "#3B9EFF", "no # and spaces")
+        for bad in ["", "#12345", "#1234567", "#GGGGGG", "red", "##123456"] {
+            precondition(BuddyColor.normalized(bad) == nil, "refused: \(bad)")
+        }
+        precondition(BuddyColor.hex(red: 1, green: 0, blue: 0.5) == "#FF0080", "components → hex")
+        precondition(BuddyColor.hex(red: 2, green: -1, blue: 0) == "#FF0000", "clamped")
+        precondition(BuddyColor.companions.allSatisfy { BuddyColor.normalized($0) == $0 }, "palette is valid")
+    }
+
     // MARK: - Speech
 
     static func testSpeech() {
@@ -126,10 +196,29 @@ enum BuddyTests {
         t.outfit = .bow
         precondition(t.resolvedOutfit(on: halloween) == .bow, "a chosen outfit stays")
 
-        // Unknown stored values fall back
-        ud.set("#123456", forKey: BuddySettings.colorKey); ud.set("cape", forKey: BuddySettings.outfitKey)
+        // Any colour; bad stored values fall back
+        t.color = "#123abc"
+        precondition(t.color == "#123ABC" && BuddySettings(defaults: ud).color == "#123ABC", "any colour, normalized and stored")
+        t.color = "not a colour"
+        precondition(t.color.isEmpty && BuddySettings(defaults: ud).color.isEmpty, "a bad colour → Mochi's own")
+        ud.set("zzz", forKey: BuddySettings.colorKey); ud.set("cape", forKey: BuddySettings.outfitKey)
         let u = BuddySettings(defaults: ud)
-        precondition(u.color.isEmpty && u.outfit == .auto, "colour outside the palette / unknown outfit → defaults")
-        precondition(BuddySettings.colors.first == "" && BuddySettings.colors.allSatisfy { $0.isEmpty || $0.hasPrefix("#") }, "palette")
+        precondition(u.color.isEmpty && u.outfit == .auto, "bad stored colour / unknown outfit → defaults")
+
+        // Companions
+        precondition(u.companions == 0 && !u.companionsMatch, "no companions by default")
+        u.companions = 4
+        precondition(BuddySettings(defaults: ud).companions == 4, "count persisted")
+        u.companions = 10
+        precondition(u.companions == 6, "at most 6")
+        u.companions = -2
+        precondition(u.companions == 0, "at least 0")
+        ud.set(99, forKey: BuddySettings.companionsKey)
+        precondition(BuddySettings(defaults: ud).companions == 6, "bad stored count clamped")
+        precondition(u.companionColor(0) == BuddyColor.companions[0] && u.companionColor(9) == BuddyColor.companions[1], "palette, cycling")
+        u.companionsMatch = true
+        precondition(u.companionColor(3) == "", "match Mochi's own → Mochi's own")
+        u.color = "#F472B6"
+        precondition(u.companionColor(3) == "#F472B6" && BuddySettings(defaults: ud).companionsMatch, "match the Buddy's colour")
     }
 }
