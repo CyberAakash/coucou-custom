@@ -11,6 +11,10 @@ swiftc -parse-as-library \
     tests/BuddyStubs.swift \
     NotchBuddy/Sources/CoucouKit/MochiWardrobe.swift \
     NotchBuddy/Sources/App/BuddyLogic.swift \
+    NotchBuddy/Sources/App/BuddyWardrobe.swift \
     NotchBuddy/Sources/App/BuddySettings.swift \
+    NotchBuddy/Sources/App/BuddyShortcuts.swift \
+    NotchBuddy/Sources/App/AppLog.swift \
+    tests/BuddyWardrobeTests.swift \
     tests/BuddyTests.swift -o "$TEST_DIR/buddy-tests"
 "$TEST_DIR/buddy-tests"

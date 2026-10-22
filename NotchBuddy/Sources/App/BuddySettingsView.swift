@@ -18,11 +18,6 @@ struct HubBuddyPage: View {
                     BuddySizeChips(selection: $settings.size)
                 }
                 HubDivider()
-                VStack(alignment: .leading, spacing: 10) {
-                    HubRow(title: "Outfit", detail: "Its own wardrobe: the notch's Mochi keeps its own.") { EmptyView() }
-                    BuddyOutfitGrid(selection: $settings.outfit, color: settings.color)
-                }
-                HubDivider()
                 HubRow(title: "Colour", detail: "Any colour, or Mochi's own.") {
                     BuddyColorPicker(hex: $settings.color)
                 }
@@ -36,7 +31,14 @@ struct HubBuddyPage: View {
                         Toggle("", isOn: $settings.companionsMatch).toggleStyle(.switch).labelsHidden()
                     }
                 }
+                HubDivider()
+                HubRow(title: "Shadow", detail: "On the floor under it and its companions; lighter as they jump.") {
+                    BuddyShadowChips(selection: $settings.shadow)
+                }
             }
+
+            HubLabel("Wardrobe")
+            BuddyWardrobeCard(settings: settings)
 
             HubLabel("Behaviour")
             HubCard {
@@ -60,12 +62,15 @@ struct HubBuddyPage: View {
                 }
             }
 
+            HubLabel("Clicks")
+            BuddyClicksCard(settings: settings)
+
             HubLabel("Moving it around")
             HStack(spacing: 12) {
                 BuddyTip(symbol: "hand.draw", title: "Drag", line: "Anywhere, right to the edges and even half off them. It remembers its spot on each display.")
-                BuddyTip(symbol: "cursorarrow.click", title: "Click", line: "It says hi.")
+                BuddyTip(symbol: "cursorarrow.click", title: "Click", line: "Once, twice, three times or more: each does what you set above. Click a companion to make it blush.")
                 BuddyTip(symbol: "contextualmenu.and.cursorarrow", title: "Right-click",
-                         line: "Size, outfit, companions, bubbles, or hide it.")
+                         line: "Size, outfit (or back to the schedule), companions, bubbles, or hide it.")
             }
         }
     }
@@ -127,7 +132,9 @@ private struct BuddyHeroCard: View {
             }
         }
         .onAppear { preview.dress(settings) }
-        .onChange(of: settings.outfit) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.alwaysWear) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.userSchedule) { _, _ in preview.dress(settings) }
+        .onChange(of: settings.shadow) { _, _ in preview.dress(settings) }
         .onChange(of: settings.color) { _, _ in preview.dress(settings) }
         .onChange(of: settings.companions) { _, _ in preview.dress(settings) }
         .onChange(of: settings.companionsMatch) { _, _ in preview.dress(settings) }
@@ -143,7 +150,7 @@ private final class BuddyPreview: ObservableObject {
     /// A new set of companions: the stage is rebuilt.
     @Published private(set) var revision = 0
     private(set) var companions: BuddyCompanions?
-    private var strip: CGFloat { companions?.layout.stripWidth ?? 0 }
+    private var strip: CGFloat { companions?.layout.roam ?? 0 }
     var canvas: CGSize { BuddyInsets.mochi.panelSize(side: side, strip: strip) }
     private var square: CGRect { BuddyInsets.mochi.innerRectTopDown(side: side, strip: strip) }
     var view: BuddyMochiView {
@@ -153,11 +160,18 @@ private final class BuddyPreview: ObservableObject {
     init() { engine.setState(.idle, force: true) }
 
     func dress(_ settings: BuddySettings) {
-        engine.setOutfit(settings.resolvedOutfit(), animated: true)
+        let worn = settings.resolvedOutfit()
+        engine.setOutfit(worn.engineOutfit ?? .none, animated: true)
+        state.nightcap = worn == .nightcap
+        state.shadow = settings.shadow.opacity
         engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
         if (companions?.layout.count ?? 0) != settings.companions {
             let layout = BuddyCompanionLayout(count: settings.companions, side: side)
-            companions = layout.count > 0 ? BuddyCompanions(layout: layout, colors: { settings.companionColor($0) }) : nil
+            let size = BuddyInsets.mochi.panelSize(side: side, strip: layout.roam)
+            let mid = BuddyInsets.mochi.innerRectTopDown(side: side, strip: layout.roam).midX
+            companions = layout.count > 0
+                ? BuddyCompanions(layout: layout, stageWidth: size.width, buddyMidX: mid, colors: { settings.companionColor($0) })
+                : nil
             revision += 1
         } else {
             companions?.recolor { settings.companionColor($0) }
@@ -202,38 +216,6 @@ private struct BuddySizeChips: View {
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
-    }
-}
-
-private struct BuddyOutfitGrid: View {
-    @Binding var selection: Outfit
-    let color: String
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 86, maximum: 110), spacing: 10)], spacing: 10) {
-            ForEach(Outfit.allCases, id: \.self) { outfit in
-                let on = selection == outfit
-                let shown = outfit == .auto ? Outfit.resolved(selection: .auto, date: .now, calendar: .current) : outfit
-                Button { selection = outfit } label: {
-                    VStack(spacing: 6) {
-                        BuddyMochiThumb(outfit: shown, color: color)
-                            .frame(width: 58, height: 62)
-                        Text(outfit == .auto ? "Seasons" : outfit.displayName)
-                            .font(.system(size: 11.5, weight: on ? .bold : .medium))
-                            .foregroundColor(on ? HubTheme.text : HubTheme.secondary)
-                            .lineLimit(1)
-                    }
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(on ? HubTheme.accent.opacity(0.12) : Color.white.opacity(0.03)))
-                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(on ? HubTheme.accent : Color.white.opacity(0.07), lineWidth: on ? 1.5 : 1))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
     }
 }
 

@@ -10,9 +10,13 @@ enum BuddyTests {
         testPlacement()
         testEdges()
         testCompanions()
+        testShadow()
+        testClicks()
+        testOpenTargets()
         testColors()
         testSpeech()
         testSettings()
+        BuddyWardrobeTests.run()
         print("Buddy: all cases passed")
     }
 
@@ -33,9 +37,10 @@ enum BuddyTests {
         let m = BuddyInsets.mochi
         // Mochi Huge (200 pt square): measured overflow 24 % top, 7 % right, 1 % left, plus 1.07 hover.
         let size = m.panelSize(side: 200)
-        precondition(size == CGSize(width: 200 + 24 + 24, height: 200 + 64 + 8), "Mochi window: \(size)")
+        precondition(size == CGSize(width: 200 + 24 + 24, height: 200 + 84 + 8), "Mochi window: \(size)")
         precondition(m.innerOrigin(side: 200) == CGPoint(x: 24, y: 8), "square from the bottom-left (y up)")
-        precondition(m.innerRectTopDown(side: 200) == CGRect(x: 24, y: 64, width: 200, height: 200), "square from the top-left (y down)")
+        precondition(m.innerRectTopDown(side: 200) == CGRect(x: 24, y: 84, width: 200, height: 200), "square from the top-left (y down)")
+        precondition(m.top >= 0.242 + 0.035 + 0.105, "room for the measured top, hover and a jump")
         // Room for the measured overflow and hover, in points, at the largest size
         let hover = (1.07 - 1) / 2   // grows this much past each side of the square
         precondition(m.top >= 0.242 + hover, "top room for proud / zZ / party hat")
@@ -105,29 +110,83 @@ enum BuddyTests {
     // MARK: - Companions
 
     static func testCompanions() {
-        // The window widens by a strip on each side; the square stays centred
+        // The window widens by the roaming room on each side; the square stays centred
         let m = BuddyInsets.mochi, lay = BuddyCompanionLayout(count: 4, side: 120)
-        let size = m.panelSize(side: 120, strip: lay.stripWidth)
-        let sq = m.innerRectTopDown(side: 120, strip: lay.stripWidth)
-        precondition(size.width == m.panelSize(side: 120).width + 2 * lay.stripWidth && size.height == m.panelSize(side: 120).height, "wider, same height")
+        let size = m.panelSize(side: 120, strip: lay.roam)
+        let sq = m.innerRectTopDown(side: 120, strip: lay.roam)
+        precondition(size.width == m.panelSize(side: 120).width + 2 * lay.roam && size.height == m.panelSize(side: 120).height, "wider, same height")
         precondition(abs(sq.midX - size.width / 2) < 0.5, "square centred: \(sq.midX) of \(size.width)")
-        precondition(m.innerOrigin(side: 120, strip: lay.stripWidth).x == sq.minX, "both spaces agree in x")
-        // The strip fits in the window above the floor
+        precondition(m.innerOrigin(side: 120, strip: lay.roam).x == sq.minX, "both spaces agree in x")
         let floor = sq.minY + 120 * BuddyCompanionLayout.floor
-        precondition(floor - lay.stripHeight >= 0 && floor <= size.height, "strip inside the window")
+        precondition(floor - lay.stripHeight >= 0 && floor <= size.height, "their jumps fit in the window")
+
         let none = BuddyCompanionLayout(count: 0, side: 120)
-        precondition(none.stripWidth == 0 && none.left == 0 && none.right == 0, "none: no strip")
+        precondition(none.roam == 0 && none.left == 0 && none.right == 0, "none: no room added")
         precondition(BuddyCompanionLayout(count: 9, side: 120).count == 6 && BuddyCompanionLayout(count: -1, side: 120).count == 0, "0…6")
+        // More companions, more room to roam
+        let rooms = (1...6).map { BuddyCompanionLayout(count: $0, side: 120).roam }
+        precondition(rooms == rooms.sorted() && Set(rooms).count == 6, "room grows with the count: \(rooms)")
         let three = BuddyCompanionLayout(count: 3, side: 120)
-        precondition(three.left == 2 && three.right == 1, "the extra one on the left")
-        precondition(three.size == 50, "42 % of the square")
-        precondition(three.stripWidth == (50 * (2 * 0.9 + 0.7)).rounded(), "strip sized for the fuller side")
-        precondition(three.slot(0) == (true, 1.0) && three.slot(2) == (true, 0.0), "left: first nearest the Buddy (the strip's right end)")
-        precondition(three.slot(1) == (false, 0.5), "a lone one in the middle of its strip")
-        let six = BuddyCompanionLayout(count: 6, side: 200)
-        precondition((0..<6).filter { six.slot($0).left }.count == 3, "3 a side")
-        precondition(six.slot(1) == (false, 0.0) && six.slot(5) == (false, 1.0), "right: first nearest the Buddy")
-        precondition(six.stripHeight == (six.size * 1.5).rounded() && BuddyCompanionLayout.floor == 0.8, "floor and height")
+        precondition(three.left == 2 && three.right == 1 && three.size == 50, "split and size")
+        // They start right beside the Buddy's body, the first ones nearest, alternating sides
+        let mid: CGFloat = 500, body = 120 * BuddyCompanionLayout.bodyHalfWidth
+        let x0 = three.startX(0, squareMidX: mid), x1 = three.startX(1, squareMidX: mid), x2 = three.startX(2, squareMidX: mid)
+        precondition(x0 < mid && x1 > mid && x2 < x0, "left, right, then further left")
+        let gap0 = (mid - body) - (x0 + 50 * BuddyCompanionLayout.bodyHalfWidth)
+        precondition(gap0 > 0 && gap0 < 10, "the first one stands just clear of the Buddy (gap \(gap0) pt)")
+        precondition(abs((x1 - mid) - (mid - x0)) < 0.001, "symmetric")
+        // Every start is inside the window the room makes
+        let wide = BuddyCompanionLayout(count: 6, side: 200)
+        let wsize = m.panelSize(side: 200, strip: wide.roam), wsq = m.innerRectTopDown(side: 200, strip: wide.roam)
+        for i in 0..<6 {
+            let x = wide.startX(i, squareMidX: wsq.midX)
+            precondition(x - wide.size / 2 >= 0 && x + wide.size / 2 <= wsize.width, "start \(i) inside the stage")
+        }
+    }
+
+    // MARK: - Shadow
+
+    static func testShadow() {
+        precondition(BuddyShadow.off.opacity == 0 && BuddyShadow.soft.opacity < BuddyShadow.medium.opacity && BuddyShadow.medium.opacity < BuddyShadow.strong.opacity, "levels")
+        let sq = CGRect(x: 10, y: 50, width: 120, height: 120)
+        let ground = BuddyShadow.ellipse(square: sq, lift: 0), up = BuddyShadow.ellipse(square: sq, lift: 0.1)
+        precondition(abs(ground.rect.midX - sq.midX) < 0.001 && abs(ground.rect.midY - (50 + 96)) < 0.001, "under the body, on the floor")
+        precondition(ground.rect.width == 72 && ground.fade == 1, "full size on the floor")
+        precondition(up.rect.width < ground.rect.width && up.fade < 1, "smaller and lighter in a jump")
+        precondition(BuddyShadow.ellipse(square: sq, lift: 5).rect.width == 72 * 0.45, "never vanishes")
+    }
+
+    // MARK: - Clicks
+
+    static func testClicks() {
+        precondition([1, 2, 3, 4, 7].map { BuddyGesture.from(count: $0) } == [.click, .double, .triple, .many, .many], "gestures")
+        let d = BuddyClickBinding.defaults
+        precondition(d[.click]?.action == .hello && d[.double]?.action == .spin && d[.triple]?.action == .hearts && d[.many]?.action == .dizzy, "defaults")
+        // Wait for more clicks only when a longer gesture does something
+        precondition(BuddyClicks.shouldWait(after: 1, bindings: d) && BuddyClicks.shouldWait(after: 3, bindings: d), "defaults wait")
+        precondition(!BuddyClicks.shouldWait(after: 4, bindings: d), "4 is the last")
+        var onlyClick = d; onlyClick[.double] = .init(action: .none); onlyClick[.triple] = .init(action: .none); onlyClick[.many] = .init(action: .none)
+        precondition(!BuddyClicks.shouldWait(after: 1, bindings: onlyClick), "a lone click acts at once")
+        var manyOnly = onlyClick; manyOnly[.many] = .init(action: .dizzy)
+        precondition(BuddyClicks.shouldWait(after: 2, bindings: manyOnly), "still counting toward many")
+        var noName = onlyClick; noName[.double] = .init(action: .shortcut, parameter: "  ")
+        precondition(!BuddyClicks.shouldWait(after: 1, bindings: noName), "a Shortcut with no name does nothing")
+        precondition(BuddyClickBinding(action: .shortcut, parameter: "Focus").isRunnable && !BuddyClickBinding(action: .none).isRunnable, "runnable")
+        // Every action is offered once in the menu
+        let listed = [BuddyAction.none] + BuddyAction.animations + BuddyAction.coucou + BuddyAction.yours
+        precondition(listed.count == BuddyAction.allCases.count && Set(listed) == Set(BuddyAction.allCases), "each action listed once")
+    }
+
+    // MARK: - Your own: links and apps to open
+
+    static func testOpenTargets() {
+        precondition(BuddyShortcuts.target("https://openpets.dev")?.absoluteString == "https://openpets.dev", "a link")
+        precondition(BuddyShortcuts.target("mailto:me@example.com")?.scheme == "mailto", "any scheme")
+        precondition(BuddyShortcuts.target("/System/Applications/Calculator.app")?.isFileURL == true, "an existing app")
+        precondition(BuddyShortcuts.target("~")?.path == FileManager.default.homeDirectoryForCurrentUser.path, "~ expands")
+        precondition(BuddyShortcuts.target("/no/such/app.app") == nil, "a missing path")
+        for bad in ["", "   ", "just words", "openpets.dev"] { precondition(BuddyShortcuts.target(bad) == nil, "not a target: \(bad)") }
+        precondition(FileManager.default.isExecutableFile(atPath: BuddyShortcuts.tool.path), "/usr/bin/shortcuts exists on this Mac")
     }
 
     // MARK: - Colours
@@ -172,29 +231,48 @@ enum BuddyTests {
         let ud = UserDefaults(suiteName: suite)!
         defer { ud.removePersistentDomain(forName: suite) }
         let s = BuddySettings(defaults: ud)
-        precondition(s.enabled && s.size == .medium && s.outfit == .auto && s.color.isEmpty, "defaults")
+        precondition(s.enabled && s.size == .medium && s.alwaysWear == nil && s.userSchedule == nil && s.color.isEmpty, "defaults")
         precondition(s.reactToAgents && s.speechBubbles && s.followCursor && s.napWhenIdle && s.spots.isEmpty, "behaviour defaults")
+        precondition(s.shadow == .soft && s.clicks == BuddyClickBinding.defaults && s.schedule == BuddyWardrobe.defaultSchedule, "shadow, clicks, schedule")
 
-        s.enabled = false; s.size = .large; s.outfit = .crown; s.color = "#F472B6"
+        s.enabled = false; s.size = .large; s.alwaysWear = .crown; s.color = "#F472B6"; s.shadow = .strong
         s.reactToAgents = false; s.speechBubbles = false; s.followCursor = false; s.napWhenIdle = false
         s.spots = [BuddySpot(screen: "0,0,1512x982", x: 10, y: 20)]
+        s.setBinding(.init(action: .shortcut, parameter: "Focus"), for: .double)
         let t = BuddySettings(defaults: ud)
-        precondition(!t.enabled && t.size == .large && t.outfit == .crown && t.color == "#F472B6", "look persisted")
+        precondition(!t.enabled && t.size == .large && t.alwaysWear == .crown && t.color == "#F472B6" && t.shadow == .strong, "look persisted")
         precondition(!t.reactToAgents && !t.speechBubbles && !t.followCursor && !t.napWhenIdle, "behaviour persisted")
         precondition(t.spots == [BuddySpot(screen: "0,0,1512x982", x: 10, y: 20)], "spots persisted")
+        precondition(t.binding(.double) == .init(action: .shortcut, parameter: "Focus") && t.binding(.click).action == .hello, "clicks persisted, others default")
 
-        // Its own outfit: the notch's wardrobe key is not read or written
+        // Its own wardrobe: the notch's key is never read or written
         ud.set("bunnyEars", forKey: "mochiOutfit")
-        precondition(BuddySettings(defaults: ud).outfit == .crown, "notch wardrobe does not dress the Buddy")
+        precondition(BuddySettings(defaults: ud).alwaysWear == .crown, "notch wardrobe does not dress the Buddy")
         precondition(ud.string(forKey: "mochiOutfit") == "bunnyEars", "the Buddy does not touch the notch's outfit")
 
-        // Auto follows the seasons, as the notch's does
-        let cal = Calendar(identifier: .gregorian)
-        let halloween = cal.date(from: DateComponents(year: 2026, month: 10, day: 31))!
-        t.outfit = .auto
-        precondition(t.resolvedOutfit(on: halloween) == .witchHat, "auto = seasonal")
-        t.outfit = .bow
-        precondition(t.resolvedOutfit(on: halloween) == .bow, "a chosen outfit stays")
+        // Old stored values (before the wardrobe): "auto" → Automatic, an outfit → Always wear
+        ud.set("auto", forKey: BuddySettings.outfitKey)
+        precondition(BuddySettings(defaults: ud).alwaysWear == nil, "auto = Automatic")
+        ud.set("witchHat", forKey: BuddySettings.outfitKey)
+        precondition(BuddySettings(defaults: ud).alwaysWear == .witchHat, "an old outfit = Always wear")
+        ud.set("none", forKey: BuddySettings.outfitKey)
+        precondition(BuddySettings(defaults: ud).alwaysWear == BuddyOutfit.none, "none = always no outfit")
+
+        // Schedule: Automatic follows it; editing copies the Buddy's own; Reset drops the copy
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        let octNight = cal.date(from: DateComponents(year: 2026, month: 11, day: 4, hour: 23))!
+        let w = BuddySettings(defaults: ud)
+        w.alwaysWear = nil
+        precondition(w.resolvedOutfit(on: octNight, calendar: cal) == .nightcap && w.activeRule(on: octNight, calendar: cal) == 3, "pajamas at night")
+        w.editSchedule { $0.removeAll { $0.outfit == .nightcap } }
+        precondition(w.userSchedule?.count == BuddyWardrobe.defaultSchedule.count - 1, "edited copy")
+        precondition(BuddySettings(defaults: ud).resolvedOutfit(on: octNight, calendar: cal) == .none, "edit persisted")
+        w.userSchedule = []
+        precondition(BuddySettings(defaults: ud).userSchedule == [], "an empty schedule is kept (never change)")
+        w.userSchedule = nil
+        precondition(BuddySettings(defaults: ud).schedule == BuddyWardrobe.defaultSchedule, "reset to the Buddy's own")
+        w.alwaysWear = .bow
+        precondition(w.resolvedOutfit(on: octNight, calendar: cal) == .bow && w.activeRule(on: octNight, calendar: cal) == nil, "always wear pauses the schedule")
 
         // Any colour; bad stored values fall back
         t.color = "#123abc"
@@ -202,8 +280,9 @@ enum BuddyTests {
         t.color = "not a colour"
         precondition(t.color.isEmpty && BuddySettings(defaults: ud).color.isEmpty, "a bad colour → Mochi's own")
         ud.set("zzz", forKey: BuddySettings.colorKey); ud.set("cape", forKey: BuddySettings.outfitKey)
+        ud.set("neon", forKey: BuddySettings.shadowKey); ud.set(Data("x".utf8), forKey: BuddySettings.clicksKey)
         let u = BuddySettings(defaults: ud)
-        precondition(u.color.isEmpty && u.outfit == .auto, "bad stored colour / unknown outfit → defaults")
+        precondition(u.color.isEmpty && u.alwaysWear == nil && u.shadow == .soft && u.clicks == BuddyClickBinding.defaults, "bad stored values → defaults")
 
         // Companions
         precondition(u.companions == 0 && !u.companionsMatch, "no companions by default")

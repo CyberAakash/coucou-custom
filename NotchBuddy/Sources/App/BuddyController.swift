@@ -95,6 +95,13 @@ final class BuddyController {
     private var speech = BuddySpeech()
     private var speechPick = 0
 
+    /// Clicks: the gesture waiting for more clicks, the bonks of the last 1.7 s (the notch's slap
+    /// rule), and until when it is dizzy or dancing.
+    private var pendingGesture: DispatchWorkItem?
+    private var bonkTimes: [Double] = []
+    private var dizzyUntil = Date.distantPast
+    private var danceUntil = Date.distantPast
+
     private var dragStartMouse: NSPoint?
     /// The square's origin when the drag began.
     private var dragStartSquare: NSPoint = .zero
@@ -125,8 +132,8 @@ final class BuddyController {
 
     private var side: CGFloat { (shownSize ?? settings.size).side }
     private let insets = BuddyInsets.mochi
-    /// The companions' strip on each side of the window.
-    private var strip: CGFloat { companions?.layout.stripWidth ?? 0 }
+    /// The companions' roaming room on each side of the window.
+    private var strip: CGFloat { companions?.layout.roam ?? 0 }
 
     private func apply() {
         guard settings.enabled else { hide(); return }
@@ -134,10 +141,14 @@ final class BuddyController {
         applyLook()
     }
 
-    /// Outfit and colour from the Buddy's own settings (never the notch's wardrobe).
-    private func applyLook() {
+    /// Its wardrobe (always wear, or the schedule now), colour and shadow, from its own settings
+    /// (never the notch's wardrobe).
+    private func applyLook(animated: Bool = true) {
         guard let engine else { return }
-        engine.setOutfit(settings.resolvedOutfit(), animated: true)
+        let worn = settings.resolvedOutfit()
+        engine.setOutfit(worn.engineOutfit ?? .none, animated: animated)
+        viewState?.nightcap = worn == .nightcap
+        viewState?.shadow = settings.shadow.opacity
         engine.bodyColor = settings.color.isEmpty ? nil : cgColorFromHex(settings.color)
         companions?.recolor { [settings] in settings.companionColor($0) }
     }
@@ -151,18 +162,21 @@ final class BuddyController {
         shownCompanionCount = settings.companions
         let s = side
         let layout = BuddyCompanionLayout(count: settings.companions, side: s)
-        companions = layout.count > 0 ? BuddyCompanions(layout: layout, colors: { [settings] in settings.companionColor($0) }) : nil
+        let size = insets.panelSize(side: s, strip: layout.roam)
+        let squareMidX = insets.innerRectTopDown(side: s, strip: layout.roam).midX
+        companions = layout.count > 0
+            ? BuddyCompanions(layout: layout, stageWidth: size.width, buddyMidX: squareMidX,
+                              colors: { [settings] in settings.companionColor($0) })
+            : nil
         companions?.setNapping(isSleeping)
         pressedCompanion = nil
-        let size = insets.panelSize(side: s, strip: strip)
         let vs = BuddyViewState()
         vs.paused = screenOff
         viewState = vs
         let eng = BotEngine()
         shownState = nil
         engine = eng
-        eng.setOutfit(settings.resolvedOutfit(), animated: false)
-        applyLook()
+        applyLook(animated: false)
         updateEngineState()
 
         let hosting = NSHostingView(rootView: BuddyMochiView(engine: eng, viewState: vs,
@@ -350,7 +364,8 @@ final class BuddyController {
             engine.lookY = 0
         }
         engine.moodTarget = MachineVitals.shared.mood
-        engine.setDancing(musicPlaying && [.idle, .working, .thinking, .searching, .finished].contains(agentState))
+        engine.setDancing(Date.now < danceUntil
+            || (musicPlaying && [.idle, .working, .thinking, .searching, .finished].contains(agentState)))
 
         // Naps after 2 quiet minutes with the cursor away (as the desktop Mochi).
         let agents = agentState
@@ -386,7 +401,7 @@ final class BuddyController {
     }
 
     private func updateEngineState() {
-        let want: BotState = isSleeping ? .sleeping : agentState
+        let want: BotState = Date.now < dizzyUntil ? .dizzy : (isSleeping ? .sleeping : agentState)
         guard want != shownState, let engine else { return }
         engine.setState(want, force: shownState == nil)
         shownState = want
@@ -406,7 +421,7 @@ final class BuddyController {
     private func companion(at m: NSPoint, in p: NSPanel) -> BuddyCompanions.Mini? {
         guard let companions else { return nil }
         let topDown = CGPoint(x: m.x - p.frame.minX, y: p.frame.maxY - m.y)
-        return companions.hit(topDown, canvas: p.frame.size, square: insets.innerRectTopDown(side: side, strip: strip))
+        return companions.hit(topDown, square: insets.innerRectTopDown(side: side, strip: strip))
     }
 
     /// Screen points (AppKit, y up).
@@ -441,11 +456,106 @@ final class BuddyController {
             saveSpot()
             return
         }
-        guard dragStartMouse != nil, clickCount == 1 else { return }
-        // A click on a companion: it blushes. On the Buddy: it says hi (no slap: that is the notch
-        // Mochi's, and makes the notch dizzy).
+        guard dragStartMouse != nil else { return }
+        // A click on a companion: it blushes.
         if let m = pressedCompanion { companions?.poke(m); return }
-        wave()
+        clicked(count: clickCount)
+    }
+
+    // MARK: - Clicks and their actions
+
+    /// Every click squashes it at once (the notch Mochi's slap feel); the gesture's action waits
+    /// for more clicks only when a longer gesture does something (BuddyClicks.shouldWait).
+    private func clicked(count: Int) {
+        engine?.squash()
+        pendingGesture?.cancel()
+        let gesture = BuddyGesture.from(count: count)
+        guard BuddyClicks.shouldWait(after: count, bindings: settings.clicks) else {
+            perform(settings.binding(gesture))
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingGesture = nil
+                self.perform(self.settings.binding(gesture))
+            }
+        }
+        pendingGesture = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: work)
+    }
+
+    /// Runs a gesture's action (also from Settings' Try buttons).
+    func perform(_ b: BuddyClickBinding) {
+        guard let engine, b.isRunnable else { return }
+        switch b.action {
+        case .none: break
+        case .hello: wave()
+        case .hearts: engine.triggerEmote(.love, duration: 1.8, silent: false)
+        case .wink: engine.triggerEmote(.wink, duration: 1.2, silent: false)
+        case .surprise: engine.triggerEmote(.surprised, duration: 1.2, silent: false)
+        case .jump: jump()
+        case .spin: engine.doRoll(duration: 900, turns: 1)
+        case .dance: danceUntil = Date.now.addingTimeInterval(5)
+        case .bonk: bonk()
+        case .dizzy: dizzy()
+        case .party:
+            jump()
+            engine.triggerEmote(.love, duration: 1.8, silent: false)
+            companions?.party()
+        case .nextOutfit:
+            let all = BuddyOutfit.allCases
+            let now = settings.resolvedOutfit()
+            settings.alwaysWear = all[((all.firstIndex(of: now) ?? 0) + 1) % all.count]
+        case .openNotch:
+            let island = (NSApp.delegate as? AppDelegate)?.islandController
+            island?.fsm.openedExternally()
+            island?.expand(to: .overview)
+        case .openCoucou: FlowHubController.shared.show(.dictation)
+        case .openSettings: NotificationCenter.default.post(name: .openFullSettings, object: "buddy")
+        case .shortcut: BuddyShortcuts.run(b.parameter)
+        case .open: BuddyShortcuts.open(b.parameter)
+        case .hide: settings.enabled = false
+        }
+    }
+
+    /// A little hop: up 0.35 R and back, then a squash.
+    private func jump() {
+        engine?.anim("oy", keys: [TweenKey(target: -0.35, duration: 190, ease: Ease.out),
+                                  TweenKey(target: 0, duration: 260, ease: Ease.inOut)]) { [weak self] in
+            self?.engine?.squash()
+        }
+    }
+
+    /// The notch Mochi's slap, for the Buddy alone: a squash, line eyes, the slap sound; three
+    /// within 1.7 s make it dizzy (BotEngine.slap posts .botDizzy, which would make the notch
+    /// dizzy too, so it is not called).
+    private func bonk() {
+        guard let engine, Date.now >= dizzyUntil else { return }
+        let now = CACurrentMediaTime()
+        bonkTimes = bonkTimes.filter { now - $0 < 1.7 } + [now]
+        SoundEngine.shared.play("slap")
+        engine.squash()
+        if bonkTimes.count >= 3 {
+            bonkTimes = []
+            dizzy()
+        } else {
+            engine.eyeOverride = .line
+            engine.eyeOverrideUntil = now + 0.8
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { SoundEngine.shared.play("annoyed") }
+        }
+    }
+
+    /// Dizzy (spiral eyes, two turns) for 3.3 s, then happy again: the notch's timing.
+    private func dizzy() {
+        dizzyUntil = Date.now.addingTimeInterval(3.3)
+        updateEngineState()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.35) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.updateEngineState()
+                self?.engine?.triggerEmote(.happy, silent: true)
+            }
+        }
     }
 
     fileprivate func rightMouseDown(_ e: NSEvent, in view: NSView) {
@@ -467,13 +577,23 @@ final class BuddyController {
         sizeItem.submenu = sizeMenu
         menu.addItem(sizeItem)
 
+        // OpenPets' outfit menu: Automatic · what the schedule says now, each outfit, Edit Wardrobe…
         let outfitMenu = NSMenu()
-        for outfit in Outfit.allCases {
-            outfitMenu.addItem(BuddyMenuItem(outfit.displayName, checked: settings.outfit == outfit) { [weak self] in
-                self?.settings.outfit = outfit
+        let scheduled = BuddyWardrobe.resolve(always: nil, schedule: settings.schedule, at: .now, calendar: .current)
+        outfitMenu.addItem(BuddyMenuItem("Automatic · \(scheduled.name)", checked: settings.alwaysWear == nil) { [weak self] in
+            self?.settings.alwaysWear = nil
+        })
+        outfitMenu.addItem(.separator())
+        for outfit in BuddyOutfit.allCases {
+            outfitMenu.addItem(BuddyMenuItem(outfit.name, checked: settings.alwaysWear == outfit) { [weak self] in
+                self?.settings.alwaysWear = outfit
             })
-            if outfit == .none { outfitMenu.addItem(.separator()) }
+            if outfit == .nightcap { outfitMenu.addItem(.separator()) }
         }
+        outfitMenu.addItem(.separator())
+        outfitMenu.addItem(BuddyMenuItem("Edit Wardrobe…") {
+            NotificationCenter.default.post(name: .openFullSettings, object: "buddy")
+        })
         let outfitItem = NSMenuItem(title: "Outfit", action: nil, keyEquivalent: "")
         outfitItem.submenu = outfitMenu
         menu.addItem(outfitItem)

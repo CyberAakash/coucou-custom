@@ -57,10 +57,11 @@ enum BuddySize: Double, CaseIterable, Identifiable {
 struct BuddyInsets: Equatable {
     let top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat
 
-    static let mochi = BuddyInsets(top: 0.32, left: 0.12, bottom: 0.04, right: 0.12)
+    /// Top: the measured 24 %, hover, and the Jump action (it lifts Mochi 0.35 R, about 10 %).
+    static let mochi = BuddyInsets(top: 0.42, left: 0.12, bottom: 0.04, right: 0.12)
 
     /// The window around a square of `side`, in whole points; `strip` is the companions' room on
-    /// each side (BuddyCompanionLayout.stripWidth).
+    /// each side (BuddyCompanionLayout.roam).
     func panelSize(side s: CGFloat, strip: CGFloat = 0) -> CGSize {
         CGSize(width: s + (s * left).rounded() + (s * right).rounded() + 2 * strip,
                height: s + (s * top).rounded() + (s * bottom).rounded())
@@ -143,12 +144,17 @@ enum BuddyPlacement {
 
 // MARK: - Companions
 
-/// The little Mochis around the Buddy, as on the Coucou window's banner: up to 6, half on each
-/// side (the extra one on the left), walking on the Buddy's floor in a strip of their own.
+/// The little Mochis around the Buddy, as on the Coucou window's banner: up to 6. They start right
+/// beside it, half on each side, and roam the whole stage, crossing behind it to the other side.
+/// The stage widens with their number.
 struct BuddyCompanionLayout: Equatable {
     static let maxCount = 6
     /// A companion's drawing is this much of the Buddy's square (its body about two thirds of it).
     static let scale: CGFloat = 0.42
+    /// Their floor: the Buddy's own (its body ends at 78 % of its square, measured on BotEngine).
+    static let floor: CGFloat = 0.8
+    /// Mochi's body is 0.684 of its square wide (rx = 1.14 × 0.3 of the square, BotEngine).
+    static let bodyHalfWidth: CGFloat = 0.342
 
     let count: Int
     let side: CGFloat
@@ -162,25 +168,161 @@ struct BuddyCompanionLayout: Equatable {
     var right: Int { count / 2 }
     /// One companion's drawing, in points.
     var size: CGFloat { (side * Self.scale).rounded() }
-    /// Each side's strip: room for its companions plus a little to walk. Both sides get the
-    /// width of the fuller one, so the Buddy stays centred in its window.
-    var stripWidth: CGFloat {
+    /// Room added on each side of the Buddy's window for them to roam: more of them, more room.
+    var roam: CGFloat {
         guard count > 0 else { return 0 }
-        return (size * (CGFloat(left) * 0.9 + 0.7)).rounded()
+        return (size * (0.75 * CGFloat(count) + 0.6)).rounded()
     }
-    /// Their floor: the Buddy's own (its body ends at 78 % of its square, measured on BotEngine).
-    static let floor: CGFloat = 0.8
-    /// The strip's height above the floor: a hop and an emote.
-    var stripHeight: CGFloat { (size * 1.5).rounded() }
+    /// How high above the floor they can be: a jump and an emote.
+    var stripHeight: CGFloat { (size * 1.9).rounded() }
 
-    /// Which side companion `i` is on, and its place in that side's strip (0…1).
-    func slot(_ i: Int) -> (left: Bool, start: CGFloat) {
+    /// Where companion `i` starts (its centre's x in the window): beside the Buddy's body, the
+    /// extra one on the left, the first ones nearest. `squareMidX`: the Buddy's square centre.
+    func startX(_ i: Int, squareMidX: CGFloat) -> CGFloat {
         let onLeft = i % 2 == 0
-        let k = i / 2
-        let n = onLeft ? left : right
-        let start: CGFloat = n <= 1 ? 0.5 : CGFloat(k) / CGFloat(n - 1)
-        // The left strip's start is mirrored, so the first ones stand nearest the Buddy.
-        return (onLeft, onLeft ? 1 - start : start)
+        let k = CGFloat(i / 2)
+        let body = side * Self.bodyHalfWidth
+        let near = body + size * (Self.bodyHalfWidth + 0.12)   // just clear of the Buddy's body
+        let offset = near + k * size * 0.78
+        return onLeft ? squareMidX - offset : squareMidX + offset
+    }
+}
+
+// MARK: - Shadow
+
+/// The Buddy's shadow on its floor (the companions' too).
+enum BuddyShadow: String, CaseIterable, Identifiable {
+    case off, soft, medium, strong
+
+    var id: String { rawValue }
+    var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+
+    var opacity: Double {
+        switch self {
+        case .off: return 0
+        case .soft: return 0.14
+        case .medium: return 0.24
+        case .strong: return 0.36
+        }
+    }
+
+    /// Under the body, on the floor (y down in the window); `lift`: how far up the body is, as a
+    /// fraction of the square (0 on the floor). A jump makes it smaller and lighter.
+    static func ellipse(square: CGRect, lift: CGFloat) -> (rect: CGRect, fade: Double) {
+        let k = max(0.45, 1 - lift * 2.2)
+        let w = square.width * 0.6 * k, h = square.width * 0.075 * k
+        let y = square.minY + square.height * BuddyCompanionLayout.floor
+        return (CGRect(x: square.midX - w / 2, y: y - h / 2, width: w, height: h), Double(max(0.35, 1 - lift * 2.5)))
+    }
+}
+
+// MARK: - Clicks
+
+/// Click, double click, triple click, and many clicks (4 or more, the notch's "slaps").
+enum BuddyGesture: String, CaseIterable, Identifiable {
+    case click, double, triple, many
+
+    var id: String { rawValue }
+
+    static func from(count: Int) -> BuddyGesture {
+        switch count {
+        case ...1: return .click
+        case 2: return .double
+        case 3: return .triple
+        default: return .many
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .click: return "Click"
+        case .double: return "Double click"
+        case .triple: return "Triple click"
+        case .many: return "Many clicks"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .click: return "One click."
+        case .double: return "Two quick clicks."
+        case .triple: return "Three quick clicks."
+        case .many: return "Four or more, like slapping the notch's Mochi."
+        }
+    }
+
+    var clicks: Int {
+        switch self {
+        case .click: return 1
+        case .double: return 2
+        case .triple: return 3
+        case .many: return 4
+        }
+    }
+}
+
+/// What a gesture does.
+enum BuddyAction: String, CaseIterable, Codable, Identifiable {
+    case none, hello, hearts, wink, surprise, jump, spin, dance, bonk, dizzy, party
+    case nextOutfit, openNotch, openCoucou, openSettings, shortcut, open, hide
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: return "Nothing"
+        case .hello: return "Say hi"
+        case .hearts: return "Hearts"
+        case .wink: return "Wink"
+        case .surprise: return "Surprise"
+        case .jump: return "Jump"
+        case .spin: return "Spin"
+        case .dance: return "Dance"
+        case .bonk: return "Bonk (3 make it dizzy)"
+        case .dizzy: return "Dizzy"
+        case .party: return "Party with the companions"
+        case .nextOutfit: return "Next outfit"
+        case .openNotch: return "Open the notch"
+        case .openCoucou: return "Open the Coucou window"
+        case .openSettings: return "Open Buddy settings"
+        case .shortcut: return "Run a Shortcut…"
+        case .open: return "Open an app or a link…"
+        case .hide: return "Hide the Buddy"
+        }
+    }
+
+    /// The Shortcut's name, or the app / link to open.
+    var needsParameter: Bool { self == .shortcut || self == .open }
+
+    /// Menu sections: animations, then Coucou, then your own.
+    static let animations: [BuddyAction] = [.hello, .hearts, .wink, .surprise, .jump, .spin, .dance, .bonk, .dizzy, .party]
+    static let coucou: [BuddyAction] = [.nextOutfit, .openNotch, .openCoucou, .openSettings, .hide]
+    static let yours: [BuddyAction] = [.shortcut, .open]
+}
+
+struct BuddyClickBinding: Codable, Equatable {
+    var action: BuddyAction
+    var parameter: String = ""
+
+    static let defaults: [BuddyGesture: BuddyClickBinding] = [
+        .click: .init(action: .hello),
+        .double: .init(action: .spin),
+        .triple: .init(action: .hearts),
+        .many: .init(action: .dizzy),
+    ]
+
+    /// Runnable: an action that needs a Shortcut or a link has one.
+    var isRunnable: Bool {
+        action != .none && (!action.needsParameter || !parameter.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+}
+
+enum BuddyClicks {
+    /// After `count` clicks, wait for another only if a longer gesture does something; otherwise
+    /// act at once (no lag on a lone click when nothing is set on double and more).
+    static func shouldWait(after count: Int, bindings: [BuddyGesture: BuddyClickBinding]) -> Bool {
+        guard count < 4 else { return false }
+        return BuddyGesture.allCases.contains { $0.clicks > count && (bindings[$0]?.isRunnable ?? false) }
     }
 }
 

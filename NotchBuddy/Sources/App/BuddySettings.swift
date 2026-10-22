@@ -19,14 +19,36 @@ final class BuddySettings: ObservableObject {
     static let spotsKey = "buddySpots"
     static let companionsKey = "buddyCompanions"
     static let companionsMatchKey = "buddyCompanionsMatch"
+    static let scheduleKey = "buddyWardrobeSchedule"
+    static let shadowKey = "buddyShadow"
+    static let clicksKey = "buddyClicks"
 
     private let defaults: UserDefaults
 
     /// The Buddy is on the desktop.
     @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: Self.enabledKey) } }
     @Published var size: BuddySize { didSet { defaults.set(size.rawValue, forKey: Self.sizeKey) } }
-    /// Its own outfit: the notch's wardrobe does not dress it.
-    @Published var outfit: Outfit { didSet { defaults.set(outfit.rawValue, forKey: Self.outfitKey) } }
+    /// Its wardrobe (its own: the notch's does not dress it). "Always wear" this outfit; nil follows
+    /// the schedule ("Automatic"). Stored under the old outfit key: "auto" is Automatic.
+    @Published var alwaysWear: BuddyOutfit? {
+        didSet { defaults.set(alwaysWear?.rawValue ?? "auto", forKey: Self.outfitKey) }
+    }
+    /// The user's schedule; nil follows the Buddy's own (BuddyWardrobe.defaultSchedule). An empty
+    /// one is meaningful: never change on its own.
+    @Published var userSchedule: [BuddyWardrobeRule]? {
+        didSet {
+            if let s = userSchedule, let d = BuddyWardrobe.encode(s) { defaults.set(d, forKey: Self.scheduleKey) }
+            else { defaults.removeObject(forKey: Self.scheduleKey) }
+        }
+    }
+    @Published var shadow: BuddyShadow { didSet { defaults.set(shadow.rawValue, forKey: Self.shadowKey) } }
+    /// What each click gesture does.
+    @Published var clicks: [BuddyGesture: BuddyClickBinding] {
+        didSet {
+            let byName = Dictionary(uniqueKeysWithValues: clicks.map { ($0.key.rawValue, $0.value) })
+            defaults.set(try? JSONEncoder().encode(byName), forKey: Self.clicksKey)
+        }
+    }
     /// Body colour as "#RRGGBB" (any colour), or "" for Mochi's own.
     @Published var color: String {
         didSet {
@@ -69,7 +91,16 @@ final class BuddySettings: ObservableObject {
         }
         enabled = bool(Self.enabledKey, default: true)
         size = defaults.object(forKey: Self.sizeKey) == nil ? .medium : BuddySize.from(stored: defaults.double(forKey: Self.sizeKey))
-        outfit = defaults.string(forKey: Self.outfitKey).flatMap(Outfit.init(rawValue:)) ?? .auto
+        let worn = defaults.string(forKey: Self.outfitKey) ?? "auto"
+        alwaysWear = worn == "auto" ? nil : BuddyOutfit(rawValue: worn)
+        userSchedule = defaults.data(forKey: Self.scheduleKey).flatMap(BuddyWardrobe.decode)
+        shadow = defaults.string(forKey: Self.shadowKey).flatMap(BuddyShadow.init(rawValue:)) ?? .soft
+        var c = BuddyClickBinding.defaults
+        if let d = defaults.data(forKey: Self.clicksKey),
+           let byName = try? JSONDecoder().decode([String: BuddyClickBinding].self, from: d) {
+            for (k, v) in byName { if let g = BuddyGesture(rawValue: k) { c[g] = v } }
+        }
+        clicks = c
         color = BuddyColor.normalized(defaults.string(forKey: Self.colorKey) ?? "") ?? ""
         companions = min(max(defaults.integer(forKey: Self.companionsKey), 0), BuddyCompanionLayout.maxCount)
         companionsMatch = bool(Self.companionsMatchKey, default: false)
@@ -85,8 +116,33 @@ final class BuddySettings: ObservableObject {
         return BuddyColor.companions[i % BuddyColor.companions.count]
     }
 
-    /// The outfit worn today ("Auto" follows the seasons, as the notch's).
-    func resolvedOutfit(on date: Date = .now) -> Outfit {
-        Outfit.resolved(selection: outfit, date: date, calendar: .current)
+    /// The schedule in use: the user's, or the Buddy's own.
+    var schedule: [BuddyWardrobeRule] { userSchedule ?? BuddyWardrobe.defaultSchedule }
+
+    /// What it wears now.
+    func resolvedOutfit(on date: Date = .now, calendar: Calendar = .current) -> BuddyOutfit {
+        BuddyWardrobe.resolve(always: alwaysWear, schedule: schedule, at: date, calendar: calendar)
+    }
+
+    /// The rule wearing now, when following the schedule.
+    func activeRule(on date: Date = .now, calendar: Calendar = .current) -> Int? {
+        alwaysWear == nil ? BuddyWardrobe.activeRule(schedule, at: date, calendar: calendar) : nil
+    }
+
+    func binding(_ g: BuddyGesture) -> BuddyClickBinding {
+        clicks[g] ?? BuddyClickBinding.defaults[g] ?? .init(action: .none)
+    }
+
+    func setBinding(_ b: BuddyClickBinding, for g: BuddyGesture) {
+        var c = clicks
+        c[g] = b
+        clicks = c
+    }
+
+    /// Edits start from the schedule in use, so the first edit copies the Buddy's own.
+    func editSchedule(_ change: (inout [BuddyWardrobeRule]) -> Void) {
+        var s = schedule
+        change(&s)
+        userSchedule = Array(s.prefix(BuddyWardrobe.maxRules))
     }
 }
