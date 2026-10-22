@@ -327,10 +327,12 @@ final class IslandWindowController: NSWindowController {
         // An approval, or an email prepared by voice, stays open until I click.
         #if !APPSTORE
         // A WhatsApp reply being typed holds the island open, like a voice mail draft.
+        // coucou-custom fork: a pending question holds the notch open too (typing "Other…").
         fsm.isHeldOpen = { AppState.shared.pendingApproval != nil || AppState.shared.voiceMailDraft != nil
-                           || WhatsAppController.shared.composing }
+                           || AppState.shared.pendingQuestion != nil || WhatsAppController.shared.composing }
         #else
-        fsm.isHeldOpen = { AppState.shared.pendingApproval != nil || AppState.shared.voiceMailDraft != nil }
+        fsm.isHeldOpen = { AppState.shared.pendingApproval != nil || AppState.shared.voiceMailDraft != nil
+                           || AppState.shared.pendingQuestion != nil }
         #endif
 
         // Voice: wake phrase detected → open listening island
