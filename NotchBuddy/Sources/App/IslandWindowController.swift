@@ -1340,9 +1340,7 @@ final class IslandWindowController: NSWindowController {
         // Chat view resizes dynamically — must match IslandContainer.chatPromptHeight
         let islandH: CGFloat
         if s.mode == .expanded && s.view == .prompt {
-            let base: CGFloat = 240
-            let perMsg: CGFloat = 40
-            islandH = min(300, base + CGFloat(s.chatHistory.count) * perMsg)
+            islandH = ChatLayout.height   // coucou-custom fork: measured (ChatFit)
         } else {
             islandH = fixedH
         }
@@ -1446,9 +1444,7 @@ final class IslandPanel: NSPanel {
                                       progress: s.uploadProgress, nw: nw, nh: nh)
         let h: CGFloat
         if s.mode == .expanded && s.view == .prompt {
-            let base: CGFloat = 240
-            let perMsg: CGFloat = 40
-            h = min(300, base + CGFloat(s.chatHistory.count) * perMsg)
+            h = ChatLayout.height   // coucou-custom fork: measured (ChatFit)
         } else {
             h = fixedH
         }
@@ -2062,6 +2058,8 @@ func islandSize(mode: IslandMode, view: IslandView,
         if view == .question, let h = QuestionLayout.height {
             return (IslandConst.expandedWidth, h)
         }
+        // coucou-custom fork: the chat is wider and as tall as its conversation (ChatFit).
+        if view == .prompt { return (ChatLayout.width, ChatLayout.height) }
         return (IslandConst.expandedWidth, layout.height)
     }
 }
