@@ -32,6 +32,20 @@ enum TerminalFocusTests {
         check("path with quote refused", TerminalFocus.safeAppleScriptString("/Users/x/a\"b") == nil)
         check("relative path refused", TerminalFocus.safeAppleScriptString("x/y") == nil)
 
+        // The cross-session inbox path (TerminalInput): only a socket owned by this user.
+        let sock = NSTemporaryDirectory() + "coucou-test-\(getpid()).sock"
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var addr = sockaddr_un(); addr.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &addr.sun_path) { raw in for (i, b) in sock.utf8.enumerated() { raw[i] = b } }
+        _ = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+        check("inbox: a real socket of mine", TerminalInput.inboxPath(sock) == sock)
+        check("inbox: uds: prefix accepted", TerminalInput.inboxPath("uds:" + sock) == sock)
+        let file = NSTemporaryDirectory() + "coucou-test-\(getpid()).txt"
+        FileManager.default.createFile(atPath: file, contents: Data())
+        check("inbox: a regular file refused", TerminalInput.inboxPath(file) == nil)
+        check("inbox: missing / relative refused", TerminalInput.inboxPath("/nope/x.sock") == nil && TerminalInput.inboxPath("x.sock") == nil)
+        close(fd); unlink(sock); unlink(file)
+
         // The tracker keeps each session's handles, and the latest value of each.
         var t = SessionTracker()
         t.apply(event: "UserPromptSubmit", payload: ["session_id": "A", "prompt": "x",

@@ -157,6 +157,7 @@ struct SettingsView: View {
     @AppStorage(NotchAlertRules.openOnFinishKey) private var openOnFinish = true
     @AppStorage(NotchAlertRules.openOnErrorKey) private var openOnError = true
     @AppStorage(NotchAlertRules.ambientKey) private var ambientPulse = true
+    @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
     #if !APPSTORE
     @AppStorage(TerminalFocus.defaultKey) private var defaultTerminal = ""   // coucou-custom fork
     #endif
@@ -358,6 +359,8 @@ struct SettingsView: View {
                 // coucou-custom fork: the notch opens only when a session is done or needs you.
                 Toggle(String(localized: "alerts.open-finish", defaultValue: "Open when a session's work is done"), isOn: $openOnFinish)
                     .help(String(localized: "alerts.open-finish.help", defaultValue: "Not while its background agents still run. Permissions and questions always open the notch."))
+                Toggle(String(localized: "alerts.open-terminal-front", defaultValue: "…even when that session's terminal is in front"), isOn: $openWhenTerminalInFront)
+                    .disabled(!openOnFinish)
                 Toggle(String(localized: "alerts.open-error", defaultValue: "Open when a session stops on an error"), isOn: $openOnError)
                 Toggle(String(localized: "alerts.ambient", defaultValue: "For everything else: sound, wiggle and a light around the notch"), isOn: $ambientPulse)
                     .help(String(localized: "alerts.ambient.help", defaultValue: "Session start, agents starting and finishing, a turn that left agents running."))

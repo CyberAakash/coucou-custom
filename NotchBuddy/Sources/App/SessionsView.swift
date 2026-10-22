@@ -162,9 +162,8 @@ private struct SessionDetail: View {
                 .disabled(!canSend)
                 .keyboardShortcut(.return, modifiers: [.command])
             }
-            if let sendNote {
-                Text(sendNote).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C"))
-            }
+            Text(sendNote ?? "Goes straight into the session, even while it works; your terminal stays where it is.")
+                .font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C"))
         }
     }
 
@@ -184,7 +183,7 @@ private struct SessionDetail: View {
             switch result {
             case .success:
                 draft = ""
-                sendNote = s.isBusy ? "Sent: queued after the current step." : "Sent to \(target.projectName)."
+                sendNote = target.isBusy ? "Sent: Claude reads it after its current step." : "Sent to \(target.projectName)."
                 appendAppLog("nb.log", "[Sessions] message sent to \(target.projectName) (\(target.hostApp ?? target.bundleId ?? "?"))")
             case .failure(let error):
                 sendNote = error.localizedDescription
