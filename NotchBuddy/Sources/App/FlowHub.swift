@@ -49,7 +49,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .shortcuts:    return String(localized: "Shortcuts")
         case .buddy:        return String(localized: "Buddy")
         case .runner:       return String(localized: "Menu bar")
-        case .brief:        return String(localized: "Daily brief")
+        case .brief:        return String(localized: "Briefs")
         case .dictation:  return String(localized: "hub.page.dictation")
         case .notes:      return String(localized: "hub.page.notes")
         case .insights:   return String(localized: "hub.page.insights")
@@ -132,7 +132,7 @@ extension HubPage {
         case .shortcuts:    return String(localized: "hub.notch.shortcuts")
         case .buddy:        return String(localized: "hub.notch.buddy")
         case .runner:       return String(localized: "hub.notch.menubar")
-        case .brief:        return String(localized: "hub.notch.brief")
+        case .brief:        return String(localized: "hub.notch.briefs")
         default:            return nil
         }
     }

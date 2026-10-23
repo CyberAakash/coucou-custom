@@ -3,22 +3,20 @@ import AppKit
 import Combine
 import SwiftUI
 
-// coucou-custom fork: the Daily brief — a banner that grows out of the notch, and the full-screen
+// coucou-custom fork: the Daily brief — a card in the notch (DailyBriefNotchCard) or the full-screen
 // story of cards (greeting and weather, what you did, your routines, the Mac's day, the Claude
-// plan, today ahead). It comes up by itself once a day (Settings → Daily brief) or when opened
-// from the menu-bar panel.
+// plan, today ahead), as Settings → Briefs says. It comes up by itself once a day or when opened
+// from the menu-bar panel or Settings, in either place.
 
 @MainActor
 final class DailyBriefController {
     static let shared = DailyBriefController()
 
-    private var banner: NSPanel?
-    private var bannerClose: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
     private var timer: Timer?
     private var subscription: AnyCancellable?
     private var building = false
-    /// Due but you were away: asked again each minute until you are back, that day only.
+    /// Due but you were away (or the notch busy): asked again each minute, that day only.
     private var retry: Timer?
 
     func start() {
@@ -72,10 +70,12 @@ final class DailyBriefController {
             retry = nil
             return
         }
-        // Only when you are there: something touched in the last two minutes.
+        // Only when you are there (something touched in the last two minutes), and never over a
+        // permission or a question waiting in the notch.
         let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
-        guard idle < 120, CGDisplayIsAsleep(CGMainDisplayID()) == 0 else {
-            if s.trigger == .firstUse, retry == nil {
+        let busy = AppState.shared.pendingApproval != nil || AppState.shared.pendingQuestion != nil
+        guard idle < 120, CGDisplayIsAsleep(CGMainDisplayID()) == 0, !busy else {
+            if s.trigger == .firstUse || busy, retry == nil {
                 let t = Timer(timeInterval: 60, repeats: true) { _ in
                     MainActor.assumeIsolated { DailyBriefController.shared.check() }
                 }
@@ -87,67 +87,35 @@ final class DailyBriefController {
         }
         retry?.invalidate()
         retry = nil
-        show(force: false)
+        show(place: nil, byHand: false)
     }
 
-    /// `force`: opened by hand (the panel, Settings): full screen at once, whatever the style.
-    func show(force: Bool) {
+    /// `place` nil: where Settings → Daily brief says. `byHand`: opened from the panel or Settings
+    /// (only then may it ask for Calendar access).
+    func show(place: BriefPlace? = nil, byHand: Bool = true) {
         guard !building else { return }
         building = true
         Task { @MainActor in
-            let brief = await DailyBriefBuilder.build(askCalendar: force)
+            let brief = await DailyBriefBuilder.build(askCalendar: byHand)
             building = false
             let s = DailyBriefSettings.shared
-            s.lastShownDay = MacDay.dayKey(Date())
-            if s.sound { SoundEngine.shared.play("greeting") }
-            if force || s.style == .fullScreen { showFull(brief, takeKeyboard: force || NSApp.isActive) }
-            else { showBanner(brief) }
+            if !byHand { s.lastShownDay = MacDay.dayKey(Date()) }
+            if s.sound, !byHand { SoundEngine.shared.play("greeting") }
+            switch place ?? s.place {
+            case .fullScreen: showFull(brief, takeKeyboard: byHand || NSApp.isActive)
+            case .notch: showNotch(brief)
+            }
         }
     }
 
-    // MARK: Banner
+    // MARK: In the notch
 
-    private func showBanner(_ brief: DailyBrief) {
-        closeBanner(animated: false)
-        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens[0]
-        let size = NSSize(width: DailyBriefBanner.width + 40, height: DailyBriefBanner.height + 30)
-        let p = NSPanel(contentRect: NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - size.height,
-                                            width: size.width, height: size.height),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        p.isOpaque = false
-        p.backgroundColor = .clear
-        p.hasShadow = false
-        // Over the menu bar and the notch's island, as the island itself is.
-        p.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
-        p.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-        p.isReleasedWhenClosed = false
-        p.hidesOnDeactivate = false
-        let notchWidth = max(160, screen.frame.width - (screen.auxiliaryTopLeftArea?.width ?? 0) - (screen.auxiliaryTopRightArea?.width ?? 0))
-        p.contentView = NSHostingView(rootView: DailyBriefBanner(
-            brief: brief, notchWidth: min(notchWidth, 240), notchHeight: max(24, screen.safeAreaInsets.top),
-            open: { [weak self] in
-                self?.closeBanner(animated: true)
-                self?.showFull(brief, takeKeyboard: true)
-            },
-            later: { [weak self] in self?.closeBanner(animated: true) }))
-        p.orderFrontRegardless()
-        banner = p
-        // Not read: it folds back into the notch after a while.
-        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.closeBanner(animated: true) } }
-        bannerClose = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
-    }
-
-    private func closeBanner(animated: Bool) {
-        bannerClose?.cancel()
-        bannerClose = nil
-        guard let p = banner else { return }
-        banner = nil
-        guard animated else { p.orderOut(nil); return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.3
-            p.animator().alphaValue = 0
-        }, completionHandler: { MainActor.assumeIsolated { p.orderOut(nil) } })
+    private func showNotch(_ brief: DailyBrief) {
+        DailyBriefReads.markRead()
+        var b = brief
+        b.readStreak = DailyBriefReads.streak(now: Date())
+        BriefNotchModel.shared.daily = b
+        NotificationCenter.default.post(name: .hookExpand, object: IslandView.dailyBrief)
     }
 
     // MARK: Full screen
@@ -157,18 +125,21 @@ final class DailyBriefController {
         var b = brief
         b.readStreak = DailyBriefReads.streak(now: Date())
         b.weekRead = DailyBriefReads.week(now: Date())
-        let model = DailyBriefStory(brief: b, autoAdvance: DailyBriefSettings.shared.autoAdvance)
+        let cards = DailyBriefCard.cards(for: b.sections)
+        let story = BriefStory(count: cards.count, autoAdvance: DailyBriefSettings.shared.autoAdvance)
+        let close = { FullScreenOverlay.shared.close(owner: "brief") }
         FullScreenOverlay.shared.present(
-            DailyBriefFullView(model: model, close: { FullScreenOverlay.shared.close(owner: "brief") }),
-            owner: "brief", dim: 0.5, takeKeyboard: takeKeyboard) { event in
-            switch event.keyCode {
-            case 53: FullScreenOverlay.shared.close(owner: "brief"); return true                  // Esc
-            case 124, 49, 36: if !model.next() { FullScreenOverlay.shared.close(owner: "brief") }; return true   // → Space Return
-            case 123: model.previous(); return true                                               // ←
-            default: return false
-            }
-        }
+            DailyBriefFullView(brief: b, cards: cards, story: story, close: close),
+            owner: "brief", dim: 0.5, takeKeyboard: takeKeyboard) { event in story.handle(event, close: close) }
     }
+}
+
+/// What the notch's brief cards show (the island draws them from here).
+@MainActor
+final class BriefNotchModel: ObservableObject {
+    static let shared = BriefNotchModel()
+    @Published var daily: DailyBrief?
+    @Published var weekly: WeeklyBrief?
 }
 
 // MARK: - The cards
@@ -194,133 +165,16 @@ enum DailyBriefCard: Hashable {
     }
 }
 
-@MainActor
-final class DailyBriefStory: ObservableObject {
+struct DailyBriefFullView: View {
     let brief: DailyBrief
     let cards: [DailyBriefCard]
-    let autoAdvance: Int
-    @Published var index = 0
-    @Published var cardStart = Date()
-    private var timer: Timer?
-
-    init(brief: DailyBrief, autoAdvance: Int) {
-        self.brief = brief
-        self.cards = DailyBriefCard.cards(for: brief.sections)
-        self.autoAdvance = autoAdvance
-        arm()
-    }
-
-    /// False at the last card.
-    @discardableResult
-    func next() -> Bool {
-        guard index + 1 < cards.count else { return false }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) { index += 1 }
-        cardStart = Date()
-        arm()
-        return true
-    }
-
-    func previous() {
-        guard index > 0 else { return }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) { index -= 1 }
-        cardStart = Date()
-        arm()
-    }
-
-    private func arm() {
-        timer?.invalidate()
-        timer = nil
-        guard autoAdvance > 0, index + 1 < cards.count else { return }
-        let t = Timer(timeInterval: TimeInterval(autoAdvance), repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.next() }
-        }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-    }
-}
-
-struct DailyBriefFullView: View {
-    @ObservedObject var model: DailyBriefStory
+    @ObservedObject var story: BriefStory
     let close: () -> Void
 
-    static let size = CGSize(width: 720, height: 560)
-
     var body: some View {
-        VStack(spacing: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                ticks
-                HStack {
-                    Text("Daily brief").font(.system(size: 12.5, weight: .bold))
-                    Text(model.brief.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
-                        .font(.system(size: 12.5)).foregroundColor(HubTheme.muted)
-                    Spacer()
-                    Text("\(model.index + 1) of \(model.cards.count)").font(.system(size: 12).monospacedDigit()).foregroundColor(HubTheme.muted)
-                    Button(action: close) {
-                        Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundColor(HubTheme.secondary)
-                            .frame(width: 22, height: 22).background(Circle().fill(Color.white.opacity(0.07)))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 6)
-                }
-                ZStack {
-                    ForEach(Array(model.cards.enumerated()), id: \.offset) { i, card in
-                        if i == model.index {
-                            DailyBriefCardView(card: card, brief: model.brief, close: close)
-                                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: 30)),
-                                                        removal: .opacity.combined(with: .offset(x: -30))))
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .contentShape(Rectangle())
-                .onTapGesture { if !model.next() { close() } }
-            }
-            .padding(22)
-            .frame(width: Self.size.width, height: Self.size.height)
-            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(hex: "#0E0F11").opacity(0.96)))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
-            .shadow(color: .black.opacity(0.5), radius: 40, y: 20)
-
-            HStack(spacing: 14) {
-                hint("←", "→", "Move")
-                hint("Esc", nil, "Close")
-            }
-        }
-        .foregroundColor(HubTheme.text)
-    }
-
-    private var ticks: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<model.cards.count, id: \.self) { i in
-                GeometryReader { g in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.12))
-                        if i < model.index {
-                            Capsule().fill(Color.white.opacity(0.85))
-                        } else if i == model.index {
-                            if model.autoAdvance > 0 {
-                                TimelineView(.animation) { ctx in
-                                    let k = min(1, ctx.date.timeIntervalSince(model.cardStart) / Double(model.autoAdvance))
-                                    Capsule().fill(Color.white.opacity(0.85)).frame(width: g.size.width * k)
-                                }
-                            } else {
-                                Capsule().fill(Color.white.opacity(0.85))
-                            }
-                        }
-                    }
-                }
-                .frame(height: 3)
-            }
-        }
-    }
-
-    private func hint(_ a: String, _ b: String?, _ what: String) -> some View {
-        HStack(spacing: 5) {
-            ForEach([a] + (b.map { [$0] } ?? []), id: \.self) { k in
-                Text(k).font(.system(size: 10.5, weight: .bold)).padding(.horizontal, 6).frame(height: 18)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
-            }
-            Text(what).font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+        BriefStoryFrame(story: story, title: "Daily brief",
+                        date: brief.date.formatted(.dateTime.weekday(.wide).day().month(.wide)), close: close) { i in
+            DailyBriefCardView(card: cards[i], brief: brief, close: close)
         }
     }
 }
@@ -336,7 +190,7 @@ private struct DailyBriefCardView: View {
         case .work: WorkCard(brief: brief)
         case .routines: RoutinesCard(brief: brief)
         case .mac: MacCard(brief: brief)
-        case .plan: PlanCard(brief: brief)
+        case .plan: PlanCard(plan: brief.plan, close: close)
         case .ahead: AheadCard(brief: brief, close: close)
         case .closing: ClosingCard(brief: brief, close: close)
         }
@@ -345,7 +199,7 @@ private struct DailyBriefCardView: View {
 
 // MARK: Card pieces
 
-private struct CardTitle: View {
+struct CardTitle: View {
     let label: String
     let title: String
 
@@ -358,7 +212,7 @@ private struct CardTitle: View {
     }
 }
 
-private struct Tile<Content: View>: View {
+struct Tile<Content: View>: View {
     var glow: Color? = nil
     @ViewBuilder var content: () -> Content
 
@@ -379,7 +233,7 @@ private struct Tile<Content: View>: View {
     }
 }
 
-private struct Stat: View {
+struct Stat: View {
     let value: String
     let label: String
     var color: Color = HubTheme.text
@@ -617,7 +471,7 @@ private struct RoutinesCard: View {
     }
 }
 
-private struct Segments: View {
+struct Segments: View {
     let count: Int
     let of: Int
     let color: Color
@@ -732,30 +586,40 @@ private struct DayChart: View {
 
 // MARK: Claude plan
 
-private struct PlanCard: View {
-    let brief: DailyBrief
+struct PlanCard: View {
+    let plan: PlanUsage?
+    let close: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             CardTitle(label: "Claude plan", title: title)
-            if let plan = brief.plan, plan.fiveHour != nil || plan.sevenDay != nil {
+            if let plan, plan.fiveHour != nil || plan.sevenDay != nil {
                 HStack(spacing: 12) {
                     if let w = plan.fiveHour { ring(w, "5-hour window", HubTheme.accent) }
                     if let w = plan.sevenDay { ring(w, "Weekly", Color(hex: "#A78BFA")) }
                 }
             } else {
                 Tile {
-                    Text("Your plan shows here once Claude Code reports it through Coucou's status-line relay (Settings → Agents → Plan gauge).")
-                        .font(.system(size: 13)).foregroundColor(HubTheme.secondary)
+                    Text("Your 5-hour and weekly windows show here once Claude Code reports them to Coucou. That takes Coucou's status-line relay, set up in Settings → Agents → Plan gauge (you review the change to ~/.claude/settings.json first).")
+                        .font(.system(size: 13)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        close()
+                        FlowHubController.shared.show(.agents)
+                    } label: {
+                        Text("Set up the plan gauge").font(.system(size: 12.5, weight: .bold)).foregroundColor(HubTheme.onAccent)
+                            .padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(HubTheme.accent))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
                 }
-                .frame(height: 90)
+                .frame(height: 130)
             }
             Spacer(minLength: 0)
         }
     }
 
     private var title: String {
-        guard let plan = brief.plan else { return "Your Claude plan." }
+        guard let plan else { return "Your Claude plan." }
         let used = [plan.fiveHour, plan.sevenDay].compactMap { $0 }.map(ClaudePlanGauge.effectivePct).max() ?? 0
         return used < 50 ? "Plenty of Claude left for today." : used < 80 ? "Keep an eye on your plan." : "Your plan is nearly used up."
     }
@@ -895,104 +759,4 @@ private struct StreakPanel: View {
     }
 }
 
-// MARK: - The notch banner
-
-struct DailyBriefBanner: View {
-    static let width: CGFloat = 560
-    static let height: CGFloat = 118
-
-    let brief: DailyBrief
-    let notchWidth: CGFloat
-    let notchHeight: CGFloat
-    let open: () -> Void
-    let later: () -> Void
-
-    @State private var expanded = false
-    @State private var chip = 0
-
-    private var chips: [(color: Color, value: String, label: String)] {
-        var out: [(Color, String, String)] = []
-        if let w = brief.work, !w.isEmpty {
-            out.append((HubTheme.accent, DailyBriefText.duration(minutes: w.minutes), "with your agents"))
-            if w.filesChanged > 0 { out.append((HubTheme.green, "\(w.filesChanged)", "files changed")) }
-        }
-        if let d = brief.diary, d.focusSessions > 0 { out.append((Color(hex: "#818CF8"), "\(d.focusSessions)", "focus sessions")) }
-        if let water = brief.water { out.append((Color(hex: "#22D3EE"), DailyBriefText.water(water.ml), "of water")) }
-        if let weather = brief.weather { out.append((Color(hex: "#F7B32B"), "\(weather.now)°", DailyBriefWeather.describe(weather.code).lowercased())) }
-        return out
-    }
-
-    var body: some View {
-        let w = expanded ? Self.width : notchWidth
-        let h = expanded ? Self.height : notchHeight
-        VStack(spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                UnevenRoundedRectangle(bottomLeadingRadius: expanded ? 26 : 12, bottomTrailingRadius: expanded ? 26 : 12, style: .continuous)
-                    .fill(Color.black)
-                if expanded {
-                    content.transition(.opacity)
-                }
-            }
-            .frame(width: w, height: h)
-            .contentShape(Rectangle())
-            .onTapGesture { open() }
-            Spacer(minLength: 0)
-        }
-        .frame(width: Self.width + 40, height: Self.height + 30, alignment: .top)
-        .onAppear {
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.78).delay(0.1)) { expanded = true }
-        }
-        .task {
-            // The chips take turns.
-            while !Task.isCancelled, chips.count > 1 {
-                try? await Task.sleep(for: .seconds(2.6))
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { chip = (chip + 1) % chips.count }
-            }
-        }
-    }
-
-    private var content: some View {
-        HStack(alignment: .bottom, spacing: 14) {
-            HubLiveMochi(color: "#F5F6F8", size: 58, state: .idle)
-                .frame(width: 70, height: 52)
-                .offset(y: 8)
-            VStack(alignment: .leading, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(brief.greeting + ".").font(.system(size: 15, weight: .bold)).lineLimit(1)
-                    Text(brief.headline).font(.system(size: 12.5)).foregroundColor(HubTheme.body).lineLimit(1)
-                }
-                HStack(spacing: 10) {
-                    if !chips.isEmpty {
-                        let c = chips[chip % chips.count]
-                        HStack(spacing: 7) {
-                            Circle().fill(c.color).frame(width: 6, height: 6)
-                            Text(c.value).font(.system(size: 12.5, weight: .bold).monospacedDigit())
-                            Text(c.label).font(.system(size: 12)).foregroundColor(HubTheme.secondary)
-                        }
-                        .padding(.horizontal, 10).frame(width: 190, height: 28, alignment: .leading)
-                        .background(Capsule().fill(Color.white.opacity(0.08)))
-                        .id(chip)
-                        .transition(.opacity.combined(with: .offset(y: 6)))
-                        HStack(spacing: 3) {
-                            ForEach(0..<chips.count, id: \.self) { i in
-                                Capsule().fill(Color.white.opacity(i == chip % chips.count ? 0.9 : 0.25))
-                                    .frame(width: i == chip % chips.count ? 12 : 4, height: 4)
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    Button("Later", action: later).buttonStyle(.plain)
-                        .font(.system(size: 12.5, weight: .semibold)).foregroundColor(HubTheme.secondary)
-                    Button(action: open) {
-                        Text("Open").font(.system(size: 12.5, weight: .bold)).foregroundColor(HubTheme.onAccent)
-                            .padding(.horizontal, 14).frame(height: 28).background(Capsule().fill(HubTheme.accent))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(.leading, 14).padding(.trailing, 16).padding(.bottom, 12).padding(.top, notchHeight + 4)
-        .foregroundColor(HubTheme.text)
-    }
-}
 #endif

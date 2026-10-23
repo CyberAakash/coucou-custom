@@ -230,7 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openWeeklyRecap() {
+        #if !APPSTORE
+        WeeklyBriefController.shared.show()   // coucou-custom fork: in the notch or full screen (Settings → Briefs)
+        #else
         islandController?.expand(to: .recap)
+        #endif
     }
 
     #if !APPSTORE
@@ -331,6 +335,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// On Monday ≥ 8 am, show the recap card once (if there is activity to display).
     /// Called from greetComplete, SessionStart/UserPromptSubmit hooks, and on wake.
     func checkMondayRecap() {
+        #if !APPSTORE
+        guard WeeklyBriefSettings.shared.autoShow else { return }   // coucou-custom fork: Settings → Briefs
+        #endif
         let cal = Calendar(identifier: .iso8601)
         let now = Date()
         // weekday in ISO 8601 calendar: 2 = Monday
@@ -348,7 +355,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             let s = AppState.shared
             guard s.pendingApproval == nil, s.pendingQuestion == nil else { return }
+            #if !APPSTORE
+            WeeklyBriefController.shared.show(period: .lastWeek)   // coucou-custom fork: in the notch or full screen
+            #else
             self?.islandController?.expand(to: .recap)
+            #endif
             UserDefaults.standard.set(weekKey, forKey: "recapLastShownWeek")
         }
     }

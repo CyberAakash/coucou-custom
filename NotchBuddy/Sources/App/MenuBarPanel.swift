@@ -9,12 +9,13 @@ import SwiftUI
 // Centre's, gone on Esc or a click anywhere else.
 
 enum MenuBarPanelSection: String, CaseIterable, Identifiable, Codable {
-    case agents, plan, mac, routines, metrics
+    case agents, briefs, plan, mac, routines, metrics
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .agents: "Agents"
+        case .briefs: "Today & this week"
         case .plan: "Claude plan"
         case .mac: "This Mac"
         case .routines: "Routines"
@@ -25,6 +26,7 @@ enum MenuBarPanelSection: String, CaseIterable, Identifiable, Codable {
     var detail: String {
         switch self {
         case .agents: "Each running session: its project, what it does, how long, and when it needs you."
+        case .briefs: "Your agents' time today and this week, with water and focus; click one for its brief."
         case .plan: "The 5-hour and weekly windows, with when they reset."
         case .mac: "CPU and memory with their last minutes, storage, battery, network."
         case .routines: "Water, the focus session, the timer and your next reminder, with their buttons."
@@ -35,6 +37,7 @@ enum MenuBarPanelSection: String, CaseIterable, Identifiable, Codable {
     var symbol: String {
         switch self {
         case .agents: "terminal"
+        case .briefs: "sun.horizon"
         case .plan: "staroflife"
         case .mac: "laptopcomputer"
         case .routines: "drop"
@@ -254,6 +257,7 @@ struct MenuBarPanelView: View {
     @ViewBuilder private func sectionView(_ s: MenuBarPanelSection) -> some View {
         switch s {
         case .agents: agentsSection
+        case .briefs: briefsSection
         case .plan: planSection
         case .mac: macSection
         case .routines: routinesSection
@@ -293,6 +297,37 @@ struct MenuBarPanelView: View {
         }
     }
 
+    // Today & this week
+
+    private var briefsSection: some View {
+        let records = RecapStore.shared.records()
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let day = DayWork.from(turns: records.turns, decisions: records.decisions, start: today,
+                               end: cal.date(byAdding: .day, value: 1, to: today) ?? Date(), calendar: cal)
+        let week = WeekWork.from(turns: records.turns, decisions: records.decisions, weekStart: WeekWork.monday(of: Date()), calendar: cal)
+        let water = routineSettings.waterEnabled ? routineSettings.waterLog.total(on: Date()) : nil
+        let focus = BuddyDiaryStore.diary.day(Date())?.focusSessions ?? 0
+        return VStack(alignment: .leading, spacing: 8) {
+            label("Today & this week")
+            VStack(spacing: 0) {
+                PanelBriefRow(symbol: "sun.max.fill", tint: Color(hex: "#F7B32B"), title: "Today",
+                              line: [day.isEmpty ? "No agent work yet" : "\(DailyBriefText.duration(minutes: day.minutes)) with agents · \(day.sessions) sessions",
+                                     water.map { "\(DailyBriefText.water($0)) water" }, focus > 0 ? "\(focus) focus" : nil]
+                                .compactMap { $0 }.joined(separator: " · ")) {
+                    close(); DailyBriefController.shared.show()
+                }
+                Divider().overlay(Color.white.opacity(0.05)).padding(.leading, 50)
+                PanelBriefRow(symbol: "calendar", tint: Color(hex: "#818CF8"), title: "This week",
+                              line: week.total.isEmpty ? "No agent work yet"
+                                : "\(DailyBriefText.duration(minutes: week.total.minutes)) over \(week.activeDays) day\(week.activeDays == 1 ? "" : "s")" + (week.projects.first.map { " · \($0.name)" } ?? "")) {
+                    close(); WeeklyBriefController.shared.show(period: .thisWeek)
+                }
+            }
+            .background(PanelCard())
+        }
+    }
+
     // Plan
 
     @ViewBuilder private var planSection: some View {
@@ -309,7 +344,18 @@ struct MenuBarPanelView: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 label("Claude plan")
-                PanelEmpty(symbol: "staroflife", text: "Shows once Claude Code reports your plan (Agents → Plan gauge).")
+                HStack(spacing: 10) {
+                    Image(systemName: "staroflife").font(.system(size: 13)).foregroundColor(HubTheme.muted)
+                    Text("Claude Code sends its plan to Coucou once the plan gauge is set up.")
+                        .font(.system(size: 12)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    PanelChip(symbol: "gearshape", text: "Set up", tint: HubTheme.accent) {
+                        close()
+                        FlowHubController.shared.show(.agents)
+                    }
+                }
+                .padding(12)
+                .background(PanelCard())
             }
         }
     }
@@ -415,8 +461,17 @@ struct MenuBarPanelView: View {
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                 PanelAction(text: "Open Coucou") { close(); RunnerStatusItem.perform("openIsland") }
-                PanelAction(text: "Daily brief") { close(); DailyBriefController.shared.show(force: true) }
-                PanelAction(text: "Weekly recap") { close(); RunnerStatusItem.perform("openWeeklyRecap") }
+                // Where Settings → Briefs says; a right-click offers either place.
+                PanelAction(text: "Daily brief") { close(); DailyBriefController.shared.show() }
+                    .contextMenu {
+                        Button("In the notch") { close(); DailyBriefController.shared.show(place: .notch) }
+                        Button("Full screen") { close(); DailyBriefController.shared.show(place: .fullScreen) }
+                    }
+                PanelAction(text: "Weekly recap") { close(); WeeklyBriefController.shared.show() }
+                    .contextMenu {
+                        Button("In the notch") { close(); WeeklyBriefController.shared.show(place: .notch) }
+                        Button("Full screen") { close(); WeeklyBriefController.shared.show(place: .fullScreen) }
+                    }
                 PanelAction(text: "Coucou window") { close(); RunnerStatusItem.perform("openFlowHub") }
                 PanelAction(text: "Settings") { close(); RunnerStatusItem.perform("openSettings") }
                 PanelAction(text: "Quit", dim: true) { close(); RunnerStatusItem.perform("quitCompletely") }
@@ -522,6 +577,36 @@ private struct PanelSessionRow: View {
                         }
                     }
                 }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(hover ? Color.white.opacity(0.04) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+private struct PanelBriefRow: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let line: String
+    let open: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundColor(tint)
+                    .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.opacity(0.16)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 13, weight: .semibold))
+                    Text(line).font(.system(size: 11)).foregroundColor(HubTheme.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(HubTheme.muted)
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(hover ? Color.white.opacity(0.04) : .clear)

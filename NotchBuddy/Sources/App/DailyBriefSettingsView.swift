@@ -1,14 +1,15 @@
 #if !APPSTORE
 import SwiftUI
 
-// coucou-custom fork: the Coucou window's Daily brief page — whether it comes, how (from the notch
-// or full screen), when, which day it tells about, and which cards it has.
+// coucou-custom fork: the Coucou window's Briefs page — the Daily brief and the Weekly recap: whether
+// each comes by itself, where (in the notch or full screen), which day or week, and which cards.
 
 struct HubDailyBriefPage: View {
     @ObservedObject private var settings = DailyBriefSettings.shared
+    @ObservedObject private var weekly = WeeklyBriefSettings.shared
 
     var body: some View {
-        HubPageScaffold(title: String(localized: "Daily brief"), subtitle: String(localized: "hub.notch.brief")) {
+        HubPageScaffold(title: String(localized: "Briefs"), subtitle: String(localized: "hub.notch.briefs")) {
             hero
 
             HubLabel("When")
@@ -35,11 +36,10 @@ struct HubDailyBriefPage: View {
 
             HubLabel("How")
             HubCard {
-                HubRow(title: "Style", detail: settings.style == .banner
-                       ? "A banner grows out of the notch with the day in a line and a few numbers; click it for the full brief."
-                       : "The full brief over a dimmed screen, card after card.") {
-                    RunnerChips(values: DailyBriefStyle.allCases, label: { $0 == .banner ? "Notch banner" : "Full screen" },
-                                selection: $settings.style)
+                HubRow(title: "Shows", detail: settings.place == .notch
+                       ? "In the notch: the day in a line and its numbers, with Full brief for the whole story."
+                       : "Full screen: the whole brief over a dimmed screen, card after card.") {
+                    RunnerChips(values: BriefPlace.allCases, label: \.label, selection: $settings.place)
                 }
                 HubDivider()
                 HubRow(title: "Next card by itself after", detail: "Or move with a click, the arrow keys, Space or Return.") {
@@ -83,7 +83,72 @@ struct HubDailyBriefPage: View {
                 }
                 HubNote(text: "Everything stays on this Mac. The weather is asked from Open-Meteo for your city, the calendar is read here, and the Mac's day is one reading a minute, kept 14 days, only while the brief shows it.")
             }
+
+            HubLabel("Weekly recap")
+            weeklyCard
         }
+    }
+
+    private var weeklyCard: some View {
+        HubCard {
+            HubRow(title: "On Monday mornings", detail: "Coucou's own recap of last week, from 8:00, once, when your agents did some work.") {
+                Toggle("", isOn: $weekly.autoShow).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Shows", detail: weekly.place == .notch
+                   ? "In the notch: the week's numbers and its days, with Full screen for the whole story."
+                   : "Full screen: the whole week, card after card, then share it as an image.") {
+                RunnerChips(values: BriefPlace.allCases, label: \.label, selection: $weekly.place)
+            }
+            HubDivider()
+            HubRow(title: "Tells about", detail: "Opened by hand; Monday's recap always tells about last week.") {
+                RunnerChips(values: WeeklyBriefPeriod.allCases, label: { $0 == .lastWeek ? "Last week" : "This week so far" },
+                            selection: $weekly.period)
+            }
+            HubDivider()
+            HubRow(title: "Next card by itself after") {
+                RunnerChips(values: DailyBriefSettings.autoAdvanceChoices, label: { $0 == 0 ? "Never" : "\($0) s" },
+                            selection: $weekly.autoAdvance)
+            }
+            HubDivider()
+            let order = weekly.sections + WeeklyBriefSection.allCases.filter { !weekly.sections.contains($0) }
+            ForEach(Array(order.enumerated()), id: \.element) { i, section in
+                if i > 0 { HubDivider() }
+                let on = weekly.sections.contains(section)
+                HStack(spacing: 12) {
+                    Image(systemName: section.symbol).font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(on ? Color(hex: "#818CF8") : HubTheme.muted)
+                        .frame(width: 28, height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill((on ? Color(hex: "#818CF8") : HubTheme.muted).opacity(0.14)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(section.title).font(.system(size: 13.5, weight: .medium))
+                        Text(section.detail).font(.system(size: 12)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    if on {
+                        HubIconButton(symbol: "chevron.up", help: "Move up") { moveWeekly(section, -1) }
+                            .disabled(weekly.sections.first == section).opacity(weekly.sections.first == section ? 0.35 : 1)
+                        HubIconButton(symbol: "chevron.down", help: "Move down") { moveWeekly(section, 1) }
+                            .disabled(weekly.sections.last == section).opacity(weekly.sections.last == section ? 0.35 : 1)
+                    }
+                    Toggle("", isOn: Binding(get: { on }, set: { weekly.toggle(section, $0) }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
+            }
+            HubDivider()
+            HStack(spacing: 8) {
+                Text("The full screen's cards, in this order; the notch shows the week's main numbers.")
+                    .font(.system(size: 12)).foregroundColor(HubTheme.secondary)
+                Spacer()
+                Button("In the notch") { WeeklyBriefController.shared.show(place: .notch) }.buttonStyle(HubButtonStyle())
+                Button("Full screen") { WeeklyBriefController.shared.show(place: .fullScreen) }.buttonStyle(HubButtonStyle(primary: true))
+            }
+        }
+    }
+
+    private func moveWeekly(_ s: WeeklyBriefSection, _ delta: Int) {
+        guard let i = weekly.sections.firstIndex(of: s), weekly.sections.indices.contains(i + delta) else { return }
+        weekly.sections.swapAt(i, i + delta)
     }
 
     private var hero: some View {
@@ -93,7 +158,7 @@ struct HubDailyBriefPage: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Circle().fill(settings.enabled ? HubTheme.green : HubTheme.muted).frame(width: 7, height: 7)
-                        Text(settings.enabled ? "On · \(settings.style == .banner ? "from the notch" : "full screen")" : "Off")
+                        Text(settings.enabled ? "On · \(settings.place == .notch ? "in the notch" : "full screen")" : "Off")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(settings.enabled ? HubTheme.green : HubTheme.secondary)
                     }
@@ -104,7 +169,8 @@ struct HubDailyBriefPage: View {
                         Toggle(isOn: $settings.enabled) { Text("Show the Daily brief").font(.system(size: 13, weight: .semibold)) }
                             .toggleStyle(.switch)
                         Spacer(minLength: 8)
-                        Button("Show it now") { DailyBriefController.shared.show(force: true) }.buttonStyle(HubButtonStyle(primary: true))
+                        Button("In the notch") { DailyBriefController.shared.show(place: .notch) }.buttonStyle(HubButtonStyle())
+                        Button("Full screen") { DailyBriefController.shared.show(place: .fullScreen) }.buttonStyle(HubButtonStyle(primary: true))
                     }
                 }
             }

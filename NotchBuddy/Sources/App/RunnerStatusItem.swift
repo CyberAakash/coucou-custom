@@ -260,6 +260,13 @@ final class RunnerStatusItem: NSObject {
                 switch what {
                 case "panel": await RunnerStatusItem.shared.debugPanel()
                 case "brief": await RunnerStatusItem.shared.debugBrief()
+                case "liveweek":
+                    WeeklyBriefController.shared.show(place: .fullScreen)
+                    try? await Task.sleep(for: .seconds(3))
+                    let shown = FullScreenOverlay.shared.isShowing && FullScreenOverlay.shared.owner == "weekly"
+                    FullScreenOverlay.shared.close(owner: "weekly")
+                    try? "weeklyShown=\(shown) after=\(FullScreenOverlay.shared.isShowing)".write(
+                        to: RunnerStatusItem.shared.debugDir.appendingPathComponent("live.txt"), atomically: true, encoding: .utf8)
                 case "live":
                     // The real full-screen brief for three seconds, to check it opens and closes.
                     let brief = await DailyBriefBuilder.build(askCalendar: false)
@@ -306,12 +313,23 @@ final class RunnerStatusItem: NSObject {
     /// Renders every card of today's brief, the banner and a moment, off screen.
     private func debugBrief() async {
         let brief = await DailyBriefBuilder.build(askCalendar: false)
-        for (i, card) in DailyBriefCard.cards(for: DailyBriefSection.allCases).enumerated() {
-            let story = DailyBriefStory(brief: brief, autoAdvance: 0)
-            story.index = story.cards.firstIndex(of: card) ?? i
-            debugWrite(DailyBriefFullView(model: story, close: {}).padding(30).background(Color(hex: "#202226")), "brief-\(i).png")
+        let cards = DailyBriefCard.cards(for: DailyBriefSection.allCases)
+        for i in cards.indices {
+            let story = BriefStory(count: cards.count, autoAdvance: 0)
+            story.index = i
+            debugWrite(DailyBriefFullView(brief: brief, cards: cards, story: story, close: {}).padding(30).background(Color(hex: "#202226")), "brief-\(i).png")
         }
-        debugWrite(DailyBriefBanner(brief: brief, notchWidth: 200, notchHeight: 32, open: {}, later: {}).background(Color(hex: "#3B5B8C")), "banner.png")
+        let week = WeeklyBriefBuilder.build()
+        let wcards = WeeklyBriefCard.cards(for: WeeklyBriefSection.allCases)
+        for i in wcards.indices {
+            let story = BriefStory(count: wcards.count, autoAdvance: 0)
+            story.index = i
+            debugWrite(WeeklyBriefFullView(brief: week, cards: wcards, story: story, close: {}).padding(30).background(Color(hex: "#202226")), "week-\(i).png")
+        }
+        BriefNotchModel.shared.daily = brief
+        BriefNotchModel.shared.weekly = week
+        debugWrite(DailyBriefNotchCard(state: AppState.shared).frame(width: 620, height: 186).background(Color.black), "notch-daily.png")
+        debugWrite(WeeklyBriefNotchCard(state: AppState.shared).frame(width: 620, height: 186).background(Color.black), "notch-weekly.png")
         let alert = BuddyAlert(kind: .water, title: "Time for some water", detail: "500 ml of 3 L today")
         debugWrite(RoutineMomentView(moment: RoutineMoment(kind: .water, alert: alert), perform: { _ in })
             .frame(width: 900, height: 600).background(Color.black), "moment.png")

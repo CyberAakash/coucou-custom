@@ -184,12 +184,89 @@ struct DayWork: Equatable {
     }
 }
 
-// MARK: - When it comes up
+// MARK: - The week
 
-enum DailyBriefStyle: String, CaseIterable, Identifiable {
-    case banner, fullScreen
-    var id: String { rawValue }
+/// Seven days of DayWork, their sum, the projects and agents of the week, and the week before's
+/// time to compare with.
+struct WeekWork: Equatable {
+    struct Project: Equatable {
+        let name: String
+        let minutes: Int
+        let sessions: Int
+    }
+
+    var start: Date
+    var days: [DayWork]           // Monday first
+    var total: DayWork
+    var previousMinutes: Int
+    var projects: [Project]       // most time first, at most 4
+    var agents: [(pill: String, sessions: Int)]
+    var longestSessionMinutes: Int
+    var activeDays: Int { days.filter { !$0.isEmpty }.count }
+
+    static func == (a: WeekWork, b: WeekWork) -> Bool {
+        a.start == b.start && a.days == b.days && a.total == b.total && a.previousMinutes == b.previousMinutes
+            && a.projects == b.projects && a.longestSessionMinutes == b.longestSessionMinutes
+            && a.agents.map(\.pill) == b.agents.map(\.pill) && a.agents.map(\.sessions) == b.agents.map(\.sessions)
+    }
+
+    /// Index of the day with the most time, nil for an empty week.
+    var busiestDay: Int? {
+        guard let top = days.indices.max(by: { days[$0].minutes < days[$1].minutes }), days[top].minutes > 0 else { return nil }
+        return top
+    }
+
+    /// −1…+∞: this week's time against the week before's; nil when there is nothing to compare.
+    var change: Double? {
+        guard previousMinutes > 0 else { return nil }
+        return Double(total.minutes - previousMinutes) / Double(previousMinutes)
+    }
+
+    static func from(turns: [RecapTurn], decisions: [RecapDecision], weekStart: Date, calendar: Calendar = .current) -> WeekWork {
+        let start = calendar.startOfDay(for: weekStart)
+        let end = calendar.date(byAdding: .day, value: 7, to: start) ?? start
+        let previous = calendar.date(byAdding: .day, value: -7, to: start) ?? start
+        let days = (0..<7).map { i -> DayWork in
+            let d = calendar.date(byAdding: .day, value: i, to: start) ?? start
+            let e = calendar.date(byAdding: .day, value: 1, to: d) ?? d
+            return DayWork.from(turns: turns, decisions: decisions, start: d, end: e, calendar: calendar)
+        }
+        let total = DayWork.from(turns: turns, decisions: decisions, start: start, end: end, calendar: calendar)
+        let inWeek = turns.filter { $0.start >= start && $0.start < end }
+        var byProject: [String: [RecapTurn]] = [:]
+        for t in inWeek where !t.project.isEmpty { byProject[t.project, default: []].append(t) }
+        let projects = byProject.map { Project(name: $0.key, minutes: Int(DayWork.mergedSeconds($0.value) / 60), sessions: $0.value.count) }
+            .sorted { $0.minutes != $1.minutes ? $0.minutes > $1.minutes : $0.name < $1.name }
+        var byAgent: [String: Int] = [:]
+        for t in inWeek { byAgent[t.pillId, default: 0] += 1 }
+        let agents = byAgent.map { (pill: $0.key, sessions: $0.value) }
+            .sorted { $0.sessions != $1.sessions ? $0.sessions > $1.sessions : $0.pill < $1.pill }
+        let longest = inWeek.map { Int($0.end.timeIntervalSince($0.start) / 60) }.max() ?? 0
+        let before = turns.filter { $0.start >= previous && $0.start < start }
+        return WeekWork(start: start, days: days, total: total, previousMinutes: Int(DayWork.mergedSeconds(before) / 60),
+                        projects: Array(projects.prefix(4)), agents: agents, longestSessionMinutes: longest)
+    }
+
+    /// Monday of the week holding `date`.
+    static func monday(of date: Date, calendar: Calendar = .current) -> Date {
+        var cal = calendar
+        cal.firstWeekday = 2
+        return cal.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
+    }
 }
+
+/// Which week the Weekly recap tells about.
+enum WeeklyBriefPeriod: String, CaseIterable, Identifiable {
+    case lastWeek, thisWeek
+    var id: String { rawValue }
+
+    func weekStart(now: Date, calendar: Calendar = .current) -> Date {
+        let monday = WeekWork.monday(of: now, calendar: calendar)
+        return self == .thisWeek ? monday : (calendar.date(byAdding: .day, value: -7, to: monday) ?? monday)
+    }
+}
+
+// MARK: - When it comes up
 
 enum DailyBriefTrigger: String, CaseIterable, Identifiable {
     /// The first time you are at the Mac after the chosen time (wake, unlock or launch).
@@ -259,6 +336,21 @@ enum DailyBriefText {
         var line = "\(when): \(sessions), \(duration(minutes: w.minutes)) of work"
         if w.filesChanged > 0 { line += ", \(w.filesChanged) file\(w.filesChanged == 1 ? "" : "s") changed" }
         if let p = w.topProject { line += ", mostly on \(p)" }
+        return line + "."
+    }
+
+    /// "+12%", "−30%", "same".
+    static func change(_ c: Double) -> String {
+        let pct = Int((c * 100).rounded())
+        return pct == 0 ? "same as the week before" : (pct > 0 ? "+\(pct)%" : "−\(-pct)%") + " vs the week before"
+    }
+
+    /// The Weekly recap's headline.
+    static func weekHeadline(_ w: WeekWork, isThisWeek: Bool) -> String {
+        guard !w.total.isEmpty else { return isThisWeek ? "A quiet week so far." : "A quiet week for your agents." }
+        let lead = isThisWeek ? "This week so far" : "Last week"
+        var line = "\(lead): \(duration(minutes: w.total.minutes)) with your agents over \(w.activeDays) day\(w.activeDays == 1 ? "" : "s")"
+        if let p = w.projects.first { line += ", mostly on \(p.name)" }
         return line + "."
     }
 

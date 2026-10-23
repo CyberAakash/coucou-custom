@@ -28,6 +28,7 @@ enum DailyBriefTests {
         scheduleTests()
         textTests()
         weatherTests()
+        weekTests()
         if failures > 0 { print("\(failures) failure(s)"); exit(1) }
         print("All daily brief tests passed")
     }
@@ -144,5 +145,39 @@ enum DailyBriefTests {
         check("line", w?.line == "High 30° · Low 25° · Rain likely after 13:00")
         check("no current, no weather", DailyBriefWeather.parse(["daily": json["daily"]!], city: "x") == nil)
         check("codes described", DailyBriefWeather.describe(0) == "Clear" && DailyBriefWeather.describe(63) == "Rain")
+    }
+
+    static func weekTests() {
+        // 2026-10-19 is a Monday.
+        let turns = [
+            turn("coucou", at(19, 9), minutes: 60),
+            turn("coucou", at(19, 9, 30), minutes: 60),          // overlaps: 90 min that day
+            turn("rea", at(21, 14), minutes: 30, pill: "integration_codex"),
+            turn("coucou", at(25, 23), minutes: 120),             // Sunday, last day of the week
+            turn("old", at(13, 10), minutes: 45),                 // the week before
+            turn("next", at(26, 10), minutes: 30),                // the week after
+        ]
+        let w = WeekWork.from(turns: turns, decisions: [], weekStart: at(19, 12), calendar: cal)
+        check("week starts at Monday's midnight", w.start == at(19, 0))
+        check("seven days", w.days.count == 7)
+        check("Monday 90 min", w.days[0].minutes == 90)
+        check("Wednesday 30 min", w.days[2].minutes == 30)
+        check("Sunday counted", w.days[6].minutes == 120)
+        check("week total 240 min", w.total.minutes == 240)
+        check("4 sessions in the week", w.total.sessions == 4)
+        check("active days", w.activeDays == 3)
+        check("busiest day Sunday", w.busiestDay == 6)
+        check("projects by time", w.projects.map(\.name) == ["coucou", "rea"] && w.projects[0].minutes == 210)
+        check("agents by sessions", w.agents.first?.pill == "integration_claude" && w.agents.first?.sessions == 3)
+        check("longest session", w.longestSessionMinutes == 120)
+        check("week before", w.previousMinutes == 45)
+        check("change", w.change.map { abs($0 - (240.0 - 45) / 45) < 1e-9 } == true)
+        check("monday of a Thursday", WeekWork.monday(of: at(22, 15), calendar: cal) == at(19, 0))
+        check("last week from Monday", WeeklyBriefPeriod.lastWeek.weekStart(now: at(26, 9), calendar: cal) == at(19, 0))
+        check("this week", WeeklyBriefPeriod.thisWeek.weekStart(now: at(23, 9), calendar: cal) == at(19, 0))
+        check("week headline", DailyBriefText.weekHeadline(w, isThisWeek: false) == "Last week: 4h 0m with your agents over 3 days, mostly on coucou.")
+        check("change text", DailyBriefText.change(0.12) == "+12% vs the week before" && DailyBriefText.change(-0.3) == "−30% vs the week before")
+        let empty = WeekWork.from(turns: [], decisions: [], weekStart: at(19, 0), calendar: cal)
+        check("empty week", empty.busiestDay == nil && empty.change == nil && empty.total.isEmpty)
     }
 }

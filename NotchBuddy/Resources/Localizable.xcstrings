@@ -75362,95 +75362,6 @@
         }
       }
     },
-    "Daily brief" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الموجز اليومي"
-          }
-        },
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "দৈনিক সারাংশ"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tagesüberblick"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daily brief"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resumen diario"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Brief du jour"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "दैनिक सारांश"
-          }
-        },
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ringkasan harian"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resumo diário"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сводка дня"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "สรุปประจำวัน"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Günlük özet"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每日简报"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每日簡報"
-          }
-        }
-      }
-    },
     "hub.notch.menubar" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -75540,91 +75451,180 @@
         }
       }
     },
-    "hub.notch.brief" : {
+    "Briefs" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يومك في دقيقة: الطقس وعمل وكلائك وعاداتك ويوم جهاز Mac وخطتك وتقويمك."
+            "value" : "الموجزات"
           }
         },
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "এক মিনিটে আপনার দিন: আবহাওয়া, এজেন্টদের কাজ, আপনার রুটিন, Mac-এর দিন, আপনার প্ল্যান আর ক্যালেন্ডার।"
+            "value" : "সারাংশ"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dein Tag in einer Minute: Wetter, die Arbeit deiner Agenten, deine Routinen, der Tag deines Mac, dein Tarif und dein Kalender."
+            "value" : "Überblicke"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your day in a minute: the weather, your agents' work, your routines, the Mac's day, your plan and your calendar."
+            "value" : "Briefs"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tu día en un minuto: el tiempo, el trabajo de tus agentes, tus rutinas, el día del Mac, tu plan y tu calendario."
+            "value" : "Resúmenes"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Votre journée en une minute : la météo, le travail de vos agents, vos routines, la journée du Mac, votre forfait et votre agenda."
+            "value" : "Briefs"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "एक मिनट में आपका दिन: मौसम, आपके एजेंटों का काम, आपकी दिनचर्या, Mac का दिन, आपका प्लान और कैलेंडर।"
+            "value" : "सारांश"
           }
         },
         "id" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hari Anda dalam semenit: cuaca, kerja agen Anda, rutinitas, hari Mac, paket, dan kalender Anda."
+            "value" : "Ringkasan"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seu dia em um minuto: o tempo, o trabalho dos seus agentes, suas rotinas, o dia do Mac, seu plano e sua agenda."
+            "value" : "Resumos"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваш день за минуту: погода, работа агентов, ваши привычки, день Mac, ваш тариф и календарь."
+            "value" : "Сводки"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "วันของคุณในหนึ่งนาที: สภาพอากาศ งานของเอเจนต์ กิจวัตร วันของ Mac แพ็กเกจ และปฏิทินของคุณ"
+            "value" : "สรุป"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bir dakikada gününüz: hava durumu, ajanlarınızın işi, rutinleriniz, Mac'in günü, planınız ve takviminiz."
+            "value" : "Özetler"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "一分钟看完你的一天：天气、智能体的工作、你的习惯、Mac 的一天、你的套餐和日历。"
+            "value" : "简报"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "一分鐘看完你的一天：天氣、代理的工作、你的習慣、Mac 的一天、你的方案和行事曆。"
+            "value" : "簡報"
+          }
+        }
+      }
+    },
+    "hub.notch.briefs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الموجز اليومي والملخص الأسبوعي: متى يظهران، وأين (في النوتش أو بملء الشاشة)، وماذا يعرضان."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "দৈনিক সারাংশ ও সাপ্তাহিক রিক্যাপ: কখন আসে, কোথায় (নচে বা পুরো স্ক্রিনে) আর কী দেখায়।"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tagesüberblick und Wochenrückblick: wann sie kommen, wo (in der Notch oder im Vollbild) und was sie zeigen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Daily brief and the Weekly recap: when they come, where (in the notch or full screen) and what they show."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El resumen diario y el semanal: cuándo llegan, dónde (en el notch o a pantalla completa) y qué muestran."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le brief du jour et le récap de la semaine : quand ils viennent, où (dans l'encoche ou en plein écran) et ce qu'ils montrent."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "दैनिक सारांश और साप्ताहिक रीकैप: कब आते हैं, कहाँ (नॉच में या फ़ुल स्क्रीन) और क्या दिखाते हैं।"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ringkasan harian dan rekap mingguan: kapan muncul, di mana (di notch atau layar penuh), dan apa isinya."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O resumo diário e o semanal: quando aparecem, onde (no notch ou em tela cheia) e o que mostram."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сводка дня и итоги недели: когда появляются, где (в вырезе или на весь экран) и что показывают."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สรุปประจำวันและสรุปประจำสัปดาห์: มาเมื่อไร ที่ไหน (ในรอยบากหรือเต็มจอ) และแสดงอะไร"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Günlük özet ve haftalık özet: ne zaman geldikleri, nerede (çentikte ya da tam ekranda) ve ne gösterdikleri."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日简报和每周回顾：何时出现、在哪里（刘海里或全屏）以及显示什么。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日簡報和每週回顧：何時出現、在哪裡（瀏海裡或全螢幕）以及顯示什麼。"
           }
         }
       }

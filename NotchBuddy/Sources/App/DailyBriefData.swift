@@ -52,7 +52,8 @@ final class DailyBriefSettings: ObservableObject {
     private let defaults = UserDefaults.standard
 
     @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: "dailyBriefEnabled") } }
-    @Published var style: DailyBriefStyle { didSet { defaults.set(style.rawValue, forKey: "dailyBriefStyle") } }
+    /// Where it shows (stored under the first build's key: its "banner" is the notch).
+    @Published var place: BriefPlace { didSet { defaults.set(place == .notch ? "banner" : place.rawValue, forKey: "dailyBriefStyle") } }
     @Published var trigger: DailyBriefTrigger { didSet { defaults.set(trigger.rawValue, forKey: "dailyBriefTrigger") } }
     /// Minutes after midnight.
     @Published var minuteOfDay: Int { didSet { defaults.set(minuteOfDay, forKey: "dailyBriefMinute") } }
@@ -76,7 +77,7 @@ final class DailyBriefSettings: ObservableObject {
 
     private init() {
         enabled = defaults.bool(forKey: "dailyBriefEnabled")
-        style = DailyBriefStyle(rawValue: defaults.string(forKey: "dailyBriefStyle") ?? "") ?? .banner
+        place = defaults.string(forKey: "dailyBriefStyle") == BriefPlace.fullScreen.rawValue ? .fullScreen : .notch
         trigger = DailyBriefTrigger(rawValue: defaults.string(forKey: "dailyBriefTrigger") ?? "") ?? .firstUse
         minuteOfDay = defaults.object(forKey: "dailyBriefMinute") as? Int ?? 8 * 60
         period = DailyBriefPeriod(rawValue: defaults.string(forKey: "dailyBriefPeriod") ?? "") ?? .auto
