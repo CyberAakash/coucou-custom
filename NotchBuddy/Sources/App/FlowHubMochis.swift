@@ -266,6 +266,8 @@ struct HubHeroTheme {
             return .init(color: Color(hex: "#6366F1"), cast: [m("#6366F1", 56, 0.2, outfit: .sunglasses), m("#F5F6F8", 46, 0.8)])
         case .buddy:   // coucou-custom fork
             return .init(color: Color(hex: "#F472B6"), cast: [m("#F5F6F8", 58, 0.25, outfit: .bow), m("#F472B6", 46, 0.8)])
+        case .runner:  // coucou-custom fork
+            return .init(color: Color(hex: "#FB923C"), cast: [m("#FB923C", 52, 0.1, state: .working), m("#F5F6F8", 44, 0.55), m("#34D399", 40, 0.95)])
         }
     }
 }

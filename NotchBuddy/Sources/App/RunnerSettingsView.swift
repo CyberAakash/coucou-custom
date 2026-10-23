@@ -1,0 +1,966 @@
+#if !APPSTORE
+import AppKit
+import SwiftUI
+import UniformTypeIdentifiers
+
+// coucou-custom fork: the Coucou window's Runner page — a RunCat-style runner in the menu bar,
+// custom runners (made here or from the Runner Gallery), and Custom Metrics files.
+
+struct HubRunnerPage: View {
+    @ObservedObject private var settings = RunnerSettings.shared
+    @ObservedObject private var library = RunnerLibrary.shared
+    @ObservedObject private var sampler = RunnerSampler.shared
+    @State private var toast = ""
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            HubPageScaffold(title: String(localized: "Runner"), subtitle: String(localized: "hub.notch.runner")) {
+                RunnerHeroCard(settings: settings, sampler: sampler)
+
+                HubLabel("Runner")
+                RunnerPickerCard(settings: settings, library: library)
+
+                HubLabel("Make a runner")
+                RunnerEditorCard(toast: $toast)
+
+                HubLabel("Runner Gallery")
+                RunnerGalleryCard(library: library, toast: $toast)
+
+                HubLabel("Speed")
+                RunnerSpeedCard(settings: settings)
+
+                HubLabel("Menu bar")
+                RunnerMenuBarCard(settings: settings, sampler: sampler)
+
+                HubLabel("Custom Metrics")
+                RunnerMetricsSourcesCard(settings: settings, toast: $toast)
+            }
+            HubToast(message: $toast)
+        }
+        .onAppear { RunnerMetricsCenter.shared.hold() }
+        .onDisappear { RunnerMetricsCenter.shared.release() }
+    }
+}
+
+// MARK: - Shared pieces
+
+/// A row of choices, one on (the window's chips).
+struct RunnerChips<Value: Hashable>: View {
+    let values: [Value]
+    let label: (Value) -> String
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(values, id: \.self) { v in
+                let on = selection == v
+                Button { selection = v } label: {
+                    Text(label(v))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
+                        .padding(.horizontal, 9)
+                        .frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// A runner playing in SwiftUI, for previews. Only animates while the window is on screen.
+struct RunnerPreview: View {
+    let frames: [CGImage]
+    let isTemplate: Bool
+    var speed: Double = 1
+    var flipped = false
+    var scale: CGFloat = 1
+    var animate = true
+    @Environment(\.hubVisible) private var visible
+
+    var body: some View {
+        let step = RunnerSpeed.frameSeconds / max(0.25, speed)
+        TimelineView(.animation(minimumInterval: step, paused: !animate || !visible || frames.count < 2)) { context in
+            let index = frames.isEmpty ? 0 : Int(context.date.timeIntervalSinceReferenceDate / step) % frames.count
+            frame(at: index)
+        }
+    }
+
+    @ViewBuilder private func frame(at index: Int) -> some View {
+        if frames.indices.contains(index) {
+            let img = frames[index]
+            let image = Image(decorative: img, scale: 2 / scale)
+            Group {
+                if isTemplate {
+                    image.renderingMode(.template).foregroundColor(HubTheme.text)
+                } else {
+                    image
+                }
+            }
+            .scaleEffect(x: flipped ? -1 : 1, y: 1)
+            .frame(width: CGFloat(img.width) / 2 * scale, height: CGFloat(img.height) / 2 * scale)
+        } else {
+            Color.clear.frame(width: 22 * scale, height: 18 * scale)
+        }
+    }
+}
+
+/// A strip drawn like the menu bar, the runner on it.
+struct RunnerMenuBarStrip<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 10) {
+            content()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Capsule().fill(Color.white.opacity(0.07)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
+    }
+}
+
+// MARK: - Hero
+
+private struct RunnerHeroCard: View {
+    @ObservedObject var settings: RunnerSettings
+    @ObservedObject var sampler: RunnerSampler
+    @ObservedObject private var library = RunnerLibrary.shared
+
+    private var load: Double {
+        switch settings.speedSource {
+        case .cpu: sampler.sample.cpu ?? 0
+        case .memory: sampler.sample.memoryFraction ?? 0
+        case .agents: RunnerSpeed.agentLoad(working: RunnerStatusItem.workingAgents(AppState.shared.tasks))
+        }
+    }
+
+    var body: some View {
+        let frames = RunnerStatusItem.frames(for: settings.runnerID)
+        let speed = RunnerSpeed.speed(load: load, slowerUnderLoad: settings.slowerUnderLoad)
+        HubGlowCard(color: HubTheme.accent, padding: 22) {
+            HStack(alignment: .center, spacing: 22) {
+                VStack(spacing: 12) {
+                    RunnerPreview(frames: frames.images, isTemplate: frames.isTemplate,
+                                  speed: settings.enabled ? speed : 2, flipped: settings.flipped, scale: 3)
+                        .frame(width: 200, height: 84)
+                    RunnerMenuBarStrip {
+                        RunnerPreview(frames: frames.images, isTemplate: frames.isTemplate,
+                                      speed: settings.enabled ? speed : 2, flipped: settings.flipped)
+                        Image(systemName: "wifi").font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "battery.75percent").font(.system(size: 13))
+                        Text("9:41").font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(HubTheme.text)
+                }
+                .padding(14)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.25)))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Circle().fill(settings.enabled ? HubTheme.green : HubTheme.muted).frame(width: 7, height: 7)
+                        Text(settings.enabled ? "In the menu bar" : "Hidden")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(settings.enabled ? HubTheme.green : HubTheme.secondary)
+                    }
+                    Text("A runner in your menu bar")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundColor(HubTheme.text)
+                    Text("It runs faster as your Mac works harder, after RunCat. Click it for the Mac’s numbers and your Custom Metrics. Runners and metric files made for RunCat Neo work here as they are.")
+                        .font(.system(size: 13))
+                        .foregroundColor(HubTheme.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if settings.enabled {
+                        Text(speedLine(speed))
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundColor(HubTheme.secondary)
+                    }
+                    Toggle(isOn: $settings.enabled) {
+                        Text("Show the Runner in the menu bar").font(.system(size: 13, weight: .semibold))
+                    }
+                    .toggleStyle(.switch)
+                    HubNote(text: "While it shows, Coucou reads the Mac every \(settings.interval) s and the animation runs in Core Animation; hidden, it costs nothing.")
+                }
+            }
+        }
+    }
+
+    private func speedLine(_ speed: Double) -> String {
+        let what: String
+        switch settings.speedSource {
+        case .cpu: what = "CPU " + MetricsFormat.percent(load)
+        case .memory: what = "Memory " + MetricsFormat.percent(load)
+        case .agents: what = RunnerCoucouMetric.agentsText(working: RunnerStatusItem.workingAgents(AppState.shared.tasks)) + " working"
+        }
+        return "\(what) · speed \(String(format: "%.1f", speed))×"
+    }
+}
+
+// MARK: - Picking a runner
+
+private struct RunnerPickerCard: View {
+    @ObservedObject var settings: RunnerSettings
+    @ObservedObject var library: RunnerLibrary
+    @State private var editing: CustomRunner?
+
+    var body: some View {
+        HubCard {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 10)], spacing: 10) {
+                ForEach(RunnerBuiltIn.allCases, id: \.rawValue) { kind in
+                    RunnerTile(name: kind.name, detail: "Drawn by Coucou",
+                               frames: RunnerMochiFrames.frames(kind), isTemplate: kind.isTemplate,
+                               selected: settings.runnerID == kind.rawValue) {
+                        settings.runnerID = kind.rawValue
+                    }
+                }
+                ForEach(library.runners) { runner in
+                    let images = library.frameImages(runner)
+                    let ordered = images.count == runner.frameCount ? runner.playableOrder.map { images[$0] } : images
+                    RunnerTile(name: runner.name, detail: runner.author.map { "by \($0)" } ?? "Your runner",
+                               frames: ordered, isTemplate: runner.isTemplate,
+                               selected: settings.runnerID == runner.id) {
+                        settings.runnerID = runner.id
+                    }
+                    .contextMenu {
+                        Button("Edit…") { editing = runner }
+                        Button("Show in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([library.directory.appendingPathComponent(runner.id)])
+                        }
+                        Divider()
+                        Button("Delete", role: .destructive) { delete(runner) }
+                    }
+                }
+            }
+            HubNote(text: "Right-click one of your runners to rename it, change how it plays, or delete it.")
+        }
+        .sheet(item: $editing) { runner in
+            RunnerEditSheet(runner: runner) { editing = nil }
+        }
+    }
+
+    private func delete(_ runner: CustomRunner) {
+        if settings.runnerID == runner.id { settings.runnerID = RunnerBuiltIn.mochi.rawValue }
+        library.delete(runner.id)
+    }
+}
+
+private struct RunnerTile: View {
+    let name: String
+    let detail: String
+    let frames: [CGImage]
+    let isTemplate: Bool
+    let selected: Bool
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                RunnerPreview(frames: frames, isTemplate: isTemplate, speed: 2, scale: 1.5, animate: selected || hover)
+                    .frame(height: 36)
+                VStack(spacing: 2) {
+                    Text(name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text(detail).font(.system(size: 10.5)).foregroundColor(HubTheme.muted).lineLimit(1)
+                }
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(selected ? HubTheme.accent.opacity(0.14) : Color.white.opacity(hover ? 0.07 : 0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(selected ? HubTheme.accent : Color.white.opacity(0.06), lineWidth: selected ? 1.5 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+private struct RunnerEditSheet: View {
+    @State var runner: CustomRunner
+    let done: () -> Void
+    @State private var playback: RunnerPlayback = .loop
+    /// What the stored order looked like, so a rename keeps an order of its own (RunCat's [0, 0, 1, 2]).
+    @State private var detected: RunnerPlayback = .loop
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Edit runner").font(.system(size: 15, weight: .bold))
+            HubRow(title: "Name") { HubField(placeholder: "Name", text: $runner.name).frame(width: 220) }
+            HubRow(title: "Colour", detail: "Monochrome takes the menu bar’s colour; Colour keeps the frames’ own.") {
+                RunnerChips(values: [true, false], label: { $0 ? "Monochrome" : "Colour" }, selection: $runner.isTemplate)
+            }
+            HubRow(title: "Plays") {
+                RunnerChips(values: RunnerPlayback.allCases, label: { $0 == .loop ? "Loop" : "Back and forth" }, selection: $playback)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: done).buttonStyle(HubButtonStyle())
+                Button("Save") {
+                    if playback != detected { runner.frameOrder = playback.order(count: runner.frameCount) }
+                    RunnerLibrary.shared.update(runner)
+                    done()
+                }
+                .buttonStyle(HubButtonStyle(primary: true))
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
+        .background(HubTheme.panel)
+        .preferredColorScheme(.dark)
+        .onAppear {
+            detected = RunnerPlayback.detect(order: runner.frameOrder, count: runner.frameCount)
+            playback = detected
+        }
+    }
+}
+
+// MARK: - Making a runner
+
+@MainActor
+private final class RunnerEditorModel: ObservableObject {
+    struct Frame: Identifiable {
+        let id = UUID()
+        let name: String
+        let data: Data
+        let image: CGImage
+    }
+
+    @Published var frames: [Frame] = []
+    @Published var name = ""
+    @Published var isTemplate = true
+    @Published var playback: RunnerPlayback = .loop
+    @Published var speed: Double = 2
+    @Published var problem: String?
+
+    var canAdd: Bool { !frames.isEmpty && !name.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var ordered: [CGImage] {
+        playback.order(count: frames.count).map { frames[$0].image }
+    }
+
+    /// PNG files, or a Runner Gallery `<name>-frames.zip`, in file-name order.
+    func add(_ urls: [URL]) {
+        problem = nil
+        var incoming: [(name: String, data: Data)] = []
+        for url in urls.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
+            let ext = url.pathExtension.lowercased()
+            if ext == "zip" {
+                do {
+                    guard let data = try? Data(contentsOf: url) else { problem = "\(url.lastPathComponent) can’t be read."; return }
+                    let entries = try RunnerZip.pngEntries(data)
+                    incoming += entries.map { ($0.name, $0.data) }
+                    if name.isEmpty { name = Self.title(fromArchive: url.deletingPathExtension().lastPathComponent) }
+                } catch {
+                    problem = "\(url.lastPathComponent) is not a frames archive (\(error))."
+                    return
+                }
+            } else if ext == "png", let data = try? Data(contentsOf: url) {
+                incoming.append((url.lastPathComponent, data))
+            } else {
+                problem = "\(url.lastPathComponent): " + RunnerFrameRules.message(.notImage)
+                return
+            }
+        }
+        if frames.count + incoming.count > RunnerFrameRules.maxFrames {
+            problem = RunnerFrameRules.message(.tooMany)
+            return
+        }
+        if let message = RunnerImages.validate(incoming) {
+            problem = message
+            return
+        }
+        frames += incoming.compactMap { f in RunnerImages.image(from: f.data).map { Frame(name: f.name, data: f.data, image: $0) } }
+    }
+
+    /// "border-collie-frames" → "Border Collie".
+    static func title(fromArchive base: String) -> String {
+        var b = base
+        if b.hasSuffix("-frames") { b.removeLast("-frames".count) }
+        return b.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+    }
+
+    func reset() {
+        frames = []
+        name = ""
+        isTemplate = true
+        playback = .loop
+        problem = nil
+    }
+}
+
+private struct RunnerEditorCard: View {
+    @Binding var toast: String
+    @StateObject private var model = RunnerEditorModel()
+    @State private var dropping = false
+
+    var body: some View {
+        HubCard {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(spacing: 10) {
+                    RunnerPreview(frames: model.ordered, isTemplate: model.isTemplate, speed: model.speed, scale: 2.5)
+                        .frame(width: 170, height: 70)
+                    RunnerMenuBarStrip {
+                        RunnerPreview(frames: model.ordered, isTemplate: model.isTemplate, speed: model.speed)
+                    }
+                    .foregroundColor(HubTheme.text)
+                    VStack(spacing: 2) {
+                        Slider(value: $model.speed, in: 1...20).frame(width: 150)
+                        Text("Preview speed \(String(format: "%.0f", model.speed))× (CPU \(Int(model.speed * 5))%)")
+                            .font(.system(size: 10.5).monospacedDigit()).foregroundColor(HubTheme.muted)
+                    }
+                }
+                .frame(width: 190)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.25)))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    dropZone
+                    if !model.frames.isEmpty {
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 6) {
+                                ForEach(Array(model.frames.enumerated()), id: \.element.id) { i, frame in
+                                    RunnerFrameCell(index: i, frame: frame.image, isTemplate: model.isTemplate) {
+                                        model.frames.removeAll { $0.id == frame.id }
+                                    }
+                                }
+                            }
+                        }
+                        .scrollIndicators(.never)
+                    }
+                    HubRow(title: "Name") { HubField(placeholder: "My runner", text: $model.name).frame(width: 200) }
+                    HubRow(title: "Colour", detail: "Monochrome takes the menu bar’s colour from the frames’ shape; Colour keeps their own.") {
+                        RunnerChips(values: [true, false], label: { $0 ? "Monochrome" : "Colour" }, selection: $model.isTemplate)
+                    }
+                    HubRow(title: "Plays", detail: "Back and forth plays the frames, then back again.") {
+                        RunnerChips(values: RunnerPlayback.allCases, label: { $0 == .loop ? "Loop" : "Back and forth" }, selection: $model.playback)
+                    }
+                    if let problem = model.problem { HubNote(text: problem, warning: true) }
+                    HStack {
+                        Text("\(model.frames.count) of \(RunnerFrameRules.maxFrames) frames")
+                            .font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
+                        Spacer()
+                        Button("Clear") { model.reset() }.buttonStyle(HubButtonStyle()).disabled(model.frames.isEmpty)
+                        Button("Add runner") { save() }.buttonStyle(HubButtonStyle(primary: true)).disabled(!model.canAdd)
+                    }
+                }
+            }
+        }
+    }
+
+    private var dropZone: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 18)).foregroundColor(HubTheme.accent)
+            Text("Drop PNG frames or a gallery “-frames.zip” here")
+                .font(.system(size: 12.5, weight: .semibold))
+            Text("PNG, exactly 36 px high, 10 to 100 px wide, up to 30 frames. Files play in name order.")
+                .font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+                .multilineTextAlignment(.center)
+            Button("Choose files…") { choose() }.buttonStyle(HubButtonStyle()).padding(.top, 2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(dropping ? HubTheme.accent.opacity(0.12) : Color.white.opacity(0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+            .strokeBorder(dropping ? HubTheme.accent : Color.white.opacity(0.12), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4])))
+        .dropDestination(for: URL.self) { urls, _ in
+            model.add(urls)
+            return true
+        } isTargeted: { dropping = $0 }
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.png, .zip]
+        panel.message = "Choose the frames of your runner, or a Runner Gallery frames archive."
+        guard panel.runModal() == .OK else { return }
+        model.add(panel.urls)
+    }
+
+    private func save() {
+        do {
+            let runner = try RunnerLibrary.shared.add(name: model.name, isTemplate: model.isTemplate,
+                                                      frames: model.frames.map(\.data), playback: model.playback)
+            RunnerSettings.shared.runnerID = runner.id
+            toast = "“\(runner.name)” added and chosen."
+            model.reset()
+        } catch {
+            toast = "❌ The runner could not be saved: \(error.localizedDescription)"
+        }
+    }
+}
+
+private struct RunnerFrameCell: View {
+    let index: Int
+    let frame: CGImage
+    let isTemplate: Bool
+    let remove: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        VStack(spacing: 3) {
+            RunnerPreview(frames: [frame], isTemplate: isTemplate, animate: false)
+                .frame(height: 22)
+            Text("\(index)").font(.system(size: 9.5).monospacedDigit()).foregroundColor(HubTheme.muted)
+        }
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.05)))
+        .overlay(alignment: .topTrailing) {
+            if hover {
+                Button(action: remove) {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundColor(HubTheme.secondary)
+                }
+                .buttonStyle(.plain)
+                .offset(x: 4, y: -4)
+                .accessibilityLabel("Remove frame \(index)")
+            }
+        }
+        .onHover { hover = $0 }
+    }
+}
+
+// MARK: - Gallery
+
+private struct RunnerGalleryCard: View {
+    @ObservedObject var library: RunnerLibrary
+    @Binding var toast: String
+    @ObservedObject private var gallery = RunnerGalleryClient.shared
+    @State private var tag: String? = nil
+    @State private var query = ""
+
+    var body: some View {
+        HubCard {
+            switch gallery.phase {
+            case .idle:
+                HubRow(title: "Runners made by the RunCat community",
+                       detail: "Over forty runners shared under the Apache-2.0 licence. Browsing loads them from GitHub (runcat-dev/RunnerGallery); nothing is sent.") {
+                    Button("Browse the gallery") { gallery.load() }.buttonStyle(HubButtonStyle(primary: true))
+                }
+            case .failed(let message):
+                HubRow(title: "The gallery could not be loaded", detail: message) {
+                    Button("Try again") { gallery.load() }.buttonStyle(HubButtonStyle())
+                }
+            case .loading, .loaded:
+                filterBar
+                let installed = library.installedGalleryNames()
+                let shown = gallery.entries.filter { RunnerGallery.matches($0.metadata, tag: tag, query: query) }
+                if gallery.phase == .loading && gallery.entries.isEmpty {
+                    HStack { ProgressView().controlSize(.small); Text("Loading the gallery…").foregroundColor(HubTheme.secondary) }
+                } else if shown.isEmpty {
+                    HubEmptyState(text: "No runner matches.", state: .thinking)
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                    ForEach(shown) { entry in
+                        RunnerGalleryTile(entry: entry, installed: installed.contains(entry.name),
+                                          busy: gallery.installing.contains(entry.name)) {
+                            Task {
+                                if let problem = await gallery.install(entry) {
+                                    toast = "❌ \(entry.metadata.displayName): \(problem)"
+                                } else {
+                                    toast = "“\(entry.metadata.displayName)” installed. Pick it above."
+                                }
+                            }
+                        }
+                    }
+                }
+                HStack {
+                    if gallery.phase == .loading { ProgressView().controlSize(.small) }
+                    Text("\(gallery.entries.count) runners").font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
+                    Spacer()
+                    Button("Open the gallery’s website") { NSWorkspace.shared.open(RunnerGallery.site) }
+                        .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+                }
+            }
+        }
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            HubField(placeholder: "Search by name or author", text: $query).frame(maxWidth: 260)
+            RunnerChips(values: [nil] + RunnerGallery.tags.map(Optional.some),
+                        label: { $0.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "All" },
+                        selection: $tag)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct RunnerGalleryTile: View {
+    let entry: RunnerGalleryClient.Entry
+    let installed: Bool
+    let busy: Bool
+    let install: () -> Void
+    @State private var hover = false
+    @Environment(\.hubVisible) private var visible
+
+    var body: some View {
+        VStack(spacing: 8) {
+            // The gallery's own preview (an animated PNG), at its own pace, while the pointer is on it.
+            TimelineView(.animation(minimumInterval: entry.delay, paused: !hover || !visible || entry.preview.count < 2)) { context in
+                let i = entry.preview.isEmpty ? 0 : Int(context.date.timeIntervalSinceReferenceDate / entry.delay) % entry.preview.count
+                if entry.preview.indices.contains(i) {
+                    let img = entry.preview[i]
+                    let image = Image(decorative: img, scale: 2 / 1.5)
+                    Group {
+                        if entry.metadata.isTemplate {
+                            image.renderingMode(.template).foregroundColor(HubTheme.text)
+                        } else {
+                            image
+                        }
+                    }
+                    .frame(width: CGFloat(img.width) * 0.75, height: CGFloat(img.height) * 0.75)
+                } else {
+                    Image(systemName: "photo").foregroundColor(HubTheme.muted)
+                }
+            }
+            .frame(height: 36)
+            VStack(spacing: 2) {
+                Text(entry.metadata.displayName).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                Text(entry.metadata.author).font(.system(size: 10.5)).foregroundColor(HubTheme.muted).lineLimit(1)
+            }
+            if installed {
+                Label("Installed", systemImage: "checkmark").font(.system(size: 11.5, weight: .semibold)).foregroundColor(HubTheme.green)
+                    .frame(height: 26)
+            } else if busy {
+                ProgressView().controlSize(.small).frame(height: 26)
+            } else {
+                Button("Install", action: install)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundColor(HubTheme.onAccent)
+                    .padding(.horizontal, 12)
+                    .frame(height: 26)
+                    .background(Capsule().fill(HubTheme.accent))
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(hover ? 0.07 : 0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
+        .onHover { hover = $0 }
+        .help(entry.metadata.tags.isEmpty ? entry.name : entry.metadata.tags.joined(separator: " · "))
+    }
+}
+
+// MARK: - Speed
+
+private struct RunnerSpeedCard: View {
+    @ObservedObject var settings: RunnerSettings
+
+    var body: some View {
+        HubCard {
+            HubRow(title: "Runs faster with", detail: detail) {
+                RunnerChips(values: RunnerSpeedSource.allCases, label: { s in
+                    switch s { case .cpu: "CPU"; case .memory: "Memory"; case .agents: "Agents" }
+                }, selection: $settings.speedSource)
+            }
+            HubDivider()
+            HubRow(title: "Slower under load", detail: "The other way round: it slows down as the load grows.") {
+                Toggle("", isOn: $settings.slowerUnderLoad).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Run the other way", detail: "Flips the frames left to right.") {
+                Toggle("", isOn: $settings.flipped).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Read the Mac every", detail: "How often the speed and the numbers update.") {
+                RunnerChips(values: RunnerSettings.intervals, label: { "\($0) s" }, selection: $settings.interval)
+            }
+        }
+    }
+
+    private var detail: String {
+        switch settings.speedSource {
+        case .cpu: "The processor’s load, as RunCat does: idle ambles, 100 % sprints."
+        case .memory: "How much of the memory is in use."
+        case .agents: "Your Claude Code and other agent sessions: each one working makes it faster."
+        }
+    }
+}
+
+// MARK: - Menu bar numbers
+
+private struct RunnerMenuBarCard: View {
+    @ObservedObject var settings: RunnerSettings
+    @ObservedObject var sampler: RunnerSampler
+    @ObservedObject private var app = AppState.shared
+
+    var body: some View {
+        HubCard {
+            ForEach(Array(SystemMetricKind.allCases.enumerated()), id: \.element) { i, kind in
+                if i > 0 { HubDivider() }
+                HubRow(title: title(kind), detail: settings.enabled ? sampler.sample.menuBarText(kind) : nil) {
+                    Toggle("", isOn: Binding(get: { settings.menuBarMetrics.contains(kind) },
+                                             set: { settings.toggle(kind, $0) }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
+            }
+            HubDivider()
+            HubRow(title: "Claude plan",
+                   detail: RunnerStatusItem.claudePlanText() ?? "The 5-hour and weekly windows, from Coucou’s status-line relay (Agents → Plan gauge).") {
+                Toggle("", isOn: Binding(get: { settings.coucouMetrics.contains(.claudePlan) },
+                                         set: { settings.toggle(.claudePlan, $0) }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Agents at work",
+                   detail: RunnerCoucouMetric.agentsText(working: RunnerStatusItem.workingAgents(app.tasks)) + " working now") {
+                Toggle("", isOn: Binding(get: { settings.coucouMetrics.contains(.agents) },
+                                         set: { settings.toggle(.agents, $0) }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+            HubNote(text: "Shown next to the Runner, in this order, then the Custom Metrics set to show in the menu bar.")
+        }
+    }
+
+    private func title(_ kind: SystemMetricKind) -> String {
+        switch kind {
+        case .cpu: "CPU"
+        case .memory: "Memory"
+        case .storage: "Storage"
+        case .battery: "Battery"
+        case .network: "Network"
+        }
+    }
+}
+
+// MARK: - Custom Metrics sources
+
+private struct RunnerMetricsSourcesCard: View {
+    @ObservedObject var settings: RunnerSettings
+    @Binding var toast: String
+    @ObservedObject private var center = RunnerMetricsCenter.shared
+    @State private var path = ""
+    @State private var showFormat = false
+
+    var body: some View {
+        HubCard {
+            Text("Any script can keep a small JSON file up to date; Coucou shows it the moment the file changes, in the Runner’s dashboard and, if you like, in the menu bar. The format is RunCat Neo’s, so its samples (Claude Code status line, Codex hook, Bitcoin price) work as they are.")
+                .font(.system(size: 12.5))
+                .foregroundColor(HubTheme.body)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if settings.sources.isEmpty {
+                HubNote(text: "No file yet. Add one, or make a sample to see how it looks.")
+            }
+            ForEach(settings.sources) { source in
+                RunnerSourceRow(source: source, state: center.states[source.id],
+                                isFirst: settings.sources.first?.id == source.id,
+                                isLast: settings.sources.last?.id == source.id,
+                                showsInMenuBar: Binding(get: { source.showsInMenuBar }, set: { on in
+                                    if let i = settings.sources.firstIndex(where: { $0.id == source.id }) { settings.sources[i].showsInMenuBar = on }
+                                }),
+                                move: { delta in move(source, by: delta) },
+                                remove: { settings.sources.removeAll { $0.id == source.id } })
+            }
+
+            HubDivider()
+            HStack(spacing: 8) {
+                HubField(placeholder: "~/.claude/runcat-usage.json", text: $path) { addPath() }
+                Button("Add path") { addPath() }.buttonStyle(HubButtonStyle()).disabled(path.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Choose a file…") { choose() }.buttonStyle(HubButtonStyle(primary: true))
+            }
+            HubNote(text: "A path may point at a file a script hasn’t written yet; it shows as failed until the file appears, checked every 5 seconds.")
+            HStack(spacing: 14) {
+                Button("Make a sample file") { makeSample() }
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+                Button(showFormat ? "Hide the format" : "Show the format") { withAnimation { showFormat.toggle() } }
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+                Button("RunCat’s samples") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/runcat-dev/RunCatNeo/tree/main/docs/samples")!)
+                }
+                .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+            }
+            if showFormat { RunnerFormatPanel() }
+        }
+    }
+
+    private func move(_ source: MetricsSourceConfig, by delta: Int) {
+        guard let i = settings.sources.firstIndex(where: { $0.id == source.id }) else { return }
+        let j = i + delta
+        guard settings.sources.indices.contains(j) else { return }
+        settings.sources.swapAt(i, j)
+    }
+
+    private func add(path: String, requireValid: Bool) {
+        let expanded = (path as NSString).expandingTildeInPath
+        let absolute = URL(fileURLWithPath: expanded).standardizedFileURL.path
+        if settings.sources.contains(where: { $0.path == absolute }) {
+            toast = "❌ That file is already in the list."
+            return
+        }
+        let result = RunnerMetricsCenter.readOnce(absolute)
+        var name = URL(fileURLWithPath: absolute).deletingPathExtension().lastPathComponent
+        var symbol: String? = nil
+        switch result {
+        case .success(let snapshot):
+            name = snapshot.title
+            symbol = snapshot.symbol
+        case .failure(let error):
+            if requireValid {
+                toast = "❌ \(URL(fileURLWithPath: absolute).lastPathComponent): \(error.message)"
+                return
+            }
+        }
+        settings.sources.append(MetricsSourceConfig(id: UUID(), path: absolute, displayName: name, symbol: symbol))
+        toast = "“\(name)” added."
+    }
+
+    private func addPath() {
+        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !p.isEmpty else { return }
+        add(path: p, requireValid: false)
+        path = ""
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.canChooseDirectories = false
+        panel.showsHiddenFiles = true
+        panel.message = "Choose a Custom Metrics JSON file."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        add(path: url.path, requireValid: true)
+    }
+
+    private func makeSample() {
+        let folder = HookServer.supportDir.appendingPathComponent("Metrics", isDirectory: true)
+        let url = folder.appendingPathComponent("sample.json")
+        let snapshot = MetricsSnapshot(title: "Sample", symbol: "sparkles", metricsBarValue: "42%", metrics: [
+            .init(title: "Text only", formattedValue: "No bar under this row"),
+            .init(title: "Progress", formattedValue: "42%", normalizedValue: 0.42),
+            .init(title: "Almost there", formattedValue: "9 of 10", normalizedValue: 0.9),
+        ], lastUpdatedDate: Date())
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(snapshot).write(to: url, options: .atomic)
+            if !settings.sources.contains(where: { $0.path == url.path }) {
+                settings.sources.append(MetricsSourceConfig(id: UUID(), path: url.path, displayName: "Sample", symbol: "sparkles", showsInMenuBar: true))
+            }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            toast = "Sample written. Edit it and save: the card changes at once."
+        } catch {
+            toast = "❌ The sample could not be written: \(error.localizedDescription)"
+        }
+    }
+}
+
+private struct RunnerSourceRow: View {
+    let source: MetricsSourceConfig
+    let state: MetricsSourceState?
+    let isFirst: Bool
+    let isLast: Bool
+    @Binding var showsInMenuBar: Bool
+    let move: (Int) -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: state?.snapshot?.symbol ?? source.symbol ?? MetricsSnapshot.defaultSymbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(HubTheme.accent)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(HubTheme.accent.opacity(0.14)))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(state?.snapshot?.title ?? source.displayName).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
+                    if state == nil {
+                        HubStatusPill(text: "Not read yet", tone: .off)
+                    } else if state?.failed == true {
+                        HubStatusPill(text: "Error detected", tone: .warn)
+                    } else {
+                        HubStatusPill(text: state?.snapshot?.menuBarText ?? "OK", tone: .on)
+                    }
+                }
+                Text((source.path as NSString).abbreviatingWithTildeInPath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(HubTheme.muted)
+                    .lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
+                if let error = state?.error, state?.failed == true {
+                    HubNote(text: error, warning: true)
+                }
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("Menu bar").font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+                    Toggle("", isOn: $showsInMenuBar).toggleStyle(.switch).labelsHidden().controlSize(.small)
+                }
+                HStack(spacing: 4) {
+                    HubIconButton(symbol: "chevron.up", help: "Move up") { move(-1) }.disabled(isFirst).opacity(isFirst ? 0.4 : 1)
+                    HubIconButton(symbol: "chevron.down", help: "Move down") { move(1) }.disabled(isLast).opacity(isLast ? 0.4 : 1)
+                    HubIconButton(symbol: "folder", help: "Show in Finder") {
+                        let url = URL(fileURLWithPath: source.path)
+                        if FileManager.default.fileExists(atPath: url.path) {
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        } else {
+                            NSWorkspace.shared.open(url.deletingLastPathComponent())
+                        }
+                    }
+                    HubIconButton(symbol: "trash", help: "Remove", action: remove)
+                }
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(0.03)))
+    }
+}
+
+/// The format, with the schema document's own example.
+private struct RunnerFormatPanel: View {
+    static let example = """
+    {
+      "title": "Claude Code",
+      "symbol": "staroflife",
+      "metricsBarValue": "5.4%",
+      "metrics": [
+        { "title": "Model",   "formattedValue": "Opus 4.7" },
+        { "title": "Context", "formattedValue": "5.4%",  "normalizedValue": 0.054 },
+        { "title": "5h",      "formattedValue": "16.4%", "normalizedValue": 0.164 }
+      ],
+      "lastUpdatedDate": "2026-06-05T04:50:40Z"
+    }
+    """
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("RunCat Neo’s Custom Metrics format").font(.system(size: 12, weight: .semibold))
+                Spacer()
+                HubIconButton(symbol: "doc.on.doc", help: "Copy") { NSPasteboard.copyText(Self.example) }
+            }
+            Text(Self.example)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(HubTheme.body)
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.black.opacity(0.35)))
+            VStack(alignment: .leading, spacing: 4) {
+                bullet("title, metrics and lastUpdatedDate (ISO 8601) are required; an empty metrics list is fine.")
+                bullet("symbol is an SF Symbol name; metricsBarValue is the short text for the menu bar (--- when missing).")
+                bullet("A row with normalizedValue (0 to 1) gets a bar; formattedValue is shown exactly as written.")
+                bullet("Strict JSON, well under 1 MB. Write a temporary file and mv it into place, so Coucou never reads half a file.")
+            }
+        }
+    }
+
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text("•").foregroundColor(HubTheme.muted)
+            Text(text).font(.system(size: 11.5)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+#endif

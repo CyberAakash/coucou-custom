@@ -75272,6 +75272,184 @@
           }
         }
       }
+    },
+    "Runner" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "العدّاء"
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "রানার"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Läufer"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runner"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Corredor"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coureur"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "रनर"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pelari"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Corredor"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бегун"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "นักวิ่ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koşucu"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跑者"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跑者"
+          }
+        }
+      }
+    },
+    "hub.notch.runner" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عدّاء في شريط القوائم يجري أسرع كلما عمل جهاز Mac أكثر، ومقاييسك المخصصة."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "মেনু বারে একটি রানার, যে Mac যত বেশি কাজ করে তত দ্রুত দৌড়ায়, আর আপনার কাস্টম মেট্রিকস।"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Läufer in der Menüleiste, der schneller rennt, je mehr dein Mac arbeitet, und deine eigenen Messwerte."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A runner in the menu bar that runs faster as your Mac works harder, and your Custom Metrics."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un corredor en la barra de menús que corre más rápido cuanto más trabaja tu Mac, y tus métricas personalizadas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un coureur dans la barre des menus qui court plus vite quand votre Mac travaille plus, et vos métriques personnalisées."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मेन्यू बार में एक रनर जो आपका Mac जितना ज़्यादा काम करे उतना तेज़ दौड़ता है, और आपके कस्टम मेट्रिक्स।"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pelari di bilah menu yang berlari makin cepat saat Mac Anda makin sibuk, dan Metrik Kustom Anda."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um corredor na barra de menus que corre mais rápido quanto mais o seu Mac trabalha, e suas métricas personalizadas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бегун в строке меню, который бежит быстрее, когда Mac нагружен сильнее, и ваши собственные метрики."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "นักวิ่งในแถบเมนูที่วิ่งเร็วขึ้นเมื่อ Mac ทำงานหนักขึ้น และเมตริกที่คุณกำหนดเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğunda, Mac'iniz ne kadar çok çalışırsa o kadar hızlı koşan bir koşucu ve özel ölçümleriniz."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "菜单栏里的跑者：Mac 越忙它跑得越快，还有你的自定义指标。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選單列裡的跑者：Mac 越忙它跑得越快，還有你的自訂指標。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
