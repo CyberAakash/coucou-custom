@@ -79,6 +79,8 @@ struct HubBuddyPage: View {
             if shows(.routines) {
                 HubLabel("Routines")
                 BuddyRoutinesCard(settings: routineSettings)
+                HubLabel("Full screen")
+                BuddyFullScreenCard()
             }
 
             if shows(.water) {
@@ -106,6 +108,34 @@ struct HubBuddyPage: View {
                 HubDivider()
                 HubRow(title: "Nap when idle", detail: "Only when you are away: two minutes without keyboard, mouse or trackpad, and your agents quiet. Any input wakes it.") {
                     Toggle("", isOn: $settings.napWhenIdle).toggleStyle(.switch).labelsHidden()
+                }
+                HubDivider()
+                HubRow(title: "Card while dragging",
+                       detail: "The card of a focus session, a timer or an alert: it comes along, shrinks to its rings, or waits until you put the Buddy down.") {
+                    HStack(spacing: 4) {
+                        ForEach(BuddyHUDDrag.allCases) { mode in
+                            let on = settings.hudWhileDragging == mode
+                            Button { settings.hudWhileDragging = mode } label: {
+                                Text(mode.label)
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
+                                    .padding(.horizontal, 9)
+                                    .frame(height: 28)
+                                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                HubDivider()
+                HubRow(title: "Card distance", detail: "Between the card and the top of its head or hat, when the card sits above it.") {
+                    HStack(spacing: 8) {
+                        Slider(value: $settings.hudGap, in: BuddyHUDDrag.gapRange, step: 1).frame(width: 160)
+                        Text("\(Int(settings.hudGap)) pt").font(.system(size: 12).monospacedDigit())
+                            .foregroundColor(HubTheme.secondary).frame(width: 40, alignment: .trailing)
+                    }
                 }
             }
 
@@ -455,9 +485,9 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .look: "size colour color companions side shadow look appearance scale"
         case .wardrobe: "wardrobe outfit clothes hat cap crown bow schedule seasons always wear nightcap"
         case .assistant: "assistant chat act tools ask mochi reminder timer slash commands"
-        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert sound start"
+        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert sound start full screen fullscreen moment"
         case .water: "water drink glass goal hydration nudge every between days ml litre"
-        case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep"
+        case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep card hud popup drag distance gap"
         case .clicks: "clicks click double triple many gesture action shortcut open app link"
         case .moving: "moving move drag right-click menu display position"
         }

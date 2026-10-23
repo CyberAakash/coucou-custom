@@ -27,6 +27,8 @@ final class BuddySettings: ObservableObject {
     static let shadowKey = "buddyShadow"
     static let shadowOpacityKey = "buddyShadowOpacity"
     static let clicksKey = "buddyClicks"
+    static let hudDragKey = "buddyHUDWhileDragging"
+    static let hudGapKey = "buddyHUDGap"
 
     private let defaults: UserDefaults
 
@@ -98,6 +100,20 @@ final class BuddySettings: ObservableObject {
     @Published var followCursor: Bool { didSet { defaults.set(followCursor, forKey: Self.followKey) } }
     /// It naps when you are idle (BuddyNap).
     @Published var napWhenIdle: Bool { didSet { defaults.set(napWhenIdle, forKey: Self.napKey) } }
+
+    /// What its card (focus, timer, alerts) does while the Buddy is carried.
+    @Published var hudWhileDragging: BuddyHUDDrag {
+        didSet { defaults.set(hudWhileDragging.rawValue, forKey: Self.hudDragKey) }
+    }
+
+    /// Points between the card and the top of its head (or hat).
+    @Published var hudGap: Double {
+        didSet {
+            let held = min(max(hudGap, BuddyHUDDrag.gapRange.lowerBound), BuddyHUDDrag.gapRange.upperBound)
+            if held != hudGap { hudGap = held; return }
+            defaults.set(hudGap, forKey: Self.hudGapKey)
+        }
+    }
     /// Where it stands, per display (BuddyPlacement).
     var spots: [BuddySpot] {
         get {
@@ -136,6 +152,9 @@ final class BuddySettings: ObservableObject {
         speechBubbles = bool(Self.speechKey, default: true)
         followCursor = bool(Self.followKey, default: true)
         napWhenIdle = bool(Self.napKey, default: true)
+        hudWhileDragging = defaults.string(forKey: Self.hudDragKey).flatMap(BuddyHUDDrag.init(rawValue:)) ?? .follow
+        hudGap = min(max(defaults.object(forKey: Self.hudGapKey) as? Double ?? BuddyHUDDrag.defaultGap,
+                         BuddyHUDDrag.gapRange.lowerBound), BuddyHUDDrag.gapRange.upperBound)
     }
 
     /// Companion `i`'s colour ("" for Mochi's own).
@@ -173,4 +192,21 @@ final class BuddySettings: ObservableObject {
         change(&s)
         userSchedule = Array(s.prefix(BuddyWardrobe.maxRules))
     }
+}
+
+/// The Buddy's card while you carry it: it comes along, shrinks to its rings, or waits.
+enum BuddyHUDDrag: String, CaseIterable, Identifiable {
+    case follow, shrink, hide
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .follow: "Follow"
+        case .shrink: "Shrink"
+        case .hide: "Hide"
+        }
+    }
+
+    static let defaultGap = 6.0
+    static let gapRange = 0.0...40.0
 }

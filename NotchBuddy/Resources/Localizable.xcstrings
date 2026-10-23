@@ -75273,180 +75273,358 @@
         }
       }
     },
-    "Runner" : {
+    "Menu bar" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "العدّاء"
+            "value" : "شريط القوائم"
           }
         },
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "রানার"
+            "value" : "মেনু বার"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Läufer"
+            "value" : "Menüleiste"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Runner"
+            "value" : "Menu bar"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Corredor"
+            "value" : "Barra de menús"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Coureur"
+            "value" : "Barre des menus"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "रनर"
+            "value" : "मेन्यू बार"
           }
         },
         "id" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pelari"
+            "value" : "Bilah menu"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Corredor"
+            "value" : "Barra de menus"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Бегун"
+            "value" : "Строка меню"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "นักวิ่ง"
+            "value" : "แถบเมนู"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Koşucu"
+            "value" : "Menü çubuğu"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "跑者"
+            "value" : "菜单栏"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "跑者"
+            "value" : "選單列"
           }
         }
       }
     },
-    "hub.notch.runner" : {
+    "Daily brief" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "عدّاء في شريط القوائم يجري أسرع كلما عمل جهاز Mac أكثر، ومقاييسك المخصصة."
+            "value" : "الموجز اليومي"
           }
         },
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "মেনু বারে একটি রানার, যে Mac যত বেশি কাজ করে তত দ্রুত দৌড়ায়, আর আপনার কাস্টম মেট্রিকস।"
+            "value" : "দৈনিক সারাংশ"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ein Läufer in der Menüleiste, der schneller rennt, je mehr dein Mac arbeitet, und deine eigenen Messwerte."
+            "value" : "Tagesüberblick"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A runner in the menu bar that runs faster as your Mac works harder, and your Custom Metrics."
+            "value" : "Daily brief"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un corredor en la barra de menús que corre más rápido cuanto más trabaja tu Mac, y tus métricas personalizadas."
+            "value" : "Resumen diario"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un coureur dans la barre des menus qui court plus vite quand votre Mac travaille plus, et vos métriques personnalisées."
+            "value" : "Brief du jour"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "मेन्यू बार में एक रनर जो आपका Mac जितना ज़्यादा काम करे उतना तेज़ दौड़ता है, और आपके कस्टम मेट्रिक्स।"
+            "value" : "दैनिक सारांश"
           }
         },
         "id" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pelari di bilah menu yang berlari makin cepat saat Mac Anda makin sibuk, dan Metrik Kustom Anda."
+            "value" : "Ringkasan harian"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Um corredor na barra de menus que corre mais rápido quanto mais o seu Mac trabalha, e suas métricas personalizadas."
+            "value" : "Resumo diário"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Бегун в строке меню, который бежит быстрее, когда Mac нагружен сильнее, и ваши собственные метрики."
+            "value" : "Сводка дня"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "นักวิ่งในแถบเมนูที่วิ่งเร็วขึ้นเมื่อ Mac ทำงานหนักขึ้น และเมตริกที่คุณกำหนดเอง"
+            "value" : "สรุปประจำวัน"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Menü çubuğunda, Mac'iniz ne kadar çok çalışırsa o kadar hızlı koşan bir koşucu ve özel ölçümleriniz."
+            "value" : "Günlük özet"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "菜单栏里的跑者：Mac 越忙它跑得越快，还有你的自定义指标。"
+            "value" : "每日简报"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選單列裡的跑者：Mac 越忙它跑得越快，還有你的自訂指標。"
+            "value" : "每日簡報"
+          }
+        }
+      }
+    },
+    "hub.notch.menubar" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أيقونة واحدة لـ Coucou في شريط القوائم: شكلها وسرعتها والأرقام بجانبها واللوحة التي تفتحها."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "মেনু বারে Coucou-এর একটি আইকন: এর রূপ, গতি, পাশের সংখ্যা আর যে প্যানেল খোলে।"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Symbol für Coucou in der Menüleiste: sein Aussehen, sein Tempo, die Zahlen daneben und das Fenster, das es öffnet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One icon for Coucou in the menu bar: its look, its speed, the numbers beside it and the panel it opens."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un solo icono de Coucou en la barra de menús: su aspecto, su velocidad, los números a su lado y el panel que abre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une seule icône pour Coucou dans la barre des menus : son allure, sa vitesse, les chiffres à côté et le panneau qu'elle ouvre."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मेन्यू बार में Coucou का एक आइकन: उसका रूप, गति, बगल के आँकड़े और वह पैनल जो वह खोलता है।"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Satu ikon Coucou di bilah menu: tampilannya, kecepatannya, angka di sebelahnya, dan panel yang dibukanya."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um só ícone do Coucou na barra de menus: a aparência, a velocidade, os números ao lado e o painel que ele abre."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Один значок Coucou в строке меню: его вид, скорость, цифры рядом и панель, которую он открывает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไอคอนเดียวของ Coucou ในแถบเมนู: หน้าตา ความเร็ว ตัวเลขข้าง ๆ และแผงที่เปิดขึ้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğunda Coucou için tek simge: görünümü, hızı, yanındaki sayılar ve açtığı panel."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "菜单栏里 Coucou 的唯一图标：外观、速度、旁边的数字，以及点开的面板。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選單列裡 Coucou 的唯一圖像：外觀、速度、旁邊的數字，以及點開的面板。"
+          }
+        }
+      }
+    },
+    "hub.notch.brief" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يومك في دقيقة: الطقس وعمل وكلائك وعاداتك ويوم جهاز Mac وخطتك وتقويمك."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এক মিনিটে আপনার দিন: আবহাওয়া, এজেন্টদের কাজ, আপনার রুটিন, Mac-এর দিন, আপনার প্ল্যান আর ক্যালেন্ডার।"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Tag in einer Minute: Wetter, die Arbeit deiner Agenten, deine Routinen, der Tag deines Mac, dein Tarif und dein Kalender."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your day in a minute: the weather, your agents' work, your routines, the Mac's day, your plan and your calendar."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu día en un minuto: el tiempo, el trabajo de tus agentes, tus rutinas, el día del Mac, tu plan y tu calendario."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre journée en une minute : la météo, le travail de vos agents, vos routines, la journée du Mac, votre forfait et votre agenda."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "एक मिनट में आपका दिन: मौसम, आपके एजेंटों का काम, आपकी दिनचर्या, Mac का दिन, आपका प्लान और कैलेंडर।"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hari Anda dalam semenit: cuaca, kerja agen Anda, rutinitas, hari Mac, paket, dan kalender Anda."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seu dia em um minuto: o tempo, o trabalho dos seus agentes, suas rotinas, o dia do Mac, seu plano e sua agenda."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваш день за минуту: погода, работа агентов, ваши привычки, день Mac, ваш тариф и календарь."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "วันของคุณในหนึ่งนาที: สภาพอากาศ งานของเอเจนต์ กิจวัตร วันของ Mac แพ็กเกจ และปฏิทินของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir dakikada gününüz: hava durumu, ajanlarınızın işi, rutinleriniz, Mac'in günü, planınız ve takviminiz."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一分钟看完你的一天：天气、智能体的工作、你的习惯、Mac 的一天、你的套餐和日历。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一分鐘看完你的一天：天氣、代理的工作、你的習慣、Mac 的一天、你的方案和行事曆。"
           }
         }
       }

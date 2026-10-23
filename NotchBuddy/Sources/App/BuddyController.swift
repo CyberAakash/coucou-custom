@@ -98,6 +98,9 @@ final class BuddyController {
     private var bubble: NSPanel?
     private var bubbleHide: DispatchWorkItem?
     private var hud: NSPanel?
+    private let hudLook = BuddyHUDLook()
+    /// Its companions are tucked in its pouch while a full-screen view shows.
+    private var companionsTucked = false
     private var calm: NSPanel?
     private var calmFull: NSPanel?
     private let routines = BuddyRoutineController.shared
@@ -264,6 +267,8 @@ final class BuddyController {
             : nil
         companions?.setNapping(isSleeping)
         companions?.popped = { [weak self] in self?.engine?.squash() }   // a joey out of the pouch
+        // Rebuilt during a full screen (a new count, side or size): the new ones are tucked too.
+        if companionsTucked { companions?.pickUp() }
         pressedCompanion = nil
         let vs = BuddyViewState()
         vs.paused = screenOff
@@ -574,7 +579,9 @@ final class BuddyController {
             hideBubble()
             leaveFullByDrag()
             engine?.triggerEmote(.surprised, duration: 0.8, silent: true)   // whee
-            companions?.pickUp()
+            // Tucked for a full screen, they are in the pouch already.
+            if !companionsTucked { companions?.pickUp() }
+            setHUDCarried(true)
             shakes = []
             lastDrag = (m, CACurrentMediaTime())
         }
@@ -595,6 +602,8 @@ final class BuddyController {
                                                                y: dragStartSquare.y + m.y - start.y),
                                                side: side, frame: screen.frame)
         p.setFrameOrigin(panelOrigin(square: square))
+        // With it at once, not a frame behind.
+        if hud != nil { moveHUD() }
     }
 
     fileprivate func mouseUp(clickCount: Int) {
@@ -607,7 +616,9 @@ final class BuddyController {
             let shaken = shakes.filter { now - $0 < 1.5 }.count >= 4
             engine?.squash()
             if shaken { dizzy() } else { engine?.triggerEmote(.happy, duration: 1, silent: true) }
-            companions?.putDown(shaken: shaken)
+            // A full screen still up keeps them in the pouch.
+            if !companionsTucked { companions?.putDown(shaken: shaken) }
+            setHUDCarried(false)
             shakes = []
             lastDrag = nil
             return
@@ -995,7 +1006,7 @@ final class BuddyController {
 
     /// Shown while a routine runs or an alert waits, rebuilt when they change.
     private func updateHUD() {
-        guard panel != nil, routines.hasHUD, calmFull == nil, !routines.breathingFull else { hideHUD(); return }
+        guard panel != nil, routines.hasHUD, calmFull == nil, !routines.breathingFull, !externalFullScreen else { hideHUD(); return }
         let h = hud ?? {
             let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
@@ -1007,7 +1018,7 @@ final class BuddyController {
             p.isReleasedWhenClosed = false
             p.hidesOnDeactivate = false
             p.becomesKeyOnlyIfNeeded = true
-            let host = BuddyHUDHostingView(rootView: BuddyHUDView(routines: routines))
+            let host = BuddyHUDHostingView(rootView: BuddyHUDView(routines: routines, look: hudLook))
             p.contentView = host
             return p
         }()
@@ -1025,6 +1036,21 @@ final class BuddyController {
         }
     }
 
+    /// Picked up or put down: the card comes along, shrinks to its rings, or waits (Settings).
+    private func setHUDCarried(_ carried: Bool) {
+        let mode = settings.hudWhileDragging
+        hudLook.compact = carried && mode == .shrink
+        hud?.alphaValue = carried && mode == .hide ? 0 : 1
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let h = self.hud, let host = h.contentView else { return }
+                let size = host.fittingSize
+                if h.frame.size != size { h.setContentSize(size) }
+                self.moveHUD()
+            }
+        }
+    }
+
     /// Under Mochi's feet, or over its head when there is no room below.
     private func moveHUD() {
         guard let h = hud, let p = panel else { return }
@@ -1032,8 +1058,11 @@ final class BuddyController {
         let sq = inner(p)
         let screen = screenAt(CGPoint(x: sq.midX, y: sq.minY))?.visibleFrame ?? sq
         var origin = CGPoint(x: sq.midX - size.width / 2, y: sq.minY - size.height + 4)
-        // Over its head: clear of hats and emotes (they reach up into the room above the square).
-        if origin.y < screen.minY { origin.y = sq.maxY + side * 0.3 }
+        // Over its head: just above the top of its head or hat, as measured for what it wears
+        // (the card's own 12 pt of padding is transparent).
+        if origin.y < screen.minY {
+            origin.y = sq.minY + BuddyHeadroom.top(settings.resolvedOutfit()) * side + settings.hudGap - 12
+        }
         origin.x = min(max(origin.x, screen.minX), screen.maxX - size.width)
         if h.frame.origin != origin { h.setFrameOrigin(origin) }
     }
@@ -1083,6 +1112,7 @@ final class BuddyController {
         let screen = panel.flatMap { screenOfSquare($0) } ?? NSScreen.main ?? NSScreen.screens[0]
         hideBubble()
         hideHUD()
+        tuckCompanions()
         guard let p = panel, !centered else { return openCalmFull(on: screen) }
         // Mochi cheers, shrinks away, and pops up in the middle; the dim and the guide come with it.
         centered = true
@@ -1122,6 +1152,7 @@ final class BuddyController {
     private func hideCalmFull() {
         guard let f = calmFull else { return }
         calmFull = nil
+        if !externalFullScreen { untuckCompanions() }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.35
             f.animator().alphaValue = 0
@@ -1131,6 +1162,8 @@ final class BuddyController {
     /// Back where it stood, after a session (unless it was dragged away meanwhile): it shrinks
     /// away in the middle and pops up at home.
     private func walkHome() {
+        // Also when the session ended before the full screen opened.
+        if !externalFullScreen { untuckCompanions() }
         guard centered else { return }
         centered = false
         if let p = panel, let home = breathHome { teleport(p, foot: home) }
@@ -1171,8 +1204,41 @@ final class BuddyController {
             hop = nil
             engine?.squash()
             engine?.triggerEmote(.love, duration: 1, silent: true)
-            companions?.party()
+            if !companionsTucked { companions?.party() }
         }
+    }
+
+    /// A full-screen view of Coucou's own (a routine moment, the Daily brief) is up: the Buddy's
+    /// companions tuck into its pouch and its card waits, as for full-screen breathing.
+    private var externalFullScreen = false
+
+    func setFullScreenShowing(_ on: Bool) {
+        guard on != externalFullScreen else { return }
+        externalFullScreen = on
+        if on {
+            tuckCompanions()
+            hideBubble()
+            hud?.alphaValue = 0
+        } else {
+            // Breathing full screen may be on its way (it tucks before its 0.6 s walk to the middle).
+            if calmFull == nil, !routines.breathingFull { untuckCompanions() }
+            hud?.alphaValue = 1
+            updateHUD()
+        }
+    }
+
+    /// No companions in a full-screen view: they hop into its pouch, and out again after.
+    private func tuckCompanions() {
+        guard !companionsTucked else { return }
+        companionsTucked = true
+        companions?.pickUp()
+    }
+
+    private func untuckCompanions() {
+        guard companionsTucked else { return }
+        companionsTucked = false
+        // Carried: they come out when it is put down (mouseUp).
+        if !dragging { companions?.putDown(shaken: false) }
     }
 
     /// Dragged out of the middle: the session goes on in the card, the Buddy stays where it is put.

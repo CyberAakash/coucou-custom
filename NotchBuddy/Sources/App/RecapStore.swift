@@ -218,6 +218,9 @@ final class RecapStore {
         )
     }
 
+    /// Every kept turn and decision (coucou-custom fork: the Daily brief sums one day of them).
+    func records() -> (turns: [RecapTurn], decisions: [RecapDecision]) { (data.turns, data.decisions) }
+
     /// Everything the recap still keeps (its last 12 weeks), for "What's new" after an update.
     func keptTotals() -> (sessions: Int, minutes: Int, linesAdded: Int, approvals: Int, since: Date?) {
         let turns = data.turns

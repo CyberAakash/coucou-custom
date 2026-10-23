@@ -8,12 +8,13 @@ enum HubPage: String, CaseIterable, Identifiable {
     case dictation, notes, insights, dictionary, snippets, styles, settings
     case general, pills, agents, chat, integrations, voice, shortcuts
     case buddy   // coucou-custom fork: Settings → Buddy
-    case runner  // coucou-custom fork: Settings → Runner (menu-bar runner, Custom Metrics)
+    case runner  // coucou-custom fork: Settings → Menu bar (the one menu-bar item, its icon, panel, Custom Metrics)
+    case brief   // coucou-custom fork: Settings → Daily brief
 
     var id: String { rawValue }
 
     static let flowPages: [HubPage] = [.dictation, .notes, .insights, .dictionary, .snippets, .styles, .settings]
-    static let notchPages: [HubPage] = [.general, .pills, .agents, .chat, .integrations, .voice, .shortcuts, .buddy, .runner]
+    static let notchPages: [HubPage] = [.general, .pills, .agents, .chat, .integrations, .voice, .shortcuts, .buddy, .runner, .brief]
 
     /// The section of Settings this page shows, for the notch's pages.
     var settingsSection: String? {
@@ -27,6 +28,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .shortcuts:    return "shortcuts"
         case .buddy:        return "buddy"
         case .runner:       return "runner"
+        case .brief:        return "brief"
         default:            return nil
         }
     }
@@ -46,7 +48,8 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .voice:        return String(localized: "Voice")
         case .shortcuts:    return String(localized: "Shortcuts")
         case .buddy:        return String(localized: "Buddy")
-        case .runner:       return String(localized: "Runner")
+        case .runner:       return String(localized: "Menu bar")
+        case .brief:        return String(localized: "Daily brief")
         case .dictation:  return String(localized: "hub.page.dictation")
         case .notes:      return String(localized: "hub.page.notes")
         case .insights:   return String(localized: "hub.page.insights")
@@ -74,7 +77,8 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .voice:        return "waveform"
         case .shortcuts:    return "keyboard"
         case .buddy:        return "pawprint"
-        case .runner:       return "figure.run"
+        case .runner:       return "menubar.rectangle"
+        case .brief:        return "sun.horizon"
         }
     }
 }
@@ -127,7 +131,8 @@ extension HubPage {
         case .voice:        return String(localized: "hub.notch.voice")
         case .shortcuts:    return String(localized: "hub.notch.shortcuts")
         case .buddy:        return String(localized: "hub.notch.buddy")
-        case .runner:       return String(localized: "hub.notch.runner")
+        case .runner:       return String(localized: "hub.notch.menubar")
+        case .brief:        return String(localized: "hub.notch.brief")
         default:            return nil
         }
     }
@@ -246,6 +251,7 @@ struct FlowHubView: View {
         case .settings:   HubSettingsPage()
         case .buddy:      HubBuddyPage()   // coucou-custom fork
         case .runner:     HubRunnerPage()  // coucou-custom fork
+        case .brief:      HubDailyBriefPage()   // coucou-custom fork
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
         default:
             if let section = router.page.settingsSection {

@@ -13,11 +13,17 @@ final class RunnerSettings: ObservableObject {
 
     private let defaults = UserDefaults.standard
 
-    /// Off by default: a running animation in the menu bar is a choice (it keeps a timer and
-    /// Core Animation busy while it shows).
+    /// One menu-bar item for Coucou: its icon is the one chosen here and a click opens the
+    /// panel (Coucou's own item is hidden). Off: Coucou's item as upstream has it, and the
+    /// Runner as a second item when `enabled`.
+    @Published var unified: Bool { didSet { defaults.set(unified, forKey: "menuBarUnified") } }
+    /// The second item, when not unified.
     @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: "runnerEnabled") } }
-    /// "mochi", "mochi-color", or a custom runner's id.
+    /// RunnerIcon: "classic", "mochi", "runcat:<name>", or a custom runner's id.
     @Published var runnerID: String { didSet { defaults.set(runnerID, forKey: "runnerID") } }
+    @Published var mochiMood: MochiIconMood { didSet { defaults.set(mochiMood.rawValue, forKey: "menuBarMochiMood") } }
+    @Published var mochiOutfit: BuddyOutfit { didSet { defaults.set(mochiOutfit.rawValue, forKey: "menuBarMochiOutfit") } }
+    @Published var mochiTint: MochiIconTint { didSet { defaults.set(mochiTint.rawValue, forKey: "menuBarMochiTint") } }
     @Published var speedSource: RunnerSpeedSource { didSet { defaults.set(speedSource.rawValue, forKey: "runnerSpeedSource") } }
     @Published var slowerUnderLoad: Bool { didSet { defaults.set(slowerUnderLoad, forKey: "runnerSlowerUnderLoad") } }
     @Published var flipped: Bool { didSet { defaults.set(flipped, forKey: "runnerFlipped") } }
@@ -31,12 +37,27 @@ final class RunnerSettings: ObservableObject {
         didSet { defaults.set(coucouMetrics.map(\.rawValue).sorted(), forKey: "runnerCoucouMetrics") }
     }
     @Published var sources: [MetricsSourceConfig] { didSet { saveSources() } }
+    /// The panel's sections, in their order (hidden ones left out).
+    @Published var panelSections: [MenuBarPanelSection] {
+        didSet { defaults.set(panelSections.map(\.rawValue), forKey: "menuBarPanelSections") }
+    }
+    /// The Mac's tiles in the panel.
+    @Published var panelMacTiles: Set<SystemMetricKind> {
+        didSet { defaults.set(panelMacTiles.map(\.rawValue).sorted(), forKey: "menuBarPanelMacTiles") }
+    }
 
     static let intervals = [3, 5, 10]
 
     private init() {
+        unified = defaults.object(forKey: "menuBarUnified") as? Bool ?? true
         enabled = defaults.bool(forKey: "runnerEnabled")
-        runnerID = defaults.string(forKey: "runnerID") ?? RunnerBuiltIn.mochi.rawValue
+        let storedID = defaults.string(forKey: "runnerID")
+        runnerID = storedID.map(RunnerIcon.migrate) ?? RunnerIcon.classic
+        mochiMood = MochiIconMood(rawValue: defaults.string(forKey: "menuBarMochiMood") ?? "") ?? .hop
+        mochiOutfit = BuddyOutfit(rawValue: defaults.string(forKey: "menuBarMochiOutfit") ?? "") ?? .none
+        // The first Runner build's "mochi-color" was the orange Mochi.
+        mochiTint = MochiIconTint(rawValue: defaults.string(forKey: "menuBarMochiTint") ?? "")
+            ?? (storedID == "mochi-color" ? .orange : .menuBar)
         speedSource = RunnerSpeedSource(rawValue: defaults.string(forKey: "runnerSpeedSource") ?? "") ?? .cpu
         slowerUnderLoad = defaults.bool(forKey: "runnerSlowerUnderLoad")
         flipped = defaults.bool(forKey: "runnerFlipped")
@@ -44,6 +65,10 @@ final class RunnerSettings: ObservableObject {
         interval = Self.intervals.contains(stored) ? stored : 5
         menuBarMetrics = Set((defaults.stringArray(forKey: "runnerMenuBarMetrics") ?? []).compactMap(SystemMetricKind.init))
         coucouMetrics = Set((defaults.stringArray(forKey: "runnerCoucouMetrics") ?? []).compactMap(RunnerCoucouMetric.init))
+        panelSections = defaults.stringArray(forKey: "menuBarPanelSections").map { $0.compactMap(MenuBarPanelSection.init(rawValue:)) }
+            ?? MenuBarPanelSection.allCases
+        panelMacTiles = defaults.stringArray(forKey: "menuBarPanelMacTiles").map { Set($0.compactMap(SystemMetricKind.init)) }
+            ?? [.cpu, .memory, .storage, .battery]
         if let data = defaults.data(forKey: "runnerMetricsSources"),
            let list = try? JSONDecoder().decode([MetricsSourceConfig].self, from: data) {
             sources = list
@@ -56,27 +81,27 @@ final class RunnerSettings: ObservableObject {
         if let data = try? JSONEncoder().encode(sources) { defaults.set(data, forKey: "runnerMetricsSources") }
     }
 
+    var mochiStyle: RunnerIconFrames.MochiStyle {
+        RunnerIconFrames.MochiStyle(mood: mochiMood, outfit: mochiOutfit, tint: mochiTint, buddyHex: BuddySettings.shared.color)
+    }
+
     func toggle(_ kind: SystemMetricKind, _ on: Bool) {
         if on { menuBarMetrics.insert(kind) } else { menuBarMetrics.remove(kind) }
+    }
+
+    func toggle(_ section: MenuBarPanelSection, _ on: Bool) {
+        if on, !panelSections.contains(section) { panelSections.append(section) }
+        if !on { panelSections.removeAll { $0 == section } }
+    }
+
+    func move(_ section: MenuBarPanelSection, by delta: Int) {
+        guard let i = panelSections.firstIndex(of: section), panelSections.indices.contains(i + delta) else { return }
+        panelSections.swapAt(i, i + delta)
     }
 
     func toggle(_ metric: RunnerCoucouMetric, _ on: Bool) {
         if on { coucouMetrics.insert(metric) } else { coucouMetrics.remove(metric) }
     }
-}
-
-/// The runners drawn in code: Mochi hopping, in the menu bar's colour or in Coucou's orange.
-enum RunnerBuiltIn: String, CaseIterable {
-    case mochi, mochiColor = "mochi-color"
-
-    var name: String {
-        switch self {
-        case .mochi: "Mochi"
-        case .mochiColor: "Mochi · orange"
-        }
-    }
-
-    var isTemplate: Bool { self == .mochi }
 }
 
 /// A runner ready to play: its frames (36 px high CGImages) in play order.
@@ -159,6 +184,7 @@ final class RunnerLibrary: ObservableObject {
     func delete(_ id: String) {
         imageCache[id] = nil
         runners.removeAll { $0.id == id }
+        RunnerIconFrames.invalidate()
         try? save()
         // Only ever a UUID folder of ours.
         if UUID(uuidString: id) != nil {
@@ -171,6 +197,7 @@ final class RunnerLibrary: ObservableObject {
         var r = runner
         r.name = CustomRunner.uniqueName(r.name, existing: runners.filter { $0.id != r.id }.map(\.name))
         runners[i] = r
+        RunnerIconFrames.invalidate()
         try? save()
     }
 
@@ -241,70 +268,4 @@ enum RunnerImages {
     }
 }
 
-// MARK: - Mochi, drawn in code
-
-@MainActor
-enum RunnerMochiFrames {
-    private static var cache: [RunnerBuiltIn: [CGImage]] = [:]
-
-    /// A hop in 8 frames, 22 × 18 pt (44 × 36 px, the size RunCat's frames have).
-    static func frames(_ kind: RunnerBuiltIn) -> [CGImage] {
-        if let hit = cache[kind] { return hit }
-        // y lift (pt), squash, and where he looks, through one hop.
-        let poses: [(lift: CGFloat, squash: CGFloat, yaw: CGFloat)] = [
-            (0, 0.86, 0), (1.3, 1.0, 0.15), (2.8, 1.06, 0.3), (3.4, 1.04, 0.35),
-            (2.8, 1.0, 0.3), (1.3, 1.0, 0.15), (0, 0.84, 0), (0, 0.95, 0),
-        ]
-        let images = poses.compactMap { pose -> CGImage? in
-            let view = RunnerMochiPose(lift: pose.lift, squash: pose.squash, yaw: pose.yaw,
-                                       bodyHex: kind.isTemplate ? "#FFFFFF" : "#FB923C")
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            guard let cg = renderer.cgImage else { return nil }
-            return kind.isTemplate ? templateMask(cg) : cg
-        }
-        cache[kind] = images
-        return images
-    }
-
-    /// For the menu bar's colour only the alpha counts: dark pixels (his eyes) become holes, so
-    /// he keeps his face when the menu bar tints him.
-    private static func templateMask(_ image: CGImage) -> CGImage {
-        let w = image.width, h = image.height
-        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let base = ctx.data else { return image }
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        let px = base.bindMemory(to: UInt8.self, capacity: w * h * 4)
-        for i in 0..<(w * h) {
-            let o = i * 4
-            let a = Double(px[o + 3])
-            guard a > 0 else { continue }
-            // Premultiplied: un-premultiply for the luminance.
-            let lum = (0.299 * Double(px[o]) + 0.587 * Double(px[o + 1]) + 0.114 * Double(px[o + 2])) / a
-            let alpha = UInt8(max(0, min(255, a * min(1, lum))))
-            px[o] = alpha; px[o + 1] = alpha; px[o + 2] = alpha; px[o + 3] = alpha
-        }
-        return ctx.makeImage() ?? image
-    }
-}
-
-/// One frame of the hop.
-private struct RunnerMochiPose: View {
-    let lift: CGFloat
-    let squash: CGFloat
-    let yaw: CGFloat
-    let bodyHex: String
-
-    var body: some View {
-        // His body fills about 2/3 of MochiStill's square, centred: a 20 pt canvas leaves room
-        // for a 3.4 pt hop above and the squash below inside the 18 pt frame.
-        MochiStill(state: .idle, bodyHex: bodyHex, showBadge: false, pose: MochiPose(yaw: yaw))
-            .frame(width: 20, height: 20)
-            .scaleEffect(x: 2 - squash, y: squash, anchor: UnitPoint(x: 0.5, y: 0.75))
-            .offset(y: 1.6 - lift)
-            .frame(width: 22, height: 18)
-    }
-}
 #endif

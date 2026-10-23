@@ -3,8 +3,9 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-// coucou-custom fork: the Coucou window's Runner page — a RunCat-style runner in the menu bar,
-// custom runners (made here or from the Runner Gallery), and Custom Metrics files.
+// coucou-custom fork: the Coucou window's Menu bar page — Coucou's one menu-bar item: its icon (Coucou's
+// own, Mochi, RunCat's runners, yours, the Runner Gallery's), its speed, the numbers beside it, the
+// panel a click opens, and the Custom Metrics files.
 
 struct HubRunnerPage: View {
     @ObservedObject private var settings = RunnerSettings.shared
@@ -14,10 +15,10 @@ struct HubRunnerPage: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            HubPageScaffold(title: String(localized: "Runner"), subtitle: String(localized: "hub.notch.runner")) {
+            HubPageScaffold(title: String(localized: "Menu bar"), subtitle: String(localized: "hub.notch.menubar")) {
                 RunnerHeroCard(settings: settings, sampler: sampler)
 
-                HubLabel("Runner")
+                HubLabel("Icon")
                 RunnerPickerCard(settings: settings, library: library)
 
                 HubLabel("Make a runner")
@@ -26,11 +27,17 @@ struct HubRunnerPage: View {
                 HubLabel("Runner Gallery")
                 RunnerGalleryCard(library: library, toast: $toast)
 
+                HubLabel("Animated emoji")
+                NotoEmojiCard(library: library, toast: $toast)
+
                 HubLabel("Speed")
                 RunnerSpeedCard(settings: settings)
 
-                HubLabel("Menu bar")
+                HubLabel("Beside the icon")
                 RunnerMenuBarCard(settings: settings, sampler: sampler)
+
+                HubLabel("Panel")
+                MenuBarPanelSettingsCard(settings: settings)
 
                 HubLabel("Custom Metrics")
                 RunnerMetricsSourcesCard(settings: settings, toast: $toast)
@@ -140,15 +147,22 @@ private struct RunnerHeroCard: View {
     var body: some View {
         let frames = RunnerStatusItem.frames(for: settings.runnerID)
         let speed = RunnerSpeed.speed(load: load, slowerUnderLoad: settings.slowerUnderLoad)
+        let shows = settings.unified || settings.enabled
         HubGlowCard(color: HubTheme.accent, padding: 22) {
             HStack(alignment: .center, spacing: 22) {
                 VStack(spacing: 12) {
                     RunnerPreview(frames: frames.images, isTemplate: frames.isTemplate,
-                                  speed: settings.enabled ? speed : 2, flipped: settings.flipped, scale: 3)
+                                  speed: sampler.running ? speed : 2, flipped: settings.flipped, scale: 3)
                         .frame(width: 200, height: 84)
                     RunnerMenuBarStrip {
-                        RunnerPreview(frames: frames.images, isTemplate: frames.isTemplate,
-                                      speed: settings.enabled ? speed : 2, flipped: settings.flipped)
+                        if !settings.unified {
+                            Image(nsImage: NSImage(named: "MenuBarIcon") ?? NSImage()).renderingMode(.template)
+                                .resizable().frame(width: 20, height: 15)
+                        }
+                        if shows {
+                            RunnerPreview(frames: frames.images, isTemplate: frames.isTemplate,
+                                          speed: sampler.running ? speed : 2, flipped: settings.flipped)
+                        }
                         Image(systemName: "wifi").font(.system(size: 12, weight: .semibold))
                         Image(systemName: "battery.75percent").font(.system(size: 13))
                         Text("9:41").font(.system(size: 12, weight: .semibold))
@@ -161,28 +175,34 @@ private struct RunnerHeroCard: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
-                        Circle().fill(settings.enabled ? HubTheme.green : HubTheme.muted).frame(width: 7, height: 7)
-                        Text(settings.enabled ? "In the menu bar" : "Hidden")
+                        Circle().fill(HubTheme.green).frame(width: 7, height: 7)
+                        Text(settings.unified ? "One item · \(RunnerIcon.name(settings.runnerID))" : (settings.enabled ? "Two items" : "Coucou's item only"))
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(settings.enabled ? HubTheme.green : HubTheme.secondary)
+                            .foregroundColor(HubTheme.green)
                     }
-                    Text("A runner in your menu bar")
+                    Text("Coucou in your menu bar")
                         .font(.system(size: 21, weight: .bold))
                         .foregroundColor(HubTheme.text)
-                    Text("It runs faster as your Mac works harder, after RunCat. Click it for the Mac’s numbers and your Custom Metrics. Runners and metric files made for RunCat Neo work here as they are.")
+                    Text("One icon of your choice — still, or running faster as your Mac works harder, after RunCat. Click it for your agents, the Claude plan, the Mac, your routines and your metrics; right-click it for Coucou's menu.")
                         .font(.system(size: 13))
                         .foregroundColor(HubTheme.body)
                         .fixedSize(horizontal: false, vertical: true)
-                    if settings.enabled {
+                    if sampler.running {
                         Text(speedLine(speed))
                             .font(.system(size: 12).monospacedDigit())
                             .foregroundColor(HubTheme.secondary)
                     }
-                    Toggle(isOn: $settings.enabled) {
-                        Text("Show the Runner in the menu bar").font(.system(size: 13, weight: .semibold))
+                    Toggle(isOn: $settings.unified) {
+                        Text("One menu-bar item for Coucou").font(.system(size: 13, weight: .semibold))
                     }
                     .toggleStyle(.switch)
-                    HubNote(text: "While it shows, Coucou reads the Mac every \(settings.interval) s and the animation runs in Core Animation; hidden, it costs nothing.")
+                    if !settings.unified {
+                        Toggle(isOn: $settings.enabled) {
+                            Text("Also show the runner as a second item").font(.system(size: 13, weight: .semibold))
+                        }
+                        .toggleStyle(.switch)
+                    }
+                    HubNote(text: "A still icon with no numbers beside it reads nothing. A running one, or numbers, read the Mac every \(settings.interval) s; the animation itself runs in Core Animation.")
                 }
             }
         }
@@ -199,6 +219,63 @@ private struct RunnerHeroCard: View {
     }
 }
 
+// MARK: - The panel's sections
+
+private struct MenuBarPanelSettingsCard: View {
+    @ObservedObject var settings: RunnerSettings
+
+    var body: some View {
+        HubCard {
+            Text("What a click on the icon shows, top to bottom. Coucou's actions (Open Coucou, Daily brief, Weekly recap, Coucou window, Settings, Quit) always close it.")
+                .font(.system(size: 12.5)).foregroundColor(HubTheme.body).fixedSize(horizontal: false, vertical: true)
+            let order = settings.panelSections + MenuBarPanelSection.allCases.filter { !settings.panelSections.contains($0) }
+            ForEach(Array(order.enumerated()), id: \.element) { i, section in
+                if i > 0 { HubDivider() }
+                let on = settings.panelSections.contains(section)
+                HStack(spacing: 12) {
+                    Image(systemName: section.symbol).font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(on ? HubTheme.accent : HubTheme.muted)
+                        .frame(width: 28, height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill((on ? HubTheme.accent : HubTheme.muted).opacity(0.14)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(section.title).font(.system(size: 13.5, weight: .medium))
+                        Text(section.detail).font(.system(size: 12)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    if on {
+                        HubIconButton(symbol: "chevron.up", help: "Move up") { settings.move(section, by: -1) }
+                            .disabled(settings.panelSections.first == section)
+                            .opacity(settings.panelSections.first == section ? 0.35 : 1)
+                        HubIconButton(symbol: "chevron.down", help: "Move down") { settings.move(section, by: 1) }
+                            .disabled(settings.panelSections.last == section)
+                            .opacity(settings.panelSections.last == section ? 0.35 : 1)
+                    }
+                    Toggle("", isOn: Binding(get: { on }, set: { settings.toggle(section, $0) }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
+                if section == .mac, on {
+                    HStack(spacing: 6) {
+                        Text("Tiles").font(.system(size: 12)).foregroundColor(HubTheme.secondary).padding(.leading, 40)
+                        ForEach(SystemMetricKind.allCases) { kind in
+                            let has = settings.panelMacTiles.contains(kind)
+                            Button {
+                                if has { settings.panelMacTiles.remove(kind) } else { settings.panelMacTiles.insert(kind) }
+                            } label: {
+                                Text(kind.rawValue.capitalized)
+                                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                                    .foregroundColor(has ? HubTheme.onAccent : HubTheme.body)
+                                    .padding(.horizontal, 8).frame(height: 24)
+                                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(has ? HubTheme.accent : Color.white.opacity(0.05)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Picking a runner
 
 private struct RunnerPickerCard: View {
@@ -209,12 +286,14 @@ private struct RunnerPickerCard: View {
     var body: some View {
         HubCard {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 10)], spacing: 10) {
-                ForEach(RunnerBuiltIn.allCases, id: \.rawValue) { kind in
-                    RunnerTile(name: kind.name, detail: "Drawn by Coucou",
-                               frames: RunnerMochiFrames.frames(kind), isTemplate: kind.isTemplate,
-                               selected: settings.runnerID == kind.rawValue) {
-                        settings.runnerID = kind.rawValue
+                ForEach(RunnerIcon.builtIns, id: \.self) { id in
+                    let frames = RunnerIconFrames.frames(for: id)
+                    RunnerTile(name: RunnerIcon.name(id), detail: detail(id),
+                               frames: frames.images, isTemplate: frames.isTemplate,
+                               selected: settings.runnerID == id) {
+                        settings.runnerID = id
                     }
+                    .help(RunnerIcon.runCat(id) != nil ? "From \(RunCatBuiltIn.credit), Apache-2.0" : "")
                 }
                 ForEach(library.runners) { runner in
                     let images = library.frameImages(runner)
@@ -234,16 +313,49 @@ private struct RunnerPickerCard: View {
                     }
                 }
             }
-            HubNote(text: "Right-click one of your runners to rename it, change how it plays, or delete it.")
+            if settings.runnerID == RunnerIcon.mochi {
+                HubDivider()
+                MochiIconOptions(settings: settings)
+            }
+            HubNote(text: "Coucou’s own icon stays still; every other one runs faster as the Mac works harder. The eight RunCat runners are by Takuto Nakamura (Kyome22), Apache-2.0. Right-click one of your runners to rename it, change how it plays, or delete it.")
         }
         .sheet(item: $editing) { runner in
             RunnerEditSheet(runner: runner) { editing = nil }
         }
     }
 
+    private func detail(_ id: String) -> String {
+        if id == RunnerIcon.classic { return "Still, as always" }
+        if id == RunnerIcon.mochi { return "Drawn by Coucou" }
+        return "RunCat · Kyome22"
+    }
+
     private func delete(_ runner: CustomRunner) {
-        if settings.runnerID == runner.id { settings.runnerID = RunnerBuiltIn.mochi.rawValue }
+        if settings.runnerID == runner.id { settings.runnerID = RunnerIcon.classic }
         library.delete(runner.id)
+    }
+}
+
+/// The Mochi icon's mood, outfit and colour.
+private struct MochiIconOptions: View {
+    @ObservedObject var settings: RunnerSettings
+
+    var body: some View {
+        HubRow(title: "Mood", detail: "What he does in his loop.") {
+            RunnerChips(values: MochiIconMood.allCases, label: \.label, selection: $settings.mochiMood)
+        }
+        HubRow(title: "Outfit", detail: "From the Buddy’s wardrobe. Hats make him a little smaller to fit the menu bar.") {
+            Picker("", selection: $settings.mochiOutfit) {
+                ForEach(BuddyOutfit.allCases) { o in Text(o.name).tag(o) }
+            }
+            .labelsHidden()
+            .frame(width: 170)
+        }
+        HubRow(title: "Colour", detail: settings.mochiTint == .menuBar
+               ? "The menu bar’s own colour, like the other icons; outfits show as shapes."
+               : "His body in this colour, outfits in theirs.") {
+            RunnerChips(values: MochiIconTint.allCases, label: \.label, selection: $settings.mochiTint)
+        }
     }
 }
 
@@ -696,7 +808,7 @@ private struct RunnerMenuBarCard: View {
         HubCard {
             ForEach(Array(SystemMetricKind.allCases.enumerated()), id: \.element) { i, kind in
                 if i > 0 { HubDivider() }
-                HubRow(title: title(kind), detail: settings.enabled ? sampler.sample.menuBarText(kind) : nil) {
+                HubRow(title: title(kind), detail: sampler.running ? sampler.sample.menuBarText(kind) : nil) {
                     Toggle("", isOn: Binding(get: { settings.menuBarMetrics.contains(kind) },
                                              set: { settings.toggle(kind, $0) }))
                         .toggleStyle(.switch).labelsHidden()
@@ -706,17 +818,17 @@ private struct RunnerMenuBarCard: View {
             HubRow(title: "Claude plan",
                    detail: RunnerStatusItem.claudePlanText() ?? "The 5-hour and weekly windows, from Coucou’s status-line relay (Agents → Plan gauge).") {
                 Toggle("", isOn: Binding(get: { settings.coucouMetrics.contains(.claudePlan) },
-                                         set: { settings.toggle(.claudePlan, $0) }))
+                                         set: { settings.toggle(RunnerCoucouMetric.claudePlan, $0) }))
                     .toggleStyle(.switch).labelsHidden()
             }
             HubDivider()
             HubRow(title: "Agents at work",
                    detail: RunnerCoucouMetric.agentsText(working: RunnerStatusItem.workingAgents(app.tasks)) + " working now") {
                 Toggle("", isOn: Binding(get: { settings.coucouMetrics.contains(.agents) },
-                                         set: { settings.toggle(.agents, $0) }))
+                                         set: { settings.toggle(RunnerCoucouMetric.agents, $0) }))
                     .toggleStyle(.switch).labelsHidden()
             }
-            HubNote(text: "Shown next to the Runner, in this order, then the Custom Metrics set to show in the menu bar.")
+            HubNote(text: "Shown next to the icon, in this order, then the Custom Metrics set to show in the menu bar.")
         }
     }
 

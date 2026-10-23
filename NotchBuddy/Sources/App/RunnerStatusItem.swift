@@ -4,9 +4,10 @@ import Combine
 import QuartzCore
 import SwiftUI
 
-// coucou-custom fork: the Runner in the menu bar, after RunCat Neo's RunnerLayer — one Core
-// Animation keyframe loop whose speed follows the Mac, so the frames play without waking Coucou.
-// Its numbers sit beside it; a click opens the dashboard.
+// coucou-custom fork: Coucou's one menu-bar item (Settings → Menu bar). Its icon is the one chosen
+// there — Coucou's own, Mochi, a RunCat runner or yours — played after RunCat Neo's RunnerLayer:
+// one Core Animation keyframe loop whose speed follows the Mac, so the frames play without
+// waking Coucou. Its numbers sit beside it; a click opens the panel, a right-click Coucou's menu.
 
 @MainActor
 final class RunnerStatusItem: NSObject {
@@ -15,7 +16,6 @@ final class RunnerStatusItem: NSObject {
     private let settings = RunnerSettings.shared
     private var item: NSStatusItem?
     private var bar: RunnerBarView?
-    private var popover: NSPopover?
     private var bag: Set<AnyCancellable> = []
     private var appearanceObservation: NSKeyValueObservation?
     /// What the current frames were built from, to rebuild them only when it changes.
@@ -25,11 +25,16 @@ final class RunnerStatusItem: NSObject {
         #if DEBUG
         installDebugDump()
         #endif
+        terminateObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { AppDelegate.current?.statusItem?.isVisible = true }
+        }
         let s = settings
         // Any setting, the runners on disk: rebuild on the next turn of the run loop.
         Publishers.MergeMany(
             s.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            RunnerLibrary.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+            RunnerLibrary.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            // The Mochi icon in the Buddy's colour follows it.
+            BuddySettings.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher()
         )
         .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
         .sink { [weak self] in MainActor.assumeIsolated { self?.apply() } }
@@ -50,6 +55,10 @@ final class RunnerStatusItem: NSObject {
         apply()
     }
 
+    /// macOS saves a status item's visibility: Coucou's own item is made visible again on the
+    /// way out, so a Coucou without this feature (or with it off) never starts with it hidden.
+    private var terminateObserver: NSObjectProtocol?
+
     static func workingAgents(_ tasks: [AgentTask]) -> Int {
         tasks.filter { !$0.isIntegration && [.working, .thinking, .searching].contains($0.state) }.count
     }
@@ -57,29 +66,45 @@ final class RunnerStatusItem: NSObject {
     // MARK: - Showing and hiding
 
     private func apply() {
-        guard settings.enabled else {
+        // Coucou's own item shows only when the two are not merged.
+        AppDelegate.current?.statusItem?.isVisible = !settings.unified
+        guard settings.unified || settings.enabled else {
             tearDown()
             return
         }
         if item == nil { setUp() }
-        if !RunnerSampler.shared.running || sampledInterval != settings.interval {
-            sampledInterval = settings.interval
-            RunnerSampler.shared.start(interval: settings.interval)
-        }
+        item?.button?.setAccessibilityLabel(settings.unified ? "Coucou" : "Coucou Runner")
         RunnerMetricsCenter.shared.setRunnerShowing(true)
-        let key = "\(settings.runnerID)|\(settings.flipped)|\(RunnerLibrary.shared.runner(settings.runnerID).map { "\($0.frameOrder)\($0.isTemplate)\($0.frameCount)" } ?? "")"
+        let key = "\(settings.runnerID)|\(settings.flipped)|\(settings.mochiStyle)|\(RunnerLibrary.shared.runner(settings.runnerID).map { "\($0.frameOrder)\($0.isTemplate)\($0.frameCount)" } ?? "")"
         if key != framesKey {
             framesKey = key
-            bar?.setFrames(Self.frames(for: settings.runnerID), flipped: settings.flipped)
+            let frames = Self.frames(for: settings.runnerID)
+            animated = frames.images.count > 1
+            bar?.setFrames(frames, flipped: settings.flipped)
         }
+        refreshSampling()
         refreshLive()
     }
 
     private var sampledInterval = 0
+    /// The icon has more than one frame: its speed needs the Mac's load.
+    private var animated = false
+
+    /// Reads the Mac only when something shows it: a moving icon, numbers in the bar, the panel.
+    private func refreshSampling() {
+        let needed = item != nil && (animated || !settings.menuBarMetrics.isEmpty || MenuBarPanelController.shared.isShown)
+        if needed, !RunnerSampler.shared.running || sampledInterval != settings.interval {
+            sampledInterval = settings.interval
+            RunnerSampler.shared.start(interval: settings.interval)
+        } else if !needed, RunnerSampler.shared.running {
+            RunnerSampler.shared.stop()
+        }
+    }
 
     private func setUp() {
         let statusItem = NSStatusBar.system.statusItem(withLength: 30)
         statusItem.autosaveName = "CoucouRunner"
+        statusItem.isVisible = true
         guard let button = statusItem.button else { return }
         button.target = self
         button.action = #selector(clicked(_:))
@@ -98,8 +123,7 @@ final class RunnerStatusItem: NSObject {
 
     private func tearDown() {
         guard item != nil else { return }
-        popover?.close()
-        popover = nil
+        MenuBarPanelController.shared.close()
         appearanceObservation = nil
         if let item { NSStatusBar.system.removeStatusItem(item) }
         item = nil
@@ -177,46 +201,35 @@ final class RunnerStatusItem: NSObject {
 
     // MARK: - Frames
 
-    static func frames(for id: String) -> RunnerFrames {
-        if let builtIn = RunnerBuiltIn(rawValue: id) {
-            let images = RunnerMochiFrames.frames(builtIn)
-            return RunnerFrames(images: images, isTemplate: builtIn.isTemplate)
-        }
-        if let runner = RunnerLibrary.shared.runner(id) {
-            let images = RunnerLibrary.shared.frameImages(runner)
-            if images.count == runner.frameCount, !images.isEmpty {
-                return RunnerFrames(images: runner.playableOrder.map { images[$0] }, isTemplate: runner.isTemplate)
-            }
-        }
-        // A runner deleted or broken on disk: Mochi runs instead.
-        return RunnerFrames(images: RunnerMochiFrames.frames(.mochi), isTemplate: true)
-    }
+    static func frames(for id: String) -> RunnerFrames { RunnerIconFrames.frames(for: id) }
 
     // MARK: - Clicks
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type == .rightMouseUp || NSApp.currentEvent?.modifierFlags.contains(.control) == true {
-            showMenu()
+            if settings.unified, let menu = AppDelegate.current?.statusItem?.menu {
+                // Coucou's own menu, as its item had it.
+                MenuBarPanelController.shared.close()
+                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 5), in: sender)
+            } else {
+                showMenu()
+            }
         } else {
             togglePopover(sender)
         }
     }
 
+    /// One of Coucou's menu actions (AppDelegate's), from the panel.
+    static func perform(_ action: String) {
+        guard let delegate = AppDelegate.current else { return }
+        NSApp.sendAction(NSSelectorFromString(action), to: delegate, from: nil)
+    }
+
     private func togglePopover(_ button: NSStatusBarButton) {
-        if let popover, popover.isShown {
-            popover.performClose(nil)
-            return
-        }
-        let p = NSPopover()
-        p.behavior = .transient
-        p.appearance = NSAppearance(named: .darkAqua)
-        p.contentViewController = NSHostingController(rootView: RunnerDashboardView(onSettings: { [weak self] in
-            self?.popover?.performClose(nil)
-            FlowHubController.shared.show(.runner)
-        }))
-        popover = p
-        p.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        p.contentViewController?.view.window?.makeKey()
+        let panel = MenuBarPanelController.shared
+        panel.onClose = { [weak self] in self?.refreshSampling() }
+        panel.toggle(from: button)
+        refreshSampling()
     }
 
     private func showMenu() {
@@ -241,9 +254,74 @@ final class RunnerStatusItem: NSObject {
     static let debugNotification = Notification.Name("fr.louisraille.NotchBuddy.debug.runnerDump")
 
     func installDebugDump() {
-        DistributedNotificationCenter.default().addObserver(forName: Self.debugNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in RunnerStatusItem.shared.debugDump() }
+        DistributedNotificationCenter.default().addObserver(forName: Self.debugNotification, object: nil, queue: .main) { note in
+            let what = note.object as? String ?? ""
+            Task { @MainActor in
+                switch what {
+                case "panel": await RunnerStatusItem.shared.debugPanel()
+                case "brief": await RunnerStatusItem.shared.debugBrief()
+                case "live":
+                    // The real full-screen brief for three seconds, to check it opens and closes.
+                    let brief = await DailyBriefBuilder.build(askCalendar: false)
+                    DailyBriefController.shared.showFull(brief, takeKeyboard: false)
+                    try? await Task.sleep(for: .seconds(3))
+                    let shown = FullScreenOverlay.shared.isShowing
+                    FullScreenOverlay.shared.close(owner: "brief")
+                    try? "fullScreenShown=\(shown) after=\(FullScreenOverlay.shared.isShowing)".write(
+                        to: RunnerStatusItem.shared.debugDir.appendingPathComponent("live.txt"), atomically: true, encoding: .utf8)
+                default: RunnerStatusItem.shared.debugDump()
+                }
+            }
         }
+    }
+
+    var debugDir: URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NotchBuddy/runner-debug", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func debugWrite<V: View>(_ view: V, _ name: String) {
+        let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
+        renderer.scale = 2
+        if let image = renderer.cgImage, let png = RunnerImages.png(image) {
+            try? png.write(to: debugDir.appendingPathComponent(name))
+        }
+    }
+
+    /// Opens the panel for a moment and saves what it draws.
+    private func debugPanel() async {
+        guard let button = item?.button else { return }
+        MenuBarPanelController.shared.show(from: button)
+        try? await Task.sleep(for: .seconds(1.5))
+        if let view = NSApp.windows.first(where: { $0 is NSPanel && $0.isVisible && $0.level == .popUpMenu })?.contentView,
+           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: debugDir.appendingPathComponent("panel.png"))
+        }
+        MenuBarPanelController.shared.close()
+    }
+
+    /// Renders every card of today's brief, the banner and a moment, off screen.
+    private func debugBrief() async {
+        let brief = await DailyBriefBuilder.build(askCalendar: false)
+        for (i, card) in DailyBriefCard.cards(for: DailyBriefSection.allCases).enumerated() {
+            let story = DailyBriefStory(brief: brief, autoAdvance: 0)
+            story.index = story.cards.firstIndex(of: card) ?? i
+            debugWrite(DailyBriefFullView(model: story, close: {}).padding(30).background(Color(hex: "#202226")), "brief-\(i).png")
+        }
+        debugWrite(DailyBriefBanner(brief: brief, notchWidth: 200, notchHeight: 32, open: {}, later: {}).background(Color(hex: "#3B5B8C")), "banner.png")
+        let alert = BuddyAlert(kind: .water, title: "Time for some water", detail: "500 ml of 3 L today")
+        debugWrite(RoutineMomentView(moment: RoutineMoment(kind: .water, alert: alert), perform: { _ in })
+            .frame(width: 900, height: 600).background(Color.black), "moment.png")
+        let lines = ["greeting=\(brief.greeting)", "headline=\(brief.headline)", "weather=\(String(describing: brief.weather))",
+                     "work=\(String(describing: brief.work))", "water=\(String(describing: brief.water))", "diary=\(String(describing: brief.diary))",
+                     "mac buckets=\(brief.mac?.buckets.count ?? -1)", "plan=\(brief.plan != nil)", "events=\(brief.events.count)",
+                     "readStreak=\(brief.readStreak) week=\(brief.weekRead)"]
+            + BuddyOutfit.allCases.map { "headroom \($0.rawValue)=\(String(format: "%.3f", BuddyHeadroom.top($0)))" }
+        debugWrite(BuddyFullScreenCard().frame(width: 760).padding(20).background(Color(hex: "#0E0F11")), "fullscreen-card.png")
+        try? lines.joined(separator: "\n").write(to: debugDir.appendingPathComponent("brief.txt"), atomically: true, encoding: .utf8)
     }
 
     private func debugDump() {
@@ -290,10 +368,8 @@ final class RunnerStatusItem: NSObject {
         if let image = renderer.cgImage, let png = RunnerImages.png(image) {
             try? png.write(to: dir.appendingPathComponent("dashboard.png"))
         }
-        for kind in RunnerBuiltIn.allCases {
-            for (i, frame) in RunnerMochiFrames.frames(kind).enumerated() {
-                if let png = RunnerImages.png(frame) { try? png.write(to: dir.appendingPathComponent("\(kind.rawValue)-\(i).png")) }
-            }
+        for (i, frame) in RunnerStatusItem.frames(for: settings.runnerID).images.enumerated() {
+            if let png = RunnerImages.png(frame) { try? png.write(to: dir.appendingPathComponent("icon-\(i).png")) }
         }
     }
     #endif
