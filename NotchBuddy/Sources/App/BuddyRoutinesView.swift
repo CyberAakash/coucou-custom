@@ -30,13 +30,13 @@ struct BuddyRoutinesCard: View {
     var body: some View {
         HubCard {
             HubRow(title: "Focus session", detail: "Focus Buddy: a Pomodoro timer on the Buddy. Breaks start on their own; the next session waits for you.") {
-                BuddyMinuteChips(values: [15, 25, 45, 50], selection: $settings.focusPlan.focus)
+                BuddyMinuteChips(values: [15, 25, 45, 50], selection: $settings.focusPlan.focus, custom: BuddyFocusPlan.focusRange, step: 5)
             }
             HubDivider()
             HubRow(title: "Breaks", detail: "Short, and long after every \(settings.focusPlan.roundsBeforeLong) sessions.") {
                 HStack(spacing: 8) {
-                    BuddyMinuteChips(values: [5, 10], selection: $settings.focusPlan.shortBreak)
-                    BuddyMinuteChips(values: [15, 20, 30], selection: $settings.focusPlan.longBreak)
+                    BuddyMinuteChips(values: [5, 10], selection: $settings.focusPlan.shortBreak, custom: BuddyFocusPlan.breakRange)
+                    BuddyMinuteChips(values: [15, 20, 30], selection: $settings.focusPlan.longBreak, custom: BuddyFocusPlan.longBreakRange, step: 5)
                 }
             }
             HubDivider()
@@ -129,15 +129,15 @@ struct BuddyWaterCard: View {
             }
             HubDivider()
             HubRow(title: "Daily goal") {
-                BuddyAmountChips(values: BuddyWaterPlan.goals, selection: $settings.waterPlan.goal)
+                BuddyAmountChips(values: BuddyWaterPlan.goals, selection: $settings.waterPlan.goal, custom: BuddyWaterPlan.goalRange, step: 250)
             }
             HubDivider()
             HubRow(title: "A glass", detail: "What a nudge's button and each click log.") {
-                BuddyAmountChips(values: BuddyWaterPlan.glasses, selection: $settings.waterPlan.glass)
+                BuddyAmountChips(values: BuddyWaterPlan.glasses, selection: $settings.waterPlan.glass, custom: BuddyWaterPlan.glassRange, step: 10)
             }
             HubDivider()
             HubRow(title: "Every") {
-                BuddyMinuteChips(values: BuddyWaterPlan.intervals, selection: $settings.waterPlan.every)
+                BuddyMinuteChips(values: BuddyWaterPlan.intervals, selection: $settings.waterPlan.every, custom: BuddyWaterPlan.everyRange, step: 5)
             }
             HubDivider()
             HubRow(title: "Between", detail: "Outside these hours it stays quiet.") {
@@ -220,9 +220,12 @@ struct BuddyWaterWeek: View {
 struct BuddyAmountChips: View {
     let values: [Int]
     @Binding var selection: Int
+    var custom: ClosedRange<Int>? = nil
+    var step = 1
 
     var body: some View {
-        BuddyChipRow(values: values, label: { BuddyWater.amount($0) }, selection: $selection)
+        BuddyChipRow(values: values, label: { BuddyWater.amount($0) }, selection: $selection,
+                     custom: custom, step: step, unit: "ml")
     }
 }
 
@@ -277,12 +280,18 @@ struct BuddyChipRow: View {
     let values: [Int]
     let label: (Int) -> String
     @Binding var selection: Int
+    /// With a range, a Custom chip ends the row and opens a number field kept in it.
+    var custom: ClosedRange<Int>? = nil
+    var step = 1
+    var unit = ""
+    @State private var editing = false
 
     var body: some View {
+        let isCustom = custom != nil && (editing || !values.contains(selection))
         HStack(spacing: 4) {
             ForEach(values, id: \.self) { v in
-                let on = selection == v
-                Button { selection = v } label: {
+                let on = selection == v && !isCustom
+                Button { editing = false; selection = v } label: {
                     Text(label(v))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
@@ -294,6 +303,12 @@ struct BuddyChipRow: View {
                 }
                 .buttonStyle(.plain)
             }
+            if let range = custom {
+                BuddyCustomChip(on: isCustom) { editing = true }
+                if isCustom {
+                    BuddyNumberField(value: $selection, range: range, step: step, unit: unit)
+                }
+            }
         }
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
@@ -301,13 +316,54 @@ struct BuddyChipRow: View {
     }
 }
 
+/// A number of your own: type it, or step it with − and +; always kept in `range`.
+struct BuddyNumberField: View {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var step = 1
+    var unit = ""
+
+    var body: some View {
+        HStack(spacing: 2) {
+            stepButton("minus", -step)
+            TextField("", value: Binding(get: { value }, set: { value = clamp($0) }), format: .number)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                .multilineTextAlignment(.center)
+                .frame(width: 46, height: 24)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.3)))
+            stepButton("plus", step)
+            if !unit.isEmpty {
+                Text(unit).font(.system(size: 11, weight: .semibold)).foregroundColor(HubTheme.secondary).padding(.leading, 2)
+            }
+        }
+        .padding(.horizontal, 4)
+        .help("\(range.lowerBound)–\(range.upperBound) \(unit)")
+    }
+
+    private func clamp(_ v: Int) -> Int { min(max(v, range.lowerBound), range.upperBound) }
+
+    private func stepButton(_ symbol: String, _ delta: Int) -> some View {
+        Button { value = clamp(value + delta) } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(HubTheme.body)
+                .frame(width: 20, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// Minutes, as the page's other chips.
 struct BuddyMinuteChips: View {
     let values: [Int]
     @Binding var selection: Int
+    var custom: ClosedRange<Int>? = nil
+    var step = 1
 
     var body: some View {
-        BuddyChipRow(values: values, label: { "\($0)m" }, selection: $selection)
+        BuddyChipRow(values: values, label: { "\($0)m" }, selection: $selection, custom: custom, step: step, unit: "min")
     }
 }
 #endif

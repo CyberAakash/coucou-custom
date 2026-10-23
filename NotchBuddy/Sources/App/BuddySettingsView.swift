@@ -8,11 +8,25 @@ import AppKit
 struct HubBuddyPage: View {
     @ObservedObject private var settings = BuddySettings.shared
     @ObservedObject private var routineSettings = BuddyRoutineSettings.shared
+    /// The filter bar: one section, or all ("").
+    @AppStorage("buddySettingsSection") private var sectionRaw = ""
+    @State private var query = ""
+
+    private func shows(_ s: BuddySection) -> Bool {
+        (sectionRaw.isEmpty || sectionRaw == s.rawValue) && s.matches(query)
+    }
 
     var body: some View {
         HubPageScaffold(title: String(localized: "Buddy"), subtitle: String(localized: "hub.notch.buddy")) {
             BuddyHeroCard(settings: settings)
 
+            BuddyFilterBar(sectionRaw: $sectionRaw, query: $query)
+
+            if !BuddySection.allCases.contains(where: shows) {
+                HubEmptyState(text: "No Buddy setting matches “\(query)”.", state: .thinking)
+            }
+
+            if shows(.look) {
             HubLabel("Look")
             HubCard {
                 HubRow(title: "Size", detail: "\(BuddySize.preset(scale: settings.sizeScale)?.label ?? "Custom") · \(Int(BuddySize.side(scale: settings.sizeScale))) pt") {
@@ -50,18 +64,29 @@ struct HubBuddyPage: View {
                 }
             }
 
-            HubLabel("Wardrobe")
-            BuddyWardrobeCard(settings: settings)
+            }
 
-            HubLabel("Assistant")
-            BuddyAssistantCard(settings: routineSettings)
+            if shows(.wardrobe) {
+                HubLabel("Wardrobe")
+                BuddyWardrobeCard(settings: settings)
+            }
 
-            HubLabel("Routines")
-            BuddyRoutinesCard(settings: routineSettings)
+            if shows(.assistant) {
+                HubLabel("Assistant")
+                BuddyAssistantCard(settings: routineSettings)
+            }
 
-            HubLabel("Water")
-            BuddyWaterCard(settings: routineSettings)
+            if shows(.routines) {
+                HubLabel("Routines")
+                BuddyRoutinesCard(settings: routineSettings)
+            }
 
+            if shows(.water) {
+                HubLabel("Water")
+                BuddyWaterCard(settings: routineSettings)
+            }
+
+            if shows(.behaviour) {
             HubLabel("Behaviour")
             HubCard {
                 HubRow(title: "React to my agents",
@@ -84,15 +109,21 @@ struct HubBuddyPage: View {
                 }
             }
 
-            HubLabel("Clicks")
-            BuddyClicksCard(settings: settings)
+            }
 
+            if shows(.clicks) {
+                HubLabel("Clicks")
+                BuddyClicksCard(settings: settings)
+            }
+
+            if shows(.moving) {
             HubLabel("Moving it around")
             HStack(spacing: 12) {
                 BuddyTip(symbol: "hand.draw", title: "Drag", line: "Anywhere, right to the edges and even half off them. It remembers its spot on each display.")
                 BuddyTip(symbol: "cursorarrow.click", title: "Click", line: "Once, twice, three times or more: each does what you set above. Click a companion to make it blush.")
                 BuddyTip(symbol: "contextualmenu.and.cursorarrow", title: "Right-click",
                          line: "Ask Mochi, focus, timer, reminders, breathe, water; size, outfit, companions, bubbles, or hide it.")
+            }
             }
         }
     }
@@ -379,6 +410,117 @@ private struct BuddyTip: View {
         .frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(HubTheme.card))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(HubTheme.line))
+    }
+}
+#endif
+
+#if !APPSTORE
+// MARK: - Filter (coucou-custom fork)
+
+/// The Buddy page's sections, for its filter bar: a chip each, and the words a search matches
+/// (the settings each one holds).
+enum BuddySection: String, CaseIterable, Identifiable {
+    case look, wardrobe, assistant, routines, water, behaviour, clicks, moving
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .look: "Look"
+        case .wardrobe: "Wardrobe"
+        case .assistant: "Assistant"
+        case .routines: "Routines"
+        case .water: "Water"
+        case .behaviour: "Behaviour"
+        case .clicks: "Clicks"
+        case .moving: "Moving"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .look: "paintpalette"
+        case .wardrobe: "tshirt"
+        case .assistant: "sparkles"
+        case .routines: "timer"
+        case .water: "drop"
+        case .behaviour: "face.smiling"
+        case .clicks: "cursorarrow.click"
+        case .moving: "hand.draw"
+        }
+    }
+
+    private var keywords: String {
+        switch self {
+        case .look: "size colour color companions side shadow look appearance scale"
+        case .wardrobe: "wardrobe outfit clothes hat cap crown bow schedule seasons always wear nightcap"
+        case .assistant: "assistant chat act tools ask mochi reminder timer slash commands"
+        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert sound start"
+        case .water: "water drink glass goal hydration nudge every between days ml litre"
+        case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep"
+        case .clicks: "clicks click double triple many gesture action shortcut open app link"
+        case .moving: "moving move drag right-click menu display position"
+        }
+    }
+
+    func matches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return true }
+        let words = "\(title.lowercased()) \(keywords)"
+        return q.split(separator: " ").allSatisfy { words.contains($0) }
+    }
+}
+
+/// Search and section chips above the Buddy page's sections.
+private struct BuddyFilterBar: View {
+    @Binding var sectionRaw: String
+    @Binding var query: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.secondary)
+                TextField("Search Buddy settings: size, nap, water, focus…", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundColor(HubTheme.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
+
+            HubWrap(spacing: 6) {
+                chip(nil, "All", "square.grid.2x2")
+                ForEach(BuddySection.allCases) { chip($0, $0.title, $0.symbol) }
+            }
+        }
+    }
+
+    private func chip(_ section: BuddySection?, _ title: String, _ symbol: String) -> some View {
+        let on = sectionRaw == (section?.rawValue ?? "")
+        let dim = section.map { !$0.matches(query) } ?? false
+        return Button { sectionRaw = section?.rawValue ?? "" } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol).font(.system(size: 10, weight: .bold))
+                Text(title).font(.system(size: 12, weight: .bold, design: .rounded))
+            }
+            .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(on ? Color.clear : Color.white.opacity(0.07)))
+            .opacity(dim ? 0.4 : 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 #endif
