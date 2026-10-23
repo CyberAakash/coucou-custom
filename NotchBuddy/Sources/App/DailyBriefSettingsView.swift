@@ -47,7 +47,7 @@ struct HubDailyBriefPage: View {
                                 selection: $settings.autoAdvance)
                 }
                 HubDivider()
-                HubRow(title: "Sound", detail: "Coucou's greeting as it comes up.") {
+                HubRow(title: "Sound", detail: "A hello as it comes up; full screen, a soft sound with each card and a cheer at the end.") {
                     Toggle("", isOn: $settings.sound).toggleStyle(.switch).labelsHidden()
                 }
                 HubDivider()
@@ -109,6 +109,10 @@ struct HubDailyBriefPage: View {
             HubRow(title: "Next card by itself after") {
                 RunnerChips(values: DailyBriefSettings.autoAdvanceChoices, label: { $0 == 0 ? "Never" : "\($0) s" },
                             selection: $weekly.autoAdvance)
+            }
+            HubDivider()
+            HubRow(title: "Sound", detail: "A hello as it opens full screen, a soft sound with each card, a cheer at the end.") {
+                Toggle("", isOn: $weekly.sound).toggleStyle(.switch).labelsHidden()
             }
             HubDivider()
             let order = weekly.sections + WeeklyBriefSection.allCases.filter { !weekly.sections.contains($0) }

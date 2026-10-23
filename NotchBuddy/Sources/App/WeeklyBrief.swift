@@ -30,7 +30,7 @@ enum WeeklyBriefSection: String, CaseIterable, Identifiable {
         case .projects: "Where the time went: your top projects, and which agents did the work."
         case .routines: "Water each day against your goal, focus sessions, reminders, timers, breathing."
         case .mac: "The Mac's average load each day and its busiest moment of the week (needs the Daily brief's Mac's day)."
-        case .plan: "Your Claude plan's 5-hour and weekly windows now."
+        case .plan: "Your Claude plan's current session and weekly limits now."
         }
     }
 
@@ -60,6 +60,7 @@ final class WeeklyBriefSettings: ObservableObject {
         didSet { defaults.set(sections.map(\.rawValue), forKey: "weeklyRecapSections") }
     }
     @Published var autoAdvance: Int { didSet { defaults.set(autoAdvance, forKey: "weeklyRecapAutoAdvance") } }
+    @Published var sound: Bool { didSet { defaults.set(sound, forKey: "weeklyRecapSound") } }
 
     private init() {
         autoShow = defaults.object(forKey: "weeklyRecapAutoShow") as? Bool ?? true
@@ -68,6 +69,7 @@ final class WeeklyBriefSettings: ObservableObject {
         let stored = (defaults.stringArray(forKey: "weeklyRecapSections") ?? []).compactMap(WeeklyBriefSection.init(rawValue:))
         sections = defaults.object(forKey: "weeklyRecapSections") == nil ? WeeklyBriefSection.allCases : stored
         autoAdvance = defaults.object(forKey: "weeklyRecapAutoAdvance") as? Int ?? 0
+        sound = defaults.object(forKey: "weeklyRecapSound") as? Bool ?? true
     }
 
     func toggle(_ s: WeeklyBriefSection, _ on: Bool) {
@@ -93,7 +95,7 @@ struct WeeklyBrief {
     var water: (days: [Int], goal: Int)?
     var routines: BuddyDiary.Day
     var macDays: [MacDay?]
-    var plan: PlanUsage?
+    var plan: ClaudePlanLimits?
     var sections: [WeeklyBriefSection]
 
     var rangeLabel: String {
@@ -107,7 +109,7 @@ struct WeeklyBrief {
 
 @MainActor
 enum WeeklyBriefBuilder {
-    static func build(now: Date = Date(), period: WeeklyBriefPeriod? = nil) -> WeeklyBrief {
+    static func build(now: Date = Date(), period: WeeklyBriefPeriod? = nil) async -> WeeklyBrief {
         let s = WeeklyBriefSettings.shared
         let cal = Calendar.current
         let period = period ?? s.period
@@ -133,7 +135,7 @@ enum WeeklyBriefBuilder {
             water: rs.waterEnabled ? (days.map { rs.waterLog.total(on: $0, calendar: cal) }, rs.waterPlan.goal) : nil,
             routines: sum,
             macDays: days.map { MacDayRecorder.shared.day($0) },
-            plan: AppState.shared.claudePlanUsage,
+            plan: await ClaudePlanLimitsFetcher.shared.fetch(),
             sections: s.sections)
     }
 }
@@ -144,19 +146,23 @@ final class WeeklyBriefController {
 
     /// `place` and `period` nil: as Settings → Briefs says (Monday's recap asks for last week).
     func show(place: BriefPlace? = nil, period: WeeklyBriefPeriod? = nil) {
-        let brief = WeeklyBriefBuilder.build(period: period)
-        switch place ?? WeeklyBriefSettings.shared.place {
-        case .notch:
-            BriefNotchModel.shared.weekly = brief
-            NotificationCenter.default.post(name: .hookExpand, object: IslandView.weeklyBrief)
-        case .fullScreen:
-            showFull(brief, takeKeyboard: true)
+        Task { @MainActor in
+            let brief = await WeeklyBriefBuilder.build(period: period)
+            switch place ?? WeeklyBriefSettings.shared.place {
+            case .notch:
+                BriefNotchModel.shared.weekly = brief
+                NotificationCenter.default.post(name: .hookExpand, object: IslandView.weeklyBrief)
+            case .fullScreen:
+                showFull(brief, takeKeyboard: true)
+            }
         }
     }
 
     func showFull(_ brief: WeeklyBrief, takeKeyboard: Bool) {
         let cards = WeeklyBriefCard.cards(for: brief.sections)
         let story = BriefStory(count: cards.count, autoAdvance: WeeklyBriefSettings.shared.autoAdvance)
+        story.sound = WeeklyBriefSettings.shared.sound
+        if story.sound { SoundEngine.shared.play("greeting") }
         let close = { FullScreenOverlay.shared.close(owner: "weekly") }
         FullScreenOverlay.shared.present(
             WeeklyBriefFullView(brief: brief, cards: cards, story: story, close: close),
@@ -173,7 +179,7 @@ final class WeeklyBriefController {
 // MARK: - Full screen
 
 enum WeeklyBriefCard: Hashable {
-    case summary, days, projects, routines, mac, plan, closing
+    case intro, summary, days, projects, routines, mac, plan, closing
 
     static func cards(for sections: [WeeklyBriefSection]) -> [WeeklyBriefCard] {
         var out: [WeeklyBriefCard] = sections.map {
@@ -186,6 +192,7 @@ enum WeeklyBriefCard: Hashable {
             case .plan: .plan
             }
         }
+        out.insert(.intro, at: 0)
         out.append(.closing)
         return out
     }
@@ -200,15 +207,38 @@ struct WeeklyBriefFullView: View {
     var body: some View {
         BriefStoryFrame(story: story, title: "Weekly recap", date: brief.rangeLabel, close: close) { i in
             switch cards[i] {
+            case .intro: WeekIntro(brief: brief)
             case .summary: WeekSummaryCard(brief: brief)
             case .days: WeekDaysCard(brief: brief)
             case .projects: WeekProjectsCard(brief: brief)
             case .routines: WeekRoutinesCard(brief: brief)
             case .mac: WeekMacCard(brief: brief)
-            case .plan: PlanCard(plan: brief.plan, close: close)
+            case .plan: PlanCard(limits: brief.plan, close: close)
             case .closing: WeekClosingCard(brief: brief, close: close)
             }
         }
+    }
+}
+
+/// The Weekly recap's first card: your week, your name, large.
+private struct WeekIntro: View {
+    let brief: WeeklyBrief
+
+    var body: some View {
+        let w = brief.work
+        var lines: [(String, String)] = []
+        if !w.total.isEmpty {
+            lines.append(("hammer.fill", "\(DailyBriefText.duration(minutes: w.total.minutes)) with your agents over \(w.activeDays) day\(w.activeDays == 1 ? "" : "s")"
+                          + (w.change.map { " (\(DailyBriefText.change($0)))" } ?? "")))
+            if let p = w.projects.first { lines.append(("folder.fill", "Mostly \(p.name)")) }
+            if let d = w.busiestDay { lines.append(("chart.bar.fill", "\(WeeklyBrief.dayNames[d]) was the busiest")) }
+        }
+        if let water = brief.water { lines.append(("drop.fill", "Water goal on \(water.days.filter { $0 >= water.goal }.count) of 7 days")) }
+        if lines.isEmpty { lines.append(("moon.zzz.fill", "A quiet week")) }
+        return BriefIntroCard(kicker: "Weekly recap · " + brief.rangeLabel,
+                              greeting: brief.isThisWeek ? "Your week so far," : "Your week,",
+                              name: DailyBriefSettings.shared.resolvedName,
+                              lines: Array(lines.prefix(4)), palette: BriefPalette.now(brief.date))
     }
 }
 
@@ -526,163 +556,4 @@ private struct WeekClosingCard: View {
     }
 }
 
-// MARK: - In the notch
-
-/// A stat in a notch card: the value large, its label small (as upstream's recap card has them).
-private struct NotchStat: View {
-    let value: String
-    let label: String
-    var color: Color = Color(hex: "#F1F2F4")
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(value).font(.system(size: 16, weight: .bold).monospacedDigit()).foregroundColor(color).lineLimit(1)
-            Text(label).font(.system(size: 9.5)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
-        }
-    }
-}
-
-struct DailyBriefNotchCard: View {
-    @ObservedObject var state: AppState
-    @ObservedObject private var model = BriefNotchModel.shared
-
-    var body: some View {
-        ZStack {
-            CardBackground(wash: .amber)
-            VStack(alignment: .leading, spacing: 7) {
-                if let b = model.daily {
-                    HStack(spacing: 8) {
-                        Text("Daily brief").font(.system(size: 11, weight: .semibold)).foregroundColor(Color(hex: "#F7B32B"))
-                        Text(b.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
-                            .font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C"))
-                        Spacer(minLength: 6)
-                        if let w = b.weather {
-                            Label("\(w.now)° \(DailyBriefWeather.describe(w.code))", systemImage: DailyBriefWeather.symbol(w.code))
-                                .font(.system(size: 10.5, weight: .medium)).foregroundColor(Color(hex: "#C9CBD1"))
-                                .symbolRenderingMode(.multicolor).lineLimit(1)
-                        }
-                    }
-                    Text(b.greeting + ". " + b.headline)
-                        .font(.system(size: 12.5, weight: .semibold)).foregroundColor(Color(hex: "#F1F2F4"))
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 14) {
-                        if let w = b.work, !w.isEmpty {
-                            NotchStat(value: DailyBriefText.duration(minutes: w.minutes), label: "with agents")
-                            NotchStat(value: "\(w.sessions)", label: "sessions")
-                            NotchStat(value: "\(w.filesChanged)", label: "files")
-                        }
-                        if let water = b.water {
-                            NotchStat(value: MetricsFormat.percent(Double(water.ml) / Double(max(1, water.goal))), label: "water",
-                                      color: Color(hex: "#22D3EE"))
-                        }
-                        if let d = b.diary, d.focusSessions > 0 {
-                            NotchStat(value: "\(d.focusSessions)", label: "focus", color: Color(hex: "#A5B4FC"))
-                        }
-                        if let cpu = b.mac?.averageCPU { NotchStat(value: MetricsFormat.percent(cpu), label: "avg CPU") }
-                        if let plan = b.plan, let w = plan.fiveHour {
-                            NotchStat(value: "\(Int(max(0, 100 - ClaudePlanGauge.effectivePct(w)).rounded()))%", label: "5h left",
-                                      color: Color(hex: "#FB923C"))
-                        }
-                        if let next = b.events.first(where: { $0.end > Date() }) {
-                            NotchStat(value: next.allDay ? "Today" : next.start.formatted(.dateTime.hour().minute()), label: next.title)
-                                .frame(maxWidth: 110, alignment: .leading)
-                        }
-                    }
-                    HStack(spacing: 8) {
-                        PrimaryButton(verbatim: "Full brief") {
-                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
-                            DailyBriefController.shared.showFull(b, takeKeyboard: true)
-                        }
-                        SecondaryButton("OK") { NotificationCenter.default.post(name: .islandCollapse, object: nil) }
-                    }
-                } else {
-                    Text("Your Daily brief is on its way.").font(.system(size: 14, weight: .semibold)).foregroundColor(Color(hex: "#F1F2F4"))
-                }
-            }
-            .padding(.leading, 116)
-            .padding(.trailing, 16)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-struct WeeklyBriefNotchCard: View {
-    @ObservedObject var state: AppState
-    @ObservedObject private var model = BriefNotchModel.shared
-
-    var body: some View {
-        ZStack {
-            CardBackground(wash: .indigo)
-            VStack(alignment: .leading, spacing: 7) {
-                if let b = model.weekly {
-                    let w = b.work
-                    HStack(spacing: 8) {
-                        Text(String(localized: "recap.title")).font(.system(size: 11, weight: .semibold)).foregroundColor(Color(hex: "#818CF8"))
-                        Text(b.rangeLabel).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C"))
-                        Spacer(minLength: 6)
-                        if let c = w.change {
-                            Text(DailyBriefText.change(c)).font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(c >= 0 ? Color(hex: "#34D399") : Color(hex: "#F7B32B")).lineLimit(1)
-                        }
-                    }
-                    HStack(alignment: .bottom, spacing: 16) {
-                        // The week at a glance: each day's time with agents.
-                        let top = max(1, w.days.map(\.minutes).max() ?? 1)
-                        HStack(alignment: .bottom, spacing: 3) {
-                            ForEach(0..<7, id: \.self) { i in
-                                VStack(spacing: 2) {
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(i == w.busiestDay ? Color(hex: "#818CF8") : Color(hex: "#818CF8").opacity(w.days[i].minutes > 0 ? 0.45 : 0.12))
-                                        .frame(width: 10, height: max(3, 30 * CGFloat(w.days[i].minutes) / CGFloat(top)))
-                                    Text(WeeklyBrief.dayLetters[i]).font(.system(size: 8, weight: .semibold)).foregroundColor(Color(hex: "#6B7079"))
-                                        .fixedSize()
-                                }
-                                .frame(width: 12)
-                            }
-                        }
-                        NotchStat(value: DailyBriefText.duration(minutes: w.total.minutes), label: "with agents")
-                        NotchStat(value: "\(w.total.sessions)", label: "sessions")
-                        NotchStat(value: "\(w.activeDays)/7", label: "days")
-                        NotchStat(value: "\(w.total.filesChanged)", label: "files")
-                        if w.total.linesAdded + w.total.linesRemoved > 0 {
-                            NotchStat(value: "+\(w.total.linesAdded.formatted())", label: "−\(w.total.linesRemoved.formatted()) lines", color: Color(hex: "#34D399"))
-                        }
-                    }
-                    HStack(spacing: 6) {
-                        if let p = w.projects.first {
-                            Text("Top: \(p.name)").font(.system(size: 10.5, weight: .medium)).foregroundColor(Color(hex: "#C9CBD1")).lineLimit(1)
-                        }
-                        if let d = w.busiestDay {
-                            Text("· busiest \(WeeklyBrief.dayNames[d])").font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
-                        }
-                        if let water = b.water {
-                            Text("· water goal \(water.days.filter { $0 >= water.goal }.count)/7").font(.system(size: 10.5))
-                                .foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
-                        }
-                        if b.routines.focusSessions > 0 {
-                            Text("· \(b.routines.focusSessions) focus").font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
-                        }
-                    }
-                    HStack(spacing: 8) {
-                        PrimaryButton(verbatim: "Full screen") {
-                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
-                            WeeklyBriefController.shared.showFull(b, takeKeyboard: true)
-                        }
-                        if !w.total.isEmpty {
-                            SecondaryButton(verbatim: String(localized: "recap.share-image")) { WeeklyBriefController.shared.share(b) }
-                        }
-                        SecondaryButton("OK") { NotificationCenter.default.post(name: .islandCollapse, object: nil) }
-                    }
-                } else {
-                    Text(String(localized: "recap.no-activity")).font(.system(size: 14, weight: .semibold)).foregroundColor(Color(hex: "#F1F2F4"))
-                }
-            }
-            .padding(.leading, 116)
-            .padding(.trailing, 16)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
 #endif

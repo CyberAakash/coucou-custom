@@ -100,7 +100,8 @@ final class DailyBriefController {
             building = false
             let s = DailyBriefSettings.shared
             if !byHand { s.lastShownDay = MacDay.dayKey(Date()) }
-            if s.sound, !byHand { SoundEngine.shared.play("greeting") }
+            // The full screen plays its own; the notch says hello.
+            if s.sound, (place ?? s.place) == .notch { SoundEngine.shared.play("greeting") }
             switch place ?? s.place {
             case .fullScreen: showFull(brief, takeKeyboard: byHand || NSApp.isActive)
             case .notch: showNotch(brief)
@@ -127,6 +128,8 @@ final class DailyBriefController {
         b.weekRead = DailyBriefReads.week(now: Date())
         let cards = DailyBriefCard.cards(for: b.sections)
         let story = BriefStory(count: cards.count, autoAdvance: DailyBriefSettings.shared.autoAdvance)
+        story.sound = DailyBriefSettings.shared.sound
+        if story.sound { SoundEngine.shared.play("greeting") }
         let close = { FullScreenOverlay.shared.close(owner: "brief") }
         FullScreenOverlay.shared.present(
             DailyBriefFullView(brief: b, cards: cards, story: story, close: close),
@@ -145,7 +148,7 @@ final class BriefNotchModel: ObservableObject {
 // MARK: - The cards
 
 enum DailyBriefCard: Hashable {
-    case greeting, work, routines, mac, plan, ahead, closing
+    case intro, greeting, work, routines, mac, plan, ahead, closing
 
     static func cards(for sections: [DailyBriefSection]) -> [DailyBriefCard] {
         var out: [DailyBriefCard] = sections.map {
@@ -159,6 +162,7 @@ enum DailyBriefCard: Hashable {
             }
         }
         if out.first != .greeting { out.insert(.greeting, at: 0) }
+        out.insert(.intro, at: 0)
         // The streak and "Start the day" live on Today ahead; without it, a card of their own.
         if !out.contains(.ahead) { out.append(.closing) }
         return out
@@ -186,11 +190,12 @@ private struct DailyBriefCardView: View {
 
     var body: some View {
         switch card {
+        case .intro: DailyIntro(brief: brief)
         case .greeting: GreetingCard(brief: brief)
         case .work: WorkCard(brief: brief)
         case .routines: RoutinesCard(brief: brief)
         case .mac: MacCard(brief: brief)
-        case .plan: PlanCard(plan: brief.plan, close: close)
+        case .plan: PlanCard(limits: brief.plan, close: close)
         case .ahead: AheadCard(brief: brief, close: close)
         case .closing: ClosingCard(brief: brief, close: close)
         }
@@ -206,7 +211,9 @@ struct CardTitle: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label.uppercased()).font(.system(size: 11.5, weight: .bold)).tracking(1.3).foregroundColor(HubTheme.muted)
+                .briefAppear(0.02)
             Text(title).font(.system(size: 30, weight: .bold)).lineLimit(2).minimumScaleFactor(0.7)
+                .briefAppear(0.1)
         }
         .padding(.bottom, 6)
     }
@@ -230,6 +237,29 @@ struct Tile<Content: View>: View {
                     }
             )
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
+            .briefAppear(0.22)
+    }
+}
+
+/// The Daily brief's first card: your name, large, and what is inside.
+private struct DailyIntro: View {
+    let brief: DailyBrief
+
+    var body: some View {
+        var lines: [(String, String)] = []
+        if let w = brief.weather { lines.append((DailyBriefWeather.symbol(w.code), "\(w.now)° and \(DailyBriefWeather.describe(w.code).lowercased()) in \(w.city)")) }
+        if let w = brief.work, !w.isEmpty {
+            lines.append(("hammer.fill", "\(DailyBriefText.duration(minutes: w.minutes)) with your agents \(brief.isToday ? "so far today" : "yesterday")"))
+        }
+        if let water = brief.water { lines.append(("drop.fill", "\(DailyBriefText.water(water.ml)) of water of \(DailyBriefText.water(water.goal))")) }
+        if let next = brief.events.first(where: { $0.end > Date() }) {
+            lines.append(("calendar", "\(next.title) at \(next.start.formatted(.dateTime.hour().minute()))"))
+        }
+        if brief.readStreak > 1 { lines.append(("flame.fill", "\(brief.readStreak) days in a row")) }
+        return BriefIntroCard(kicker: "Daily brief · " + brief.date.formatted(.dateTime.weekday(.wide).day().month(.wide)),
+                              greeting: DailyBriefText.greeting(at: brief.date, name: nil) + ",",
+                              name: DailyBriefSettings.shared.resolvedName,
+                              lines: Array(lines.prefix(4)), palette: BriefPalette.now(brief.date))
     }
 }
 
@@ -254,16 +284,8 @@ private struct GreetingCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 18) {
-                HubLiveMochi(color: "#F5F6F8", size: 64, state: .idle)
-                    .frame(width: 76, height: 60)
-                    .offset(y: hop ? -6 : 0)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(brief.greeting).font(.system(size: 34, weight: .bold)).lineLimit(1).minimumScaleFactor(0.6)
-                    Text(brief.isToday ? "Here's your day so far." : "Here's yesterday, and what today looks like.")
-                        .font(.system(size: 14)).foregroundColor(HubTheme.secondary)
-                }
-            }
+            CardTitle(label: "Today", title: brief.weather.map { "\($0.now)°, \(DailyBriefWeather.describe($0.code).lowercased()) in \($0.city)." }
+                      ?? (brief.isToday ? "Here's your day so far." : "Here's yesterday, and today."))
             if let w = brief.weather {
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -587,26 +609,29 @@ private struct DayChart: View {
 // MARK: Claude plan
 
 struct PlanCard: View {
-    let plan: PlanUsage?
+    let limits: ClaudePlanLimits?
     let close: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            CardTitle(label: "Claude plan", title: title)
-            if let plan, plan.fiveHour != nil || plan.sevenDay != nil {
+            CardTitle(label: "Claude plan" + (limits?.plan.map { " · \($0.capitalized)" } ?? ""), title: title)
+            if let limits, !limits.limits.isEmpty {
                 HStack(spacing: 12) {
-                    if let w = plan.fiveHour { ring(w, "5-hour window", HubTheme.accent) }
-                    if let w = plan.sevenDay { ring(w, "Weekly", Color(hex: "#A78BFA")) }
+                    ForEach(limits.limits.prefix(3)) { l in
+                        ring(l, l.kind == .session ? HubTheme.accent : l.kind == .weeklyAll ? Color(hex: "#3B9EFF") : Color(hex: "#A78BFA"))
+                    }
                 }
+                Text("Updated \(MetricsFormat.ago(limits.updatedAt, now: Date())), from Claude Code.")
+                    .font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
             } else {
                 Tile {
-                    Text("Your 5-hour and weekly windows show here once Claude Code reports them to Coucou. That takes Coucou's status-line relay, set up in Settings → Agents → Plan gauge (you review the change to ~/.claude/settings.json first).")
+                    Text("Your plan's limits show here once Claude Code can tell Coucou: it needs Claude Code installed and signed in with a Claude subscription, or Coucou's status-line relay (Settings → Agents → Plan gauge).")
                         .font(.system(size: 13)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
                     Button {
                         close()
                         FlowHubController.shared.show(.agents)
                     } label: {
-                        Text("Set up the plan gauge").font(.system(size: 12.5, weight: .bold)).foregroundColor(HubTheme.onAccent)
+                        Text("Open Agents settings").font(.system(size: 12.5, weight: .bold)).foregroundColor(HubTheme.onAccent)
                             .padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(HubTheme.accent))
                     }
                     .buttonStyle(.plain)
@@ -619,29 +644,28 @@ struct PlanCard: View {
     }
 
     private var title: String {
-        guard let plan else { return "Your Claude plan." }
-        let used = [plan.fiveHour, plan.sevenDay].compactMap { $0 }.map(ClaudePlanGauge.effectivePct).max() ?? 0
-        return used < 50 ? "Plenty of Claude left for today." : used < 80 ? "Keep an eye on your plan." : "Your plan is nearly used up."
+        guard let limits, let used = limits.limits.map(\.percent).max() else { return "Your Claude plan." }
+        return used < 50 ? "Plenty of Claude left." : used < 80 ? "Keep an eye on your plan." : "Your plan is nearly used up."
     }
 
-    private func ring(_ w: PlanWindow, _ name: String, _ tint: Color) -> some View {
-        let left = max(0, 100 - ClaudePlanGauge.effectivePct(w))
+    private func ring(_ l: ClaudePlanLimits.Limit, _ tint: Color) -> some View {
+        let used = max(0, min(100, l.percent))
         return Tile(glow: tint) {
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
                 ZStack {
-                    Circle().stroke(Color.white.opacity(0.07), lineWidth: 14)
-                    Circle().trim(from: 0, to: CGFloat(left / 100))
-                        .stroke(tint, style: StrokeStyle(lineWidth: 14, lineCap: .round)).rotationEffect(.degrees(-90))
+                    Circle().stroke(Color.white.opacity(0.07), lineWidth: 12)
+                    Circle().trim(from: 0, to: CGFloat(used / 100))
+                        .stroke(used >= 90 ? HubTheme.red : tint, style: StrokeStyle(lineWidth: 12, lineCap: .round)).rotationEffect(.degrees(-90))
                     VStack(spacing: 0) {
-                        Text("\(Int(left.rounded()))%").font(.system(size: 34, weight: .bold).monospacedDigit())
-                        Text("left").font(.system(size: 12)).foregroundColor(HubTheme.secondary)
+                        Text("\(Int(used.rounded()))%").font(.system(size: 28, weight: .bold).monospacedDigit())
+                        Text("used").font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
                     }
                 }
-                .frame(width: 150, height: 150)
+                .frame(width: 124, height: 124)
                 VStack(spacing: 2) {
-                    Text(name).font(.system(size: 15, weight: .semibold))
-                    Text("resets \(w.resetsAt.formatted(Calendar.current.isDateInToday(w.resetsAt) ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute()))")
-                        .font(.system(size: 12)).foregroundColor(HubTheme.secondary)
+                    Text(l.kind == .session ? "Current session" : l.label == "All models" ? "Weekly · all models" : "Weekly · \(l.label)")
+                        .font(.system(size: 13.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                    Text(ClaudePlanLimits.resetText(l.resetsAt, now: Date())).font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

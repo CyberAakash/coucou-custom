@@ -3,10 +3,11 @@ import AppKit
 import Combine
 import SwiftUI
 
-// coucou-custom fork: the panel under Coucou's menu-bar item — your agents, the Claude plan, the
-// Mac, your routines, your Custom Metrics, then Coucou's actions. Each section can be hidden or
-// moved (Settings → Menu bar → Panel). A borderless panel right under the menu bar, like Control
-// Centre's, gone on Esc or a click anywhere else.
+// coucou-custom fork: the panel under Coucou's menu-bar item, in Liquid Glass — your agents, today
+// and this week, the Claude plan's limits, the Mac, your routines with their quick actions, your
+// Custom Metrics; Coucou's actions in one menu at the top right. Each section can be hidden or moved
+// (Settings → Menu bar → Panel). A borderless panel right under the menu bar, like Control Centre's,
+// gone on Esc or a click anywhere else.
 
 enum MenuBarPanelSection: String, CaseIterable, Identifiable, Codable {
     case agents, briefs, plan, mac, routines, metrics
@@ -169,8 +170,8 @@ private final class MenuBarPanelWindow: NSPanel {
 // MARK: - The panel
 
 struct MenuBarPanelView: View {
-    static let width: CGFloat = 360
-    static let maxHeight: CGFloat = 680
+    static let width: CGFloat = 368
+    static let maxHeight: CGFloat = 720
 
     let close: () -> Void
     let resize: () -> Void
@@ -179,40 +180,31 @@ struct MenuBarPanelView: View {
     @ObservedObject private var sampler = RunnerSampler.shared
     @ObservedObject private var center = RunnerMetricsCenter.shared
     @ObservedObject private var live = LiveSessions.shared
-    @ObservedObject private var app = AppState.shared
+    @ObservedObject private var plan = ClaudePlanLimitsFetcher.shared
     @ObservedObject private var routines = BuddyRoutineController.shared
     @ObservedObject private var routineSettings = BuddyRoutineSettings.shared
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    header
-                    ForEach(settings.panelSections) { section in
-                        sectionView(section)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                header
+                ForEach(settings.panelSections) { section in
+                    sectionView(section)
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
-                .background(GeometryReader { g in Color.clear.preference(key: PanelHeightKey.self, value: g.size.height) })
             }
-            .scrollIndicators(.never)
-            .frame(maxHeight: Self.maxHeight - 110)
-            .fixedSize(horizontal: false, vertical: true)
-            footer
+            .padding(14)
+            .background(GeometryReader { g in Color.clear.preference(key: PanelHeightKey.self, value: g.size.height) })
         }
+        .scrollIndicators(.never)
+        .frame(maxHeight: Self.maxHeight)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(width: Self.width)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(hex: "#0E0F11").opacity(0.97))
-        )
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.09)))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .modifier(PanelGlass())
         .foregroundColor(HubTheme.text)
         .environment(\.colorScheme, .dark)
         .onPreferenceChange(PanelHeightKey.self) { _ in DispatchQueue.main.async { resize() } }
         .onChange(of: settings.panelSections) { DispatchQueue.main.async { resize() } }
+        .onAppear { if settings.panelSections.contains(.plan) { plan.refresh() } }
     }
 
     // MARK: Header
@@ -232,14 +224,32 @@ struct MenuBarPanelView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
-            Button { close(); FlowHubController.shared.show(.runner) } label: {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(HubTheme.secondary)
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(Color.white.opacity(0.06)))
+            // Coucou's one way in from here; the rest of its menu is a right-click on the icon.
+            Menu {
+                Menu("Daily brief") {
+                    Button("In the notch") { close(); DailyBriefController.shared.show(place: .notch) }
+                    Button("Full screen") { close(); DailyBriefController.shared.show(place: .fullScreen) }
+                }
+                Menu("Weekly recap") {
+                    Button("In the notch") { close(); WeeklyBriefController.shared.show(place: .notch) }
+                    Button("Full screen") { close(); WeeklyBriefController.shared.show(place: .fullScreen) }
+                }
+                Divider()
+                Button("Open the Coucou window") { close(); RunnerStatusItem.perform("openFlowHub") }
+                Button("Menu bar settings…") { close(); FlowHubController.shared.show(.runner) }
+                Divider()
+                Button("Quit Coucou") { close(); RunnerStatusItem.perform("quitCompletely") }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 13, weight: .bold))
+                    .foregroundColor(HubTheme.body)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
-            .help("Menu bar settings")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Coucou")
         }
     }
 
@@ -249,6 +259,7 @@ struct MenuBarPanelView: View {
         var parts: [String] = []
         if working > 0 { parts.append(working == 1 ? "1 agent working" : "\(working) agents working") }
         if waiting > 0 { parts.append(waiting == 1 ? "1 needs you" : "\(waiting) need you") }
+        if MacUpdater.shared.hintActive { parts.append("an update is ready") }
         return parts.isEmpty ? "No agent at work" : parts.joined(separator: " · ")
     }
 
@@ -260,16 +271,8 @@ struct MenuBarPanelView: View {
         case .briefs: briefsSection
         case .plan: planSection
         case .mac: macSection
-        case .routines: routinesSection
+        case .routines: PanelRoutines(close: close)
         case .metrics: metricsSection
-        }
-    }
-
-    private func label(_ text: String, trailing: String? = nil) -> some View {
-        HStack {
-            Text(text.uppercased()).font(.system(size: 10.5, weight: .bold)).tracking(1.2).foregroundColor(HubTheme.muted)
-            Spacer()
-            if let trailing { Text(trailing).font(.system(size: 11)).foregroundColor(HubTheme.muted) }
         }
     }
 
@@ -278,13 +281,13 @@ struct MenuBarPanelView: View {
     @ViewBuilder private var agentsSection: some View {
         let shown = live.sessions.filter(\.needsAttention).sorted { $0.lastActivity > $1.lastActivity }.prefix(5)
         VStack(alignment: .leading, spacing: 8) {
-            label("Agents", trailing: shown.isEmpty ? nil : (shown.count == 1 ? "1 session" : "\(shown.count) sessions"))
+            PanelLabel(text: "Agents", trailing: shown.isEmpty ? nil : (shown.count == 1 ? "1 session" : "\(shown.count) sessions"))
             if shown.isEmpty {
                 PanelEmpty(symbol: "moon.zzz", text: "No session right now. Mochi is resting.")
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(shown.enumerated()), id: \.element.id) { i, s in
-                        if i > 0 { Divider().overlay(Color.white.opacity(0.05)).padding(.leading, 50) }
+                        if i > 0 { Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 50) }
                         PanelSessionRow(session: s) {
                             close()
                             LiveSessions.shared.select(s.id)
@@ -309,7 +312,7 @@ struct MenuBarPanelView: View {
         let water = routineSettings.waterEnabled ? routineSettings.waterLog.total(on: Date()) : nil
         let focus = BuddyDiaryStore.diary.day(Date())?.focusSessions ?? 0
         return VStack(alignment: .leading, spacing: 8) {
-            label("Today & this week")
+            PanelLabel(text: "Today & this week")
             VStack(spacing: 0) {
                 PanelBriefRow(symbol: "sun.max.fill", tint: Color(hex: "#F7B32B"), title: "Today",
                               line: [day.isEmpty ? "No agent work yet" : "\(DailyBriefText.duration(minutes: day.minutes)) with agents · \(day.sessions) sessions",
@@ -317,7 +320,7 @@ struct MenuBarPanelView: View {
                                 .compactMap { $0 }.joined(separator: " · ")) {
                     close(); DailyBriefController.shared.show()
                 }
-                Divider().overlay(Color.white.opacity(0.05)).padding(.leading, 50)
+                Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 50)
                 PanelBriefRow(symbol: "calendar", tint: Color(hex: "#818CF8"), title: "This week",
                               line: week.total.isEmpty ? "No agent work yet"
                                 : "\(DailyBriefText.duration(minutes: week.total.minutes)) over \(week.activeDays) day\(week.activeDays == 1 ? "" : "s")" + (week.projects.first.map { " · \($0.name)" } ?? "")) {
@@ -328,31 +331,34 @@ struct MenuBarPanelView: View {
         }
     }
 
-    // Plan
+    // Plan: as claude.ai's usage page lists it.
 
     @ViewBuilder private var planSection: some View {
-        if let usage = app.claudePlanUsage, usage.fiveHour != nil || usage.sevenDay != nil {
+        if let limits = plan.best {
             VStack(alignment: .leading, spacing: 8) {
-                label("Claude plan", trailing: "updated \(MetricsFormat.ago(usage.updatedAt, now: Date()))")
-                HStack(spacing: 0) {
-                    if let w = usage.fiveHour { PanelPlanRing(title: "5-hour", window: w, tint: HubTheme.accent) }
-                    if let w = usage.sevenDay { PanelPlanRing(title: "Weekly", window: w, tint: Color(hex: "#A78BFA")) }
+                PanelLabel(text: "Claude plan" + (limits.plan.map { " · \($0.capitalized)" } ?? ""),
+                           trailing: "updated \(MetricsFormat.ago(limits.updatedAt, now: Date()))")
+                VStack(alignment: .leading, spacing: 10) {
+                    if let s = limits.session { PanelLimitRow(limit: s, tint: HubTheme.accent) }
+                    if !limits.weekly.isEmpty {
+                        Text("Weekly limits").font(.system(size: 11, weight: .semibold)).foregroundColor(HubTheme.muted)
+                            .padding(.top, 2)
+                        ForEach(limits.weekly) { w in
+                            PanelLimitRow(limit: w, tint: w.kind == .weeklyAll ? Color(hex: "#3B9EFF") : Color(hex: "#A78BFA"))
+                        }
+                    }
                 }
                 .padding(12)
                 .background(PanelCard(glow: HubTheme.accent))
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                label("Claude plan")
+                PanelLabel(text: "Claude plan")
                 HStack(spacing: 10) {
                     Image(systemName: "staroflife").font(.system(size: 13)).foregroundColor(HubTheme.muted)
-                    Text("Claude Code sends its plan to Coucou once the plan gauge is set up.")
+                    Text(plan.lastError ?? "Reading your plan from Claude Code…")
                         .font(.system(size: 12)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    PanelChip(symbol: "gearshape", text: "Set up", tint: HubTheme.accent) {
-                        close()
-                        FlowHubController.shared.show(.agents)
-                    }
                 }
                 .padding(12)
                 .background(PanelCard())
@@ -366,7 +372,7 @@ struct MenuBarPanelView: View {
         let s = sampler.sample
         let tiles = SystemMetricKind.allCases.filter { settings.panelMacTiles.contains($0) }
         return VStack(alignment: .leading, spacing: 8) {
-            label("This Mac", trailing: Host.current().localizedName)
+            PanelLabel(text: "This Mac", trailing: Host.current().localizedName)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(tiles) { kind in
                     switch kind {
@@ -398,89 +404,47 @@ struct MenuBarPanelView: View {
         }
     }
 
-    // Routines
-
-    @ViewBuilder private var routinesSection: some View {
-        let water = routineSettings.waterEnabled
-        let hasAny = water || routines.focus != nil || routines.countdown != nil || !routines.reminders.isEmpty
-        VStack(alignment: .leading, spacing: 8) {
-            label("Routines")
-            if !hasAny {
-                PanelEmpty(symbol: "sparkles", text: "Start a focus session or a timer, or turn on Water in Settings → Buddy.")
-            } else {
-                VStack(spacing: 8) {
-                    if water { PanelWaterRow(routines: routines, settings: routineSettings) }
-                    if let f = routines.focus { PanelFocusRow(focus: f, routines: routines) }
-                    if let c = routines.countdown { PanelTimerRow(countdown: c, routines: routines) }
-                    if let next = routines.reminders.sorted(by: { $0.due < $1.due }).first {
-                        PanelReminderRow(reminder: next, more: routines.reminders.count - 1)
-                    }
-                }
-            }
-            HStack(spacing: 6) {
-                if routines.focus == nil {
-                    PanelChip(symbol: "brain.head.profile", text: "Focus") { routines.startFocus() }
-                }
-                if routines.countdown == nil {
-                    PanelChip(symbol: "timer", text: "5 min") { _ = routines.startTimer(seconds: 300) }
-                }
-                PanelChip(symbol: "wind", text: "Breathe") { close(); routines.startBreathing(routineSettings.lastBreathing) }
-            }
-        }
-    }
-
     // Custom Metrics
 
     @ViewBuilder private var metricsSection: some View {
         if !settings.sources.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                label("Custom Metrics")
+                PanelLabel(text: "Custom Metrics")
                 ForEach(settings.sources) { source in
                     RunnerMetricsCard(source: source, state: center.states[source.id])
                 }
             }
         }
     }
+}
 
-    // MARK: Footer
-
-    private var footer: some View {
-        VStack(spacing: 8) {
-            if MacUpdater.shared.hintActive {
-                Button { close(); RunnerStatusItem.perform("openUpdate") } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.down.circle.fill").foregroundColor(Color(hex: "#3B9EFF"))
-                        Text("A new Coucou is ready").font(.system(size: 12.5, weight: .semibold))
-                        Spacer()
-                        Text("Update").font(.system(size: 12, weight: .bold)).foregroundColor(Color(hex: "#3B9EFF"))
-                    }
-                    .padding(.horizontal, 12).frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(hex: "#3B9EFF").opacity(0.12)))
-                }
-                .buttonStyle(.plain)
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                PanelAction(text: "Open Coucou") { close(); RunnerStatusItem.perform("openIsland") }
-                // Where Settings → Briefs says; a right-click offers either place.
-                PanelAction(text: "Daily brief") { close(); DailyBriefController.shared.show() }
-                    .contextMenu {
-                        Button("In the notch") { close(); DailyBriefController.shared.show(place: .notch) }
-                        Button("Full screen") { close(); DailyBriefController.shared.show(place: .fullScreen) }
-                    }
-                PanelAction(text: "Weekly recap") { close(); WeeklyBriefController.shared.show() }
-                    .contextMenu {
-                        Button("In the notch") { close(); WeeklyBriefController.shared.show(place: .notch) }
-                        Button("Full screen") { close(); WeeklyBriefController.shared.show(place: .fullScreen) }
-                    }
-                PanelAction(text: "Coucou window") { close(); RunnerStatusItem.perform("openFlowHub") }
-                PanelAction(text: "Settings") { close(); RunnerStatusItem.perform("openSettings") }
-                PanelAction(text: "Quit", dim: true) { close(); RunnerStatusItem.perform("quitCompletely") }
-            }
+/// macOS 26's Liquid Glass, as Control Centre has it; a dark blur before it.
+private struct PanelGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(.regular.tint(Color.black.opacity(0.18)), in: shape)
+                .clipShape(shape)
+        } else {
+            content
+                .background(PanelBlur().clipShape(shape))
+                .background(shape.fill(Color(hex: "#0E0F11").opacity(0.55)))
+                .overlay(shape.strokeBorder(Color.white.opacity(0.1)))
+                .clipShape(shape)
         }
-        .padding(12)
-        .background(Color.white.opacity(0.025))
-        .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1) }
     }
+}
+
+private struct PanelBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.material = .hudWindow
+        v.blendingMode = .behindWindow
+        v.state = .active
+        return v
+    }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct PanelHeightKey: PreferenceKey {
@@ -490,19 +454,33 @@ private struct PanelHeightKey: PreferenceKey {
 
 // MARK: - Pieces
 
+private struct PanelLabel: View {
+    let text: String
+    var trailing: String? = nil
+
+    var body: some View {
+        HStack {
+            Text(text.uppercased()).font(.system(size: 10.5, weight: .bold)).tracking(1.2).foregroundColor(HubTheme.secondary)
+            Spacer()
+            if let trailing { Text(trailing).font(.system(size: 11)).foregroundColor(HubTheme.muted).lineLimit(1) }
+        }
+    }
+}
+
+/// A card on the glass: lighter, not another pane of glass.
 private struct PanelCard: View {
     var glow: Color? = nil
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(HubTheme.card)
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color.white.opacity(0.07))
             .overlay {
                 if let glow {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(RadialGradient(colors: [glow.opacity(0.16), .clear], center: .topLeading, startRadius: 0, endRadius: 220))
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(RadialGradient(colors: [glow.opacity(0.16), .clear], center: .topLeading, startRadius: 0, endRadius: 240))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
     }
 }
 
@@ -518,6 +496,28 @@ private struct PanelEmpty: View {
         }
         .padding(12)
         .background(PanelCard())
+    }
+}
+
+/// One limit as claude.ai's usage page shows it: its name and reset, a bar, the share used.
+private struct PanelLimitRow: View {
+    let limit: ClaudePlanLimits.Limit
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(limit.label).font(.system(size: 12.5, weight: .semibold))
+                Spacer()
+                Text("\(Int(limit.percent.rounded()))% used").font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundColor(limit.percent >= 90 ? HubTheme.red : limit.percent >= 75 ? Color(hex: "#F7B32B") : HubTheme.body)
+            }
+            RunnerBar(fraction: limit.percent / 100, color: limit.percent >= 90 ? HubTheme.red : tint)
+            TimelineView(.periodic(from: .now, by: 60)) { ctx in
+                Text(ClaudePlanLimits.resetText(limit.resetsAt, now: ctx.date))
+                    .font(.system(size: 10.5)).foregroundColor(HubTheme.muted)
+            }
+        }
     }
 }
 
@@ -554,7 +554,7 @@ private struct PanelSessionRow: View {
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .foregroundColor(tint)
                     .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.opacity(0.16)))
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tint.opacity(0.18)))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.projectName.isEmpty ? (pill?.name ?? "Session") : session.projectName)
                         .font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -569,7 +569,7 @@ private struct PanelSessionRow: View {
                     }
                     .foregroundColor(state.color)
                     .padding(.horizontal, 7).frame(height: 20)
-                    .background(Capsule().fill(state.color.opacity(0.13)))
+                    .background(Capsule().fill(state.color.opacity(0.14)))
                     if let start = session.turnStartedAt, session.isBusy {
                         TimelineView(.periodic(from: .now, by: 1)) { ctx in
                             Text(BuddyTimeText.clock(ctx.date.timeIntervalSince(start)))
@@ -579,7 +579,7 @@ private struct PanelSessionRow: View {
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(hover ? Color.white.opacity(0.04) : .clear)
+            .background(hover ? Color.white.opacity(0.05) : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -600,7 +600,7 @@ private struct PanelBriefRow: View {
             HStack(spacing: 10) {
                 Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundColor(tint)
                     .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.opacity(0.16)))
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tint.opacity(0.18)))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.system(size: 13, weight: .semibold))
                     Text(line).font(.system(size: 11)).foregroundColor(HubTheme.secondary).lineLimit(1)
@@ -609,43 +609,11 @@ private struct PanelBriefRow: View {
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(HubTheme.muted)
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(hover ? Color.white.opacity(0.04) : .clear)
+            .background(hover ? Color.white.opacity(0.05) : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-    }
-}
-
-private struct PanelPlanRing: View {
-    let title: String
-    let window: PlanWindow
-    let tint: Color
-
-    var body: some View {
-        let pct = ClaudePlanGauge.effectivePct(window)
-        HStack(spacing: 10) {
-            ZStack {
-                Circle().stroke(Color.white.opacity(0.08), lineWidth: 5)
-                Circle().trim(from: 0, to: CGFloat(min(1, pct / 100)))
-                    .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Text("\(Int(pct.rounded()))%").font(.system(size: 11.5, weight: .bold).monospacedDigit())
-            }
-            .frame(width: 46, height: 46)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Text("resets \(Self.reset(window.resetsAt))").font(.system(size: 11)).foregroundColor(HubTheme.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    static func reset(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = Calendar.current.isDateInToday(date) ? "HH:mm" : "EEE HH:mm"
-        return f.string(from: date)
     }
 }
 
@@ -679,95 +647,291 @@ private struct PanelMacTile: View {
     }
 }
 
-private struct PanelWaterRow: View {
-    @ObservedObject var routines: BuddyRoutineController
-    @ObservedObject var settings: BuddyRoutineSettings
+// MARK: - Routines: one card, a tab per routine, its quick actions
+
+enum PanelRoutineTab: String, CaseIterable, Identifiable {
+    case water, focus, timer, remind, breathe
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .water: "Water"
+        case .focus: "Focus"
+        case .timer: "Timer"
+        case .remind: "Remind"
+        case .breathe: "Breathe"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .water: "drop.fill"
+        case .focus: "brain.head.profile"
+        case .timer: "timer"
+        case .remind: "bell.fill"
+        case .breathe: "wind"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .water: Color(hex: "#22D3EE")
+        case .focus: Color(hex: "#818CF8")
+        case .timer: Color(hex: "#F7B32B")
+        case .remind: Color(hex: "#F472B6")
+        case .breathe: Color(hex: "#34D399")
+        }
+    }
+}
+
+private struct PanelRoutines: View {
+    let close: () -> Void
+    @ObservedObject private var routines = BuddyRoutineController.shared
+    @ObservedObject private var settings = BuddyRoutineSettings.shared
+    @AppStorage("menuBarRoutineTab") private var tabRaw = PanelRoutineTab.water.rawValue
+    @State private var lastWater: Int?
+    @State private var reminderText = ""
+
+    private var tab: PanelRoutineTab { PanelRoutineTab(rawValue: tabRaw) ?? .water }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PanelLabel(text: "Routines", trailing: running)
+            VStack(alignment: .leading, spacing: 12) {
+                tabs
+                switch tab {
+                case .water: water
+                case .focus: focus
+                case .timer: timer
+                case .remind: remind
+                case .breathe: breathe
+                }
+            }
+            .padding(12)
+            .background(PanelCard(glow: tab.tint))
+        }
+    }
+
+    /// What runs now, so another tab still says so.
+    private var running: String? {
+        var parts: [String] = []
+        if let f = routines.focus { parts.append("focus \(BuddyTimeText.clock(f.remaining(at: routines.now)))") }
+        if let c = routines.countdown { parts.append("timer \(BuddyTimeText.clock(c.remaining(at: routines.now)))") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var tabs: some View {
+        HStack(spacing: 4) {
+            ForEach(PanelRoutineTab.allCases) { t in
+                let on = t == tab
+                Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { tabRaw = t.rawValue } } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: t.symbol).font(.system(size: 12, weight: .semibold))
+                        Text(t.title).font(.system(size: 9.5, weight: .semibold))
+                    }
+                    .foregroundColor(on ? t.tint : HubTheme.secondary)
+                    .frame(maxWidth: .infinity).frame(height: 40)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(on ? t.tint.opacity(0.16) : Color.clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.18)))
+    }
+
+    // Water
+
+    @ViewBuilder private var water: some View {
         let today = settings.waterLog.total(on: Date())
         let goal = max(1, settings.waterPlan.goal)
-        PanelRoutineRow(tint: Color(hex: "#22D3EE"), symbol: "drop.fill", progress: Double(today) / Double(goal),
-                        title: "Water", subtitle: "\(DailyBriefText.water(today)) of \(DailyBriefText.water(goal)) today") {
-            PanelChip(symbol: "plus", text: BuddyWater.amount(settings.waterPlan.glass), tint: Color(hex: "#22D3EE")) {
-                routines.logWater()
-            }
-        }
-    }
-}
-
-private struct PanelFocusRow: View {
-    let focus: BuddyFocusSession
-    @ObservedObject var routines: BuddyRoutineController
-
-    var body: some View {
-        let left = focus.remaining(at: routines.now)
-        let total = TimeInterval(max(1, focus.plan.minutes(focus.phase) * 60))
-        PanelRoutineRow(tint: focus.phase.isBreak ? HubTheme.green : Color(hex: "#818CF8"),
-                        symbol: focus.phase.isBreak ? "cup.and.saucer.fill" : "brain.head.profile",
-                        progress: 1 - left / total, title: focus.phase.label,
-                        subtitle: "\(BuddyTimeText.clock(left)) left\(focus.isPaused ? " · paused" : "")") {
-            PanelChip(symbol: focus.isPaused ? "play.fill" : "pause.fill", text: focus.isPaused ? "Resume" : "Pause") {
-                focus.isPaused ? routines.resumeFocus() : routines.pauseFocus()
-            }
-        }
-    }
-}
-
-private struct PanelTimerRow: View {
-    let countdown: BuddyCountdown
-    @ObservedObject var routines: BuddyRoutineController
-
-    var body: some View {
-        let left = countdown.remaining(at: routines.now)
-        PanelRoutineRow(tint: Color(hex: "#F7B32B"), symbol: "timer", progress: 1 - left / max(1, countdown.total),
-                        title: countdown.label.isEmpty ? "Timer" : countdown.label,
-                        subtitle: "\(BuddyTimeText.clock(left)) left\(countdown.isPaused ? " · paused" : "")") {
-            PanelChip(symbol: countdown.isPaused ? "play.fill" : "pause.fill", text: countdown.isPaused ? "Resume" : "Pause") {
-                countdown.isPaused ? routines.resumeTimer() : routines.pauseTimer()
-            }
-        }
-    }
-}
-
-private struct PanelReminderRow: View {
-    let reminder: BuddyReminder
-    let more: Int
-
-    var body: some View {
-        PanelRoutineRow(tint: Color(hex: "#F472B6"), symbol: "bell.fill", progress: nil, title: reminder.text,
-                        subtitle: "\(PanelPlanRing.reset(reminder.due))\(more > 0 ? " · \(more) more" : "")") { EmptyView() }
-    }
-}
-
-private struct PanelRoutineRow<Trailing: View>: View {
-    let tint: Color
-    let symbol: String
-    let progress: Double?
-    let title: String
-    let subtitle: String
-    @ViewBuilder var trailing: () -> Trailing
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle().fill(tint.opacity(0.14))
-                if let progress {
-                    Circle().trim(from: 0, to: CGFloat(max(0, min(1, progress))))
-                        .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
-                        .padding(1.5)
-                }
-                Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundColor(tint)
-            }
-            .frame(width: 34, height: 34)
+        let glass = settings.waterPlan.glass
+        HStack(spacing: 12) {
+            ring(Double(today) / Double(goal), PanelRoutineTab.water)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                Text(subtitle).font(.system(size: 11).monospacedDigit()).foregroundColor(HubTheme.secondary).lineLimit(1)
+                Text("\(DailyBriefText.water(today)) of \(DailyBriefText.water(goal))").font(.system(size: 15, weight: .bold).monospacedDigit())
+                Text(waterLine(today: today, goal: goal)).font(.system(size: 11)).foregroundColor(HubTheme.secondary).lineLimit(1)
             }
-            Spacer(minLength: 6)
-            trailing()
+            Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(PanelCard())
+        HStack(spacing: 6) {
+            PanelChip(symbol: "plus", text: BuddyWater.amount(glass), tint: PanelRoutineTab.water.tint) { log(glass) }
+            PanelChip(symbol: "plus", text: BuddyWater.amount(glass * 2)) { log(glass * 2) }
+            PanelChip(symbol: "plus", text: "1 L") { log(1000) }
+            if let last = lastWater {
+                PanelChip(symbol: "arrow.uturn.backward", text: "Undo") { routines.logWater(-last); lastWater = nil }
+            }
+        }
+        if !settings.waterEnabled {
+            PanelChip(symbol: "bell", text: "Turn on water nudges") { settings.waterEnabled = true }
+        }
+    }
+
+    private func log(_ ml: Int) {
+        routines.logWater(ml)
+        lastWater = ml
+    }
+
+    private func waterLine(today: Int, goal: Int) -> String {
+        if today >= goal { return "Goal reached today" }
+        let left = "\(DailyBriefText.water(goal - today)) to go"
+        guard settings.waterEnabled, let next = routines.nextWaterNudge else { return left }
+        return left + " · next nudge \(next.formatted(.dateTime.hour().minute()))"
+    }
+
+    // Focus
+
+    @ViewBuilder private var focus: some View {
+        if let f = routines.focus {
+            let left = f.remaining(at: routines.now)
+            let total = TimeInterval(max(1, f.plan.minutes(f.phase) * 60))
+            HStack(spacing: 12) {
+                ring(1 - left / total, PanelRoutineTab.focus)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(BuddyTimeText.clock(left)).font(.system(size: 20, weight: .bold).monospacedDigit())
+                    Text("\(f.phase.label) · round \(f.round)\(f.isPaused ? " · paused" : "")")
+                        .font(.system(size: 11)).foregroundColor(HubTheme.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                PanelChip(symbol: f.isPaused ? "play.fill" : "pause.fill", text: f.isPaused ? "Resume" : "Pause", tint: PanelRoutineTab.focus.tint) {
+                    f.isPaused ? routines.resumeFocus() : routines.pauseFocus()
+                }
+                PanelChip(symbol: "forward.fill", text: f.phase.isBreak ? "Focus now" : "Break") { routines.skipFocus() }
+                PanelChip(symbol: "stop.fill", text: "End") { routines.endFocus() }
+            }
+        } else {
+            Text("Start a focus session; breaks follow on their own.").font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+            HStack(spacing: 6) {
+                ForEach([15, 25, 45, 50], id: \.self) { m in
+                    PanelChip(symbol: "play.fill", text: "\(m) min", tint: m == settings.focusPlan.focus ? PanelRoutineTab.focus.tint : HubTheme.body) {
+                        routines.startFocus(minutes: m)
+                    }
+                }
+            }
+        }
+    }
+
+    // Timer
+
+    @ViewBuilder private var timer: some View {
+        if let c = routines.countdown {
+            let left = c.remaining(at: routines.now)
+            HStack(spacing: 12) {
+                ring(1 - left / max(1, c.total), PanelRoutineTab.timer)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(BuddyTimeText.clock(left)).font(.system(size: 20, weight: .bold).monospacedDigit())
+                    Text((c.label.isEmpty ? "Timer" : c.label) + " · \(BuddyTimeText.duration(c.total))\(c.isPaused ? " · paused" : "")")
+                        .font(.system(size: 11)).foregroundColor(HubTheme.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                PanelChip(symbol: c.isPaused ? "play.fill" : "pause.fill", text: c.isPaused ? "Resume" : "Pause", tint: PanelRoutineTab.timer.tint) {
+                    c.isPaused ? routines.resumeTimer() : routines.pauseTimer()
+                }
+                PanelChip(symbol: "plus", text: "1 min") { routines.addToTimer(60) }
+                PanelChip(symbol: "plus", text: "5 min") { routines.addToTimer(300) }
+                PanelChip(symbol: "xmark", text: "Cancel") { routines.cancelTimer() }
+            }
+        } else {
+            Text("A timer on the Buddy; it tells you when it's done.").font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+            HStack(spacing: 6) {
+                ForEach([1, 5, 10, 15, 30], id: \.self) { m in
+                    PanelChip(symbol: "timer", text: "\(m)m", tint: PanelRoutineTab.timer.tint) { _ = routines.startTimer(seconds: TimeInterval(m * 60)) }
+                }
+            }
+        }
+    }
+
+    // Reminders
+
+    @ViewBuilder private var remind: some View {
+        let upcoming = routines.reminders.sorted { $0.due < $1.due }.prefix(3)
+        ForEach(Array(upcoming)) { r in
+            HStack(spacing: 8) {
+                Image(systemName: "bell.fill").font(.system(size: 10)).foregroundColor(PanelRoutineTab.remind.tint)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(r.text).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                    Text(r.due.formatted(Calendar.current.isDateInToday(r.due) ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute()))
+                        .font(.system(size: 10.5)).foregroundColor(HubTheme.muted)
+                }
+                Spacer()
+                PanelIconChip(symbol: "zzz", help: "Snooze 5 min") { _ = routines.snoozeReminder(r.id) }
+                PanelIconChip(symbol: "checkmark", help: "Done") { _ = routines.removeReminder(r.id) }
+            }
+        }
+        if upcoming.isEmpty {
+            Text("No reminder yet.").font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+        }
+        HStack(spacing: 6) {
+            TextField("Remind me to…", text: $reminderText)
+                .textFieldStyle(.plain).font(.system(size: 12.5))
+                .padding(.horizontal, 10).frame(height: 28)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.25)))
+        }
+        HStack(spacing: 6) {
+            ForEach([(15, "15m"), (30, "30m"), (60, "1h"), (120, "2h"), (24 * 60, "Tomorrow")], id: \.0) { m, label in
+                PanelChip(symbol: "plus", text: label, tint: PanelRoutineTab.remind.tint) { addReminder(minutes: m) }
+                    .disabled(reminderText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .opacity(reminderText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.45 : 1)
+            }
+        }
+    }
+
+    private func addReminder(minutes: Int) {
+        let text = reminderText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        let due: Date
+        if minutes == 24 * 60 {
+            // Tomorrow at 9:00.
+            let cal = Calendar.current
+            due = cal.date(bySettingHour: 9, minute: 0, second: 0, of: cal.date(byAdding: .day, value: 1, to: Date()) ?? Date()) ?? Date()
+        } else {
+            due = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        }
+        if routines.addReminder(text, due: due) != nil { reminderText = "" }
+    }
+
+    // Breathing
+
+    @ViewBuilder private var breathe: some View {
+        Text(routines.breathing != nil ? "A session is on." : "A minute of calm. Pick a rhythm.")
+            .font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+            ForEach(BuddyBreathing.allCases, id: \.self) { b in
+                Button {
+                    close()
+                    routines.startBreathing(b)
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(b.name).font(.system(size: 12, weight: .semibold))
+                        Text(b.hint).font(.system(size: 10)).foregroundColor(HubTheme.secondary).lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(b == settings.lastBreathing ? PanelRoutineTab.breathe.tint.opacity(0.18) : Color.white.opacity(0.06)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        if routines.breathing != nil {
+            PanelChip(symbol: "stop.fill", text: "Stop") { routines.stopBreathing() }
+        }
+    }
+
+    private func ring(_ progress: Double, _ t: PanelRoutineTab) -> some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.08), lineWidth: 4)
+            Circle().trim(from: 0, to: CGFloat(max(0.001, min(1, progress))))
+                .stroke(t.tint, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
+            Image(systemName: t.symbol).font(.system(size: 13, weight: .semibold)).foregroundColor(t.tint)
+        }
+        .frame(width: 42, height: 42)
     }
 }
 
@@ -780,13 +944,13 @@ private struct PanelChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 10.5, weight: .bold))
-                Text(text).font(.system(size: 11.5, weight: .semibold))
+            HStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 9.5, weight: .bold))
+                Text(text).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
             }
             .foregroundColor(tint)
-            .padding(.horizontal, 10).frame(height: 26)
-            .background(Capsule().fill(Color.white.opacity(hover ? 0.12 : 0.07)))
+            .padding(.horizontal, 9).frame(height: 26)
+            .background(Capsule().fill(Color.white.opacity(hover ? 0.14 : 0.08)))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -794,24 +958,18 @@ private struct PanelChip: View {
     }
 }
 
-private struct PanelAction: View {
-    let text: String
-    var dim = false
+private struct PanelIconChip: View {
+    let symbol: String
+    let help: String
     let action: () -> Void
-    @State private var hover = false
 
     var body: some View {
         Button(action: action) {
-            Text(text)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(dim ? HubTheme.secondary : HubTheme.text)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity).frame(height: 32)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.white.opacity(hover ? 0.1 : 0.055)))
-                .contentShape(Rectangle())
+            Image(systemName: symbol).font(.system(size: 10.5, weight: .bold)).foregroundColor(HubTheme.body)
+                .frame(width: 26, height: 26).background(Circle().fill(Color.white.opacity(0.08)))
         }
         .buttonStyle(.plain)
-        .onHover { hover = $0 }
+        .help(help)
     }
 }
 #endif

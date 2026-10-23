@@ -173,6 +173,13 @@ struct IslandContainer: View {
             guard state.mode == .expanded, state.view == .prompt else { return }
             withAnimation(openSpring) { islandHeight = chatPromptHeight }
         }
+        // coucou-custom fork: a brief card measured its height (BriefFit; GitHub build only).
+        .onReceive(NotificationCenter.default.publisher(for: .islandBriefFit)) { _ in
+            #if !APPSTORE
+            guard state.mode == .expanded, let h = BriefLayout.height(for: state.view) else { return }
+            withAnimation(openSpring) { islandHeight = h }
+            #endif
+        }
         // coucou-custom fork: the question card measured a new page height (QuestionFit).
         .onReceive(NotificationCenter.default.publisher(for: .islandQuestionFit)) { _ in
             guard state.mode == .expanded, state.view == .question, let h = QuestionLayout.height else { return }

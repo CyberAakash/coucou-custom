@@ -14,5 +14,6 @@ swiftc -parse-as-library \
     tests/DailyBriefStubs.swift \
     NotchBuddy/Sources/App/DailyBriefLogic.swift \
     NotchBuddy/Sources/App/DailyBriefWeather.swift \
+    NotchBuddy/Sources/App/ClaudePlanLimits.swift \
     tests/DailyBriefTests.swift -o "$TEST_DIR/daily-brief-tests"
 "$TEST_DIR/daily-brief-tests"

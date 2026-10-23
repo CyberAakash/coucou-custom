@@ -29,7 +29,7 @@ enum DailyBriefSection: String, CaseIterable, Identifiable, Codable {
         case .work: "Agent sessions, time with agents, files and lines changed, commands, questions, the top project."
         case .routines: "Water against your goal, focus sessions, reminders done and left, breathing."
         case .mac: "CPU and memory through the day, with the busiest moments and what caused them."
-        case .plan: "The 5-hour and weekly windows of your Claude plan."
+        case .plan: "Your Claude plan's current session and weekly limits (all models, and each model with its own)."
         case .ahead: "Your calendar's events today. Asks for Calendar access the first time."
         }
     }
@@ -374,7 +374,7 @@ struct DailyBrief {
     var diary: BuddyDiary.Day?
     var remindersLeft: Int
     var mac: MacDay?
-    var plan: PlanUsage?
+    var plan: ClaudePlanLimits?
     var events: [DailyBriefCalendar.Event]
     var sections: [DailyBriefSection]
 }
@@ -415,7 +415,7 @@ enum DailyBriefBuilder {
             diary: BuddyDiaryStore.diary.day(day, calendar: cal),
             remindersLeft: BuddyRoutineController.shared.reminders.count,
             mac: MacDayRecorder.shared.day(day),
-            plan: AppState.shared.claudePlanUsage,
+            plan: await ClaudePlanLimitsFetcher.shared.fetch(),
             events: events,
             sections: settings.sections)
     }

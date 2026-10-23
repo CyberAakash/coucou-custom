@@ -2,6 +2,7 @@
 import AppKit
 import Combine
 import QuartzCore
+import ScreenCaptureKit
 import SwiftUI
 
 // coucou-custom fork: Coucou's one menu-bar item (Settings → Menu bar). Its icon is the one chosen
@@ -50,6 +51,9 @@ final class RunnerStatusItem: NSObject {
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshLive() } }
             .store(in: &bag)
         AppState.shared.$claudePlanUsage.map { _ in () }.receive(on: DispatchQueue.main)
+            .sink { [weak self] in MainActor.assumeIsolated { self?.refreshText() } }
+            .store(in: &bag)
+        ClaudePlanLimitsFetcher.shared.$limits.map { _ in () }.receive(on: DispatchQueue.main)
             .sink { [weak self] in MainActor.assumeIsolated { self?.refreshText() } }
             .store(in: &bag)
         apply()
@@ -165,6 +169,8 @@ final class RunnerStatusItem: NSObject {
 
     private func refreshText() {
         guard let bar, let item else { return }
+        // Beside the icon, the plan is asked again every five minutes.
+        if settings.coucouMetrics.contains(.claudePlan) { ClaudePlanLimitsFetcher.shared.refresh(maxAge: 300) }
         let text = Self.menuBarText(settings: settings, sample: RunnerSampler.shared.sample,
                                     states: RunnerMetricsCenter.shared.states)
         let width = bar.setText(text, appearance: item.button?.effectiveAppearance)
@@ -193,10 +199,12 @@ final class RunnerStatusItem: NSObject {
         return parts
     }
 
+    /// "5h 10% · 7d 55%": the current session and the all-models week, as Claude Code reports them.
     static func claudePlanText(now: Date = Date()) -> String? {
-        guard let usage = AppState.shared.claudePlanUsage else { return nil }
-        return RunnerCoucouMetric.planText(fiveHour: usage.fiveHour.map { ($0.usedPct, $0.resetsAt) },
-                                           sevenDay: usage.sevenDay.map { ($0.usedPct, $0.resetsAt) }, now: now)
+        guard let l = ClaudePlanLimitsFetcher.shared.best else { return nil }
+        let all = l.weekly.first { $0.kind == .weeklyAll }
+        return RunnerCoucouMetric.planText(fiveHour: l.session.map { ($0.percent, $0.resetsAt ?? .distantFuture) },
+                                           sevenDay: all.map { ($0.percent, $0.resetsAt ?? .distantFuture) }, now: now)
     }
 
     // MARK: - Frames
@@ -302,10 +310,30 @@ final class RunnerStatusItem: NSObject {
         guard let button = item?.button else { return }
         MenuBarPanelController.shared.show(from: button)
         try? await Task.sleep(for: .seconds(1.5))
-        if let view = NSApp.windows.first(where: { $0 is NSPanel && $0.isVisible && $0.level == .popUpMenu })?.contentView,
-           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-            view.cacheDisplay(in: view.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: debugDir.appendingPathComponent("panel.png"))
+        // Liquid Glass is drawn by the window server: only a real capture of the window shows it.
+        var why = "no panel window"
+        let window = NSApp.windows.first(where: { $0 is NSPanel && $0.isVisible && $0.level == .popUpMenu })
+        if let window {
+            why = "window \(window.windowNumber) found"
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                why += "; \(content.windows.count) shareable windows"
+                if content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) == nil { why += "; not among them" }
+            } catch { why += "; SCK: \(error.localizedDescription)" }
+        }
+        try? why.write(to: debugDir.appendingPathComponent("panel.txt"), atomically: true, encoding: .utf8)
+        if let window,
+           let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+           let target = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) {
+            let config = SCStreamConfiguration()
+            config.width = Int(target.frame.width * 2)
+            config.height = Int(target.frame.height * 2)
+            config.showsCursor = false
+            if let image = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: target),
+                                                                       configuration: config),
+               let png = RunnerImages.png(image) {
+                try? png.write(to: debugDir.appendingPathComponent("panel.png"))
+            }
         }
         MenuBarPanelController.shared.close()
     }
@@ -319,7 +347,7 @@ final class RunnerStatusItem: NSObject {
             story.index = i
             debugWrite(DailyBriefFullView(brief: brief, cards: cards, story: story, close: {}).padding(30).background(Color(hex: "#202226")), "brief-\(i).png")
         }
-        let week = WeeklyBriefBuilder.build()
+        let week = await WeeklyBriefBuilder.build()
         let wcards = WeeklyBriefCard.cards(for: WeeklyBriefSection.allCases)
         for i in wcards.indices {
             let story = BriefStory(count: wcards.count, autoAdvance: 0)
@@ -328,8 +356,8 @@ final class RunnerStatusItem: NSObject {
         }
         BriefNotchModel.shared.daily = brief
         BriefNotchModel.shared.weekly = week
-        debugWrite(DailyBriefNotchCard(state: AppState.shared).frame(width: 620, height: 186).background(Color.black), "notch-daily.png")
-        debugWrite(WeeklyBriefNotchCard(state: AppState.shared).frame(width: 620, height: 186).background(Color.black), "notch-weekly.png")
+        debugWrite(DailyBriefNotchCard(state: AppState.shared).frame(width: 640).background(Color.black), "notch-daily.png")
+        debugWrite(WeeklyBriefNotchCard(state: AppState.shared).frame(width: 640).background(Color.black), "notch-weekly.png")
         let alert = BuddyAlert(kind: .water, title: "Time for some water", detail: "500 ml of 3 L today")
         debugWrite(RoutineMomentView(moment: RoutineMoment(kind: .water, alert: alert), perform: { _ in })
             .frame(width: 900, height: 600).background(Color.black), "moment.png")
@@ -363,6 +391,8 @@ final class RunnerStatusItem: NSObject {
             lines.append("source \(source.displayName): failed=\(s?.failed.description ?? "nil") error=\(s?.error ?? "-") title=\(s?.snapshot?.title ?? "-") bar=\(s?.snapshot?.menuBarText ?? "-")")
         }
         lines.append("library=\(RunnerLibrary.shared.runners.map { "\($0.name)(\($0.frameCount))" })")
+        let plan = ClaudePlanLimitsFetcher.shared
+        lines.append("planCLI=\(plan.limits.map { l in l.limits.map { "\($0.label) \(Int($0.percent))%" } } ?? []) plan=\(plan.limits?.plan ?? "-") error=\(plan.lastError ?? "-")")
         try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("state.txt"), atomically: true, encoding: .utf8)
 
         if let button = item?.button, let layer = button.layer {

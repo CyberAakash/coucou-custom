@@ -29,6 +29,7 @@ enum DailyBriefTests {
         textTests()
         weatherTests()
         weekTests()
+        planTests()
         if failures > 0 { print("\(failures) failure(s)"); exit(1) }
         print("All daily brief tests passed")
     }
@@ -180,4 +181,34 @@ enum DailyBriefTests {
         let empty = WeekWork.from(turns: [], decisions: [], weekStart: at(19, 0), calendar: cal)
         check("empty week", empty.busiestDay == nil && empty.change == nil && empty.total.isEmpty)
     }
+
+    static func planTests() {
+        // A real get_usage answer (Claude Code, a Team plan), cut to what matters.
+        let json = #"{"subscription_type":"team","rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":10,"resets_at":"2026-10-23T23:40:00.441356+00:00"},"seven_day":{"utilization":55,"resets_at":"2026-10-26T15:00:00.441381+00:00"},"seven_day_opus":null,"limits":[{"kind":"session","group":"session","percent":10,"resets_at":"2026-10-23T23:40:00.441356+00:00","scope":null},{"kind":"weekly_all","group":"weekly","percent":55,"resets_at":"2026-10-26T15:00:00.441381+00:00","scope":null},{"kind":"weekly_scoped","group":"weekly","percent":50,"resets_at":"2026-10-26T15:00:00.441609+00:00","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}}],"model_scoped":[{"display_name":"Fable","utilization":50,"resets_at":"2026-10-26T15:00:00.441609+00:00"}]}}"#
+        let obj = try! JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
+        let l = ClaudePlanLimits.parse(obj)
+        check("plan parses", l != nil && l?.plan == "team")
+        check("three limits in order", l?.limits.map(\.label) == ["Current session", "All models", "Fable"])
+        check("session 10 %", l?.session?.percent == 10)
+        check("weekly ones", l?.weekly.map(\.percent) == [55, 50])
+        check("reset date parsed", l?.session?.resetsAt == ClaudePlanLimits.date("2026-10-23T23:40:00Z")?.addingTimeInterval(0.441356).rounded())
+        // Without `limits`: the named windows and model_scoped.
+        var old = obj
+        var rate = obj["rate_limits"] as! [String: Any]
+        rate.removeValue(forKey: "limits")
+        old["rate_limits"] = rate
+        check("older shape", ClaudePlanLimits.parse(old)?.limits.map(\.label) == ["Current session", "All models", "Fable"])
+        check("API key: no limits", ClaudePlanLimits.parse(["rate_limits": NSNull()]) == nil)
+        let now = ClaudePlanLimits.date("2026-10-23T20:50:00Z")!
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        check("reset in hours", ClaudePlanLimits.resetText(ClaudePlanLimits.date("2026-10-23T23:40:00Z"), now: now, calendar: utc) == "Resets in 2 hr 50 min")
+        check("reset in minutes", ClaudePlanLimits.resetText(now.addingTimeInterval(600), now: now, calendar: utc) == "Resets in 10 min")
+        check("reset on a day", ClaudePlanLimits.resetText(ClaudePlanLimits.date("2026-10-26T15:00:00Z"), now: now, calendar: utc) == "Resets Mon 15:00")
+    }
+}
+
+extension Date {
+    /// To the microsecond, as ISO 8601 with fractions keeps it.
+    func rounded() -> Date { Date(timeIntervalSince1970: (timeIntervalSince1970 * 1000).rounded() / 1000) }
 }
