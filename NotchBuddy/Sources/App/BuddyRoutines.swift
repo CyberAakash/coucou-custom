@@ -97,6 +97,10 @@ struct BuddyFocusPlan: Codable, Equatable, Sendable {
     var roundsBeforeLong: Int = 4
 
     static let standard = BuddyFocusPlan()
+    /// What a session and a break can last, chosen in settings or asked of the assistant.
+    static let focusRange = 1...180
+    static let breakRange = 1...60
+    static let longBreakRange = 1...90
 
     func minutes(_ phase: BuddyFocusPhase) -> Int {
         switch phase {
@@ -241,6 +245,10 @@ struct BuddyWaterPlan: Codable, Equatable, Sendable {
     static let goals = [1500, 2000, 2500, 3000]
     static let glasses = [150, 200, 250, 330, 500]
     static let intervals = [20, 30, 45, 60, 90, 120]
+    /// The limits a custom value is kept in (the presets are inside them).
+    static let goalRange = 250...6000
+    static let glassRange = 50...1500
+    static let everyRange = 10...240
 }
 
 enum BuddyWater {

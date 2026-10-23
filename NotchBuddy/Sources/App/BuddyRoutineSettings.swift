@@ -34,9 +34,9 @@ final class BuddyRoutineSettings: ObservableObject {
     @Published var waterPlan: BuddyWaterPlan {
         didSet {
             var p = waterPlan
-            p.every = min(max(p.every, 10), 240)
-            p.goal = min(max(p.goal, 250), 6000)
-            p.glass = min(max(p.glass, 50), 1500)
+            p.every = min(max(p.every, BuddyWaterPlan.everyRange.lowerBound), BuddyWaterPlan.everyRange.upperBound)
+            p.goal = min(max(p.goal, BuddyWaterPlan.goalRange.lowerBound), BuddyWaterPlan.goalRange.upperBound)
+            p.glass = min(max(p.glass, BuddyWaterPlan.glassRange.lowerBound), BuddyWaterPlan.glassRange.upperBound)
             p.from = min(max(p.from, 0), 24 * 60 - 1)
             p.to = min(max(p.to, 0), 24 * 60 - 1)
             if p != waterPlan { waterPlan = p; return }

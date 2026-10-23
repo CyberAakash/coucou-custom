@@ -132,8 +132,8 @@ final class BuddyRoutineController: ObservableObject {
 
     func startFocus(minutes: Int? = nil, breakMinutes: Int? = nil) {
         var plan = settings.focusPlan
-        if let minutes { plan.focus = min(max(minutes, 1), 180) }
-        if let breakMinutes { plan.shortBreak = min(max(breakMinutes, 1), 60) }
+        if let minutes { plan.focus = min(max(minutes, BuddyFocusPlan.focusRange.lowerBound), BuddyFocusPlan.focusRange.upperBound) }
+        if let breakMinutes { plan.shortBreak = min(max(breakMinutes, BuddyFocusPlan.breakRange.lowerBound), BuddyFocusPlan.breakRange.upperBound) }
         focus = .start(plan, at: .now)
         dropAlerts { $0 == .focusDone || $0 == .breakDone }
         BuddyController.shared.react(.started)
