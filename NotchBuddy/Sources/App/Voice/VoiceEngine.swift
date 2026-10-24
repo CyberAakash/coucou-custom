@@ -60,6 +60,10 @@ final class VoiceEngine: ObservableObject {
 
     private var audio:   VoiceAudio?
     private var spotter: WakeSpotter?
+    /// The command's audio for Parakeet (fork), and whether it began at a wake (then the wake
+    /// phrase is stripped from what Parakeet heard).
+    private let recorder = CommandRecorder()
+    private var recordingFromWake = false
     private var locale:  Locale?
 
     private var voiceSegmentActive = false
@@ -219,6 +223,9 @@ final class VoiceEngine: ObservableObject {
         isListeningForCommand = true
         commandTranscript     = ""
         lastWordCount         = 0
+        recorder.start(keepingLast: 0.3)
+        recordingFromWake = false
+        if CommandHearing.usesParakeet { Parakeet.shared.preload() }
         directInitialTimeout  = firstWordTimeout
         loggedDropWhileSpeaking = false
         audio.bypassVAD       = true
@@ -365,7 +372,7 @@ final class VoiceEngine: ObservableObject {
             }
         }
 
-        a.onBuffer = { buf, _ in s.feed(buf) }
+        a.onBuffer = { [recorder] buf, _ in s.feed(buf); recorder.append(buf) }
 
         do {
             try a.start()
@@ -653,6 +660,11 @@ final class VoiceEngine: ObservableObject {
         isListeningForCommand = true
         commandTranscript     = ""
         lastWordCount         = 0
+        // The wake fires a moment after the words: keep the last second so the first command
+        // word is in Parakeet's recording too.
+        recorder.start(keepingLast: 1.2)
+        recordingFromWake = true
+        if CommandHearing.usesParakeet { Parakeet.shared.preload() }
         // After "OK Coucou", leave time to start the sentence (the island no longer
         // opens, the caption shows "Je t'écoute…" instead). 3 s was too short.
         directInitialTimeout  = Self.wakeFirstWordTimeout
@@ -746,13 +758,62 @@ final class VoiceEngine: ObservableObject {
         spotter?.endWindow()
         restoreMusic()
         appendAppLog("nb.log", "[Voice] command end (had transcript: \(!commandTranscript.isEmpty))")
-        if !postFinished { commandTranscript = "" }
+        let samples = recorder.stop()
+        let fromWake = recordingFromWake
+        if !postFinished { commandTranscript = ""; hearingTest?.running = false }
         isListeningForCommand = false
-        if postFinished {
-            let cmd = commandTranscript
-            NotificationCenter.default.post(name: .voiceFinished,
-                                            object: cmd.isEmpty ? nil : cmd as NSString)
+        guard postFinished else { return }
+        let appleText = commandTranscript
+        let testing = hearingTest?.running == true
+        // Parakeet on the recorded command (fork): the final text, a tenth of a second later.
+        // Under 0.4 s of audio there are no words to hear.
+        let hearWithParakeet = (CommandHearing.usesParakeet || testing) && Parakeet.installed && samples.count >= 6_400
+        guard hearWithParakeet else {
+            if testing { finishHearingTest(apple: appleText, parakeet: nil); return }
+            finishCommand(appleText)
+            return
         }
+        Task { @MainActor in
+            let heard = await CommandHearing.transcribe(samples)
+            let stripped = heard.map { fromWake ? HearingCorrection.stripWake($0, customPhrase: VoiceSettings.wakePhrase) : $0 }
+            if testing { finishHearingTest(apple: appleText, parakeet: stripped); return }
+            // Parakeet heard nothing where Apple heard words: trust Apple's words.
+            let text = (stripped?.isEmpty == false || appleText.isEmpty) ? (stripped ?? appleText) : appleText
+            finishCommand(text)
+        }
+    }
+
+    private func finishCommand(_ text: String) {
+        let cmd = HearingCorrection.correct(text, personalWords: VoiceSettings.personalWords)
+        commandTranscript = cmd
+        NotificationCenter.default.post(name: .voiceFinished,
+                                        object: cmd.isEmpty ? nil : cmd as NSString)
+    }
+
+    // MARK: - Hearing test (fork): Settings → Voice → Hearing → Record and compare
+
+    struct HearingTest {
+        var running = true
+        var apple: String? = nil
+        var parakeet: String? = nil
+    }
+    @Published private(set) var hearingTest: HearingTest? = nil
+
+    func startHearingTest() {
+        guard isEnabled, !isPaused, !isListeningForCommand else { return }
+        hearingTest = HearingTest()
+        startListeningDirectly(firstWordTimeout: 6.0)
+    }
+
+    func clearHearingTest() { hearingTest = nil }
+
+    private func finishHearingTest(apple: String, parakeet: String?) {
+        hearingTest = HearingTest(running: false,
+                                  apple: HearingCorrection.correct(apple, personalWords: VoiceSettings.personalWords),
+                                  parakeet: parakeet.map { HearingCorrection.correct($0, personalWords: VoiceSettings.personalWords) })
+        commandTranscript = ""
+        // Closes the island's listening state without running a command.
+        NotificationCenter.default.post(name: .voiceFinished, object: nil)
     }
 
     // MARK: - Helpers

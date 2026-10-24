@@ -3328,6 +3328,9 @@ extension SettingsView {
             }
         }
 
+        HubLabel(String(localized: "hub.hearing", defaultValue: "Hearing"))
+        HubCard { HearingSettingsRows(engine: voiceEngine) }
+
         HubLabel(String(localized: "Language"))
         HubCard {
             HubRow(title: String(localized: "voice.listen-language")) {
