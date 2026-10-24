@@ -24,7 +24,7 @@ enum BuddyBubbleStyle: String, CaseIterable, Identifiable {
 final class BuddyBubbleModel: ObservableObject {
     @Published var text: String
     @Published var style: BuddyBubbleStyle
-    /// The bubble is over Mochi (its tail or trail points down) or under him.
+    /// The bubble is over Mochi (its tail points down) or under him.
     @Published var above: Bool
     @Published var shownAt: Date
     @Published var leftAt: Date?
@@ -131,16 +131,14 @@ private struct BubbleBody: View {
     }
 }
 
-/// Dark glass in the Buddy's card colours, a thin gradient rim, and a trail of two dots down to
-/// his head. The dots come first, then the bubble rises out of them and the words type in;
-/// it leaves by floating up and fading.
+/// Dark glass in the Buddy's card colours with a thin gradient rim. It rises over his head and
+/// the words type in; it leaves by floating up and fading.
 private struct GlassBubble: View {
     let text: String, above: Bool, t: Double, out: Double?
 
     var body: some View {
         let rise = BubbleMotion.spring(t - 0.08, duration: 0.42, bounce: 0.25)
         let leave = out.map { BubbleMotion.easeOut($0, duration: 0.32) } ?? 0
-        let dot1 = BubbleMotion.easeOut(t, duration: 0.14), dot2 = BubbleMotion.easeOut(t - 0.05, duration: 0.14)
         let visible = BubbleMotion.typed(text, t: t, delay: 0.16, rate: 42)
         let rim = AngularGradient(colors: [Color(hex: "#6366F1"), Color(hex: "#F472B6"), Color(hex: "#F5A524"), Color(hex: "#22D3EE"), Color(hex: "#6366F1")],
                                   center: .center, angle: .degrees(t * 50))
@@ -161,15 +159,8 @@ private struct GlassBubble: View {
             .scaleEffect(0.82 + 0.18 * rise, anchor: above ? .bottom : .top)
             .offset(y: (above ? 1 : -1) * 10 * (1 - rise))
             .opacity(min(1, rise * 1.6))
-        let trail = VStack(spacing: 3) {
-            Circle().fill(Color(hex: "#141518")).overlay(Circle().strokeBorder(Color(hex: "#A78BFA").opacity(0.7), lineWidth: 1.2))
-                .frame(width: 8, height: 8).scaleEffect(above ? dot2 : dot1)
-            Circle().fill(Color(hex: "#141518")).overlay(Circle().strokeBorder(Color(hex: "#A78BFA").opacity(0.7), lineWidth: 1))
-                .frame(width: 5, height: 5).scaleEffect(above ? dot1 : dot2)
-        }
-        return VStack(spacing: 3) {
-            if above { bubble; trail } else { trail.rotationEffect(.degrees(180)); bubble }
-        }
+        return bubble
+            .padding(above ? .bottom : .top, 6)   // a little air over his head
         .offset(y: -14 * leave)
         .opacity(1 - leave)
         .blur(radius: 2.5 * leave)
