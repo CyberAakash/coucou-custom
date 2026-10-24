@@ -16,6 +16,7 @@ final class BuddySettings: ObservableObject {
     static let colorKey = "buddyColor"
     static let reactKey = "buddyReactToAgents"
     static let speechKey = "buddySpeechBubbles"
+    static let bubbleStyleKey = "buddyBubbleStyle"
     static let followKey = "buddyFollowCursor"
     static let napKey = "buddyNapWhenIdle"
     static let spotsKey = "buddySpots"
@@ -96,6 +97,8 @@ final class BuddySettings: ObservableObject {
     @Published var reactToAgents: Bool { didSet { defaults.set(reactToAgents, forKey: Self.reactKey) } }
     /// It says a short line when a permission or a question waits, or something fails.
     @Published var speechBubbles: Bool { didSet { defaults.set(speechBubbles, forKey: Self.speechKey) } }
+    /// How its speech bubble looks and moves (coucou-custom fork).
+    @Published var bubbleStyle: BuddyBubbleStyle { didSet { defaults.set(bubbleStyle.rawValue, forKey: Self.bubbleStyleKey) } }
     /// Its eyes follow the cursor.
     @Published var followCursor: Bool { didSet { defaults.set(followCursor, forKey: Self.followKey) } }
     /// It naps when you are idle (BuddyNap).
@@ -150,6 +153,7 @@ final class BuddySettings: ObservableObject {
         companionSide = defaults.string(forKey: Self.companionSideKey).flatMap(BuddyCompanionSide.init(rawValue:)) ?? .both
         reactToAgents = bool(Self.reactKey, default: true)
         speechBubbles = bool(Self.speechKey, default: true)
+        bubbleStyle = defaults.string(forKey: Self.bubbleStyleKey).flatMap(BuddyBubbleStyle.init(rawValue:)) ?? .glass
         followCursor = bool(Self.followKey, default: true)
         napWhenIdle = bool(Self.napKey, default: true)
         hudWhileDragging = defaults.string(forKey: Self.hudDragKey).flatMap(BuddyHUDDrag.init(rawValue:)) ?? .follow

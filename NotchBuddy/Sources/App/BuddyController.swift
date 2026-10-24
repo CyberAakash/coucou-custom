@@ -68,69 +68,6 @@ private final class BuddyCalmFullHostingView: NSHostingView<BuddyCalmFullView> {
 /// What a routine asks of the Buddy.
 enum BuddyReaction { case started, alert, done }
 
-/// The speech bubble's drawing: a rounded bubble with a tail pointing at Mochi's head, popping
-/// up from the tail (coucou-custom fork; it used to float as a plain label well above him).
-private struct BuddyBubbleView: View {
-    let text: String
-    /// The tail points down (bubble over Mochi) or up (bubble under him, near the top of a screen).
-    var tailDown = true
-    @State private var shown = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    static let tail: CGFloat = 7
-    /// Transparent room around the bubble for its shadow and the pop's overshoot.
-    static let margin: CGFloat = 6
-
-    var body: some View {
-        let shape = BuddyBubbleShape(tail: Self.tail, tailDown: tailDown)
-        Text(text)
-            .font(.system(size: 13, weight: .semibold, design: .rounded))
-            .foregroundColor(Color(hex: "#1D1B22"))
-            .lineLimit(3)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: 220)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .padding(tailDown ? .bottom : .top, Self.tail)
-            .background(shape.fill(Color.white))
-            .overlay(shape.stroke(Color.black.opacity(0.10), lineWidth: 1))
-            .shadow(color: .black.opacity(0.22), radius: 5, y: 2)
-            .scaleEffect(shown || reduceMotion ? 1 : 0.55, anchor: tailDown ? .bottom : .top)
-            .opacity(shown || reduceMotion ? 1 : 0)
-            .padding(Self.margin)
-            .fixedSize()
-            .onAppear { withAnimation(.spring(response: 0.32, dampingFraction: 0.62)) { shown = true } }
-    }
-}
-
-/// A rounded rectangle with a small rounded tail in the middle of its bottom (or top) edge, one
-/// path so the outline runs round the tail too.
-private struct BuddyBubbleShape: Shape {
-    let tail: CGFloat
-    let tailDown: Bool
-
-    func path(in rect: CGRect) -> Path {
-        let body = tailDown ? CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - tail)
-                            : CGRect(x: rect.minX, y: rect.minY + tail, width: rect.width, height: rect.height - tail)
-        let r = min(12, body.height / 2)
-        let half: CGFloat = 7
-        var p = Path(roundedRect: body, cornerRadius: r, style: .continuous)
-        var t = Path()
-        if tailDown {
-            t.move(to: CGPoint(x: body.midX - half, y: body.maxY - 0.5))
-            t.addQuadCurve(to: CGPoint(x: body.midX, y: rect.maxY), control: CGPoint(x: body.midX - 2, y: body.maxY + tail * 0.4))
-            t.addQuadCurve(to: CGPoint(x: body.midX + half, y: body.maxY - 0.5), control: CGPoint(x: body.midX + 2, y: body.maxY + tail * 0.4))
-        } else {
-            t.move(to: CGPoint(x: body.midX - half, y: body.minY + 0.5))
-            t.addQuadCurve(to: CGPoint(x: body.midX, y: rect.minY), control: CGPoint(x: body.midX - 2, y: body.minY - tail * 0.4))
-            t.addQuadCurve(to: CGPoint(x: body.midX + half, y: body.minY + 0.5), control: CGPoint(x: body.midX + 2, y: body.minY - tail * 0.4))
-        }
-        t.closeSubpath()
-        p.addPath(t)
-        return p.normalized()
-    }
-}
-
 @MainActor
 final class BuddyController {
     static let shared = BuddyController()
@@ -1014,9 +951,17 @@ final class BuddyController {
             p.isReleasedWhenClosed = false
             return p
         }()
-        bubbleText = text
+        bubbleGone?.cancel()
         bubble = b
-        layoutBubble(tailDown: bubbleFitsAbove(b))
+        let model = BuddyBubbleModel(text: text, style: settings.bubbleStyle, above: bubbleFitsAbove(),
+                                     ride: { [weak self] in self?.bubbleRide() ?? .zero })
+        bubbleModel = model
+        let host = NSHostingView(rootView: BuddyBubbleView(model: model, rideRoom: bubbleRideRoom))
+        let size = host.fittingSize
+        host.frame = CGRect(origin: .zero, size: size)
+        b.contentView = host
+        b.setContentSize(size)
+        moveBubble()
         b.orderFrontRegardless()
         bubbleHide?.cancel()
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.hideBubble() } }
@@ -1024,19 +969,18 @@ final class BuddyController {
         DispatchQueue.main.asyncAfter(deadline: .now() + BuddySpeech.displayDuration, execute: work)
     }
 
-    private var bubbleText = ""
-    private var bubbleTailDown = true
+    private var bubbleModel: BuddyBubbleModel?
+    private var bubbleGone: DispatchWorkItem?
 
-    /// Renders the bubble with its tail up or down and sizes its window to it.
-    private func layoutBubble(tailDown: Bool) {
-        guard let b = bubble else { return }
-        bubbleTailDown = tailDown
-        let host = NSHostingView(rootView: BuddyBubbleView(text: bubbleText, tailDown: tailDown))
-        let size = host.fittingSize
-        host.frame = CGRect(origin: .zero, size: size)
-        b.contentView = host
-        b.setContentSize(size)
-        moveBubble()
+    /// Room in the bubble's window for Mochi's hop (0.35 R up, R = 0.3 side) and the entrance.
+    private var bubbleRideRoom: CGFloat { side * 0.12 + 10 }
+
+    /// Mochi's hop and sway now, in points (SwiftUI y, down): the bubble moves with his body,
+    /// which BotEngine draws at `oy · R` (R = 0.3 side) inside his own window.
+    private func bubbleRide() -> CGSize {
+        guard let engine else { return .zero }
+        let r = side * 0.3
+        return CGSize(width: engine.ox * r, height: engine.oy * r)
     }
 
     /// The top of Mochi's head or hat on screen, as measured for what he wears (the square has
@@ -1045,37 +989,44 @@ final class BuddyController {
         sq.minY + BuddyHeadroom.top(settings.resolvedOutfit()) * side
     }
 
-    private func bubbleFitsAbove(_ b: NSPanel) -> Bool {
+    private func bubbleFitsAbove() -> Bool {
         guard let p = panel else { return true }
         let sq = inner(p)
         let screen = screenAt(CGPoint(x: sq.midX, y: sq.minY))?.visibleFrame ?? sq
-        return headTop(sq) + b.frame.height <= screen.maxY
+        return headTop(sq) + 90 + bubbleRideRoom <= screen.maxY
     }
 
-    /// Its tail just over Mochi's head (or over the routine card when that sits over him), centred,
-    /// kept on its display; under him when there is no room above.
+    /// The bubble's tip just over Mochi's head (over the routine card when it sits over him),
+    /// centred, kept on its display; under him when there is no room above.
     private func moveBubble() {
-        guard let b = bubble, let p = panel else { return }
+        guard let b = bubble, let p = panel, let model = bubbleModel else { return }
         let sq = inner(p)
         let screen = screenAt(CGPoint(x: sq.midX, y: sq.minY))?.visibleFrame ?? sq
-        let above = bubbleFitsAbove(b)
-        if above != bubbleTailDown { layoutBubble(tailDown: above); return }
         let size = b.frame.size
-        let m = BuddyBubbleView.margin
-        // The bubble's own transparent margin is outside its tail: subtract it so the tail tip
-        // lands 3 pt above the head.
+        let pad = BuddyBubbleView.bottom
         let head = hud.map { $0.frame.minY >= sq.midY ? $0.frame.maxY - 12 : headTop(sq) } ?? headTop(sq)
         var origin = CGPoint(x: sq.midX - size.width / 2,
-                             y: above ? head + 3 - m : sq.minY + 6 - size.height + m)
+                             y: model.above ? head + 2 - pad : sq.minY + 6 + pad - size.height)
         origin.x = min(max(origin.x, screen.minX), screen.maxX - size.width)
         if b.frame.origin != origin { b.setFrameOrigin(origin) }
     }
 
+    /// Plays the style's exit, then removes the window.
     private func hideBubble() {
         bubbleHide?.cancel()
         bubbleHide = nil
-        bubble?.orderOut(nil)
-        bubble = nil
+        guard let b = bubble, let model = bubbleModel, model.leftAt == nil else { return }
+        model.leftAt = .now
+        let gone = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.bubbleModel === model else { return }
+                b.orderOut(nil)
+                self.bubble = nil
+                self.bubbleModel = nil
+            }
+        }
+        bubbleGone = gone
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: gone)
     }
 
     // MARK: - HUD (routines)
