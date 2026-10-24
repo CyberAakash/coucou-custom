@@ -49,8 +49,11 @@ final class VoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDe
     /// Adds a sentence to the queue. Starts playing if nothing is playing.
     func enqueue(_ text: String, locale: Locale?) {
         guard VoiceSettings.speakEnabled else { return }
-        let audio: Task<Data?, Never>? = ElevenLabsTTS.isActive
-            ? Task { await ElevenLabsTTS.shared.audio(for: text) }
+        // Mochi's own voice (fork) and ElevenLabs both deliver audio to play; the Mac voice
+        // speaks directly.
+        let audio: Task<Data?, Never>? = MochiVoice.isActive
+            ? Task { await MochiVoice.shared.audio(for: text) }
+            : ElevenLabsTTS.isActive ? Task { await ElevenLabsTTS.shared.audio(for: text) }
             : nil
         queue.append(Item(text: text, locale: locale, audio: audio))
         if !isSpeaking { playNext() }

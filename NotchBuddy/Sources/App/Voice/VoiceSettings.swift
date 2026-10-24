@@ -82,7 +82,8 @@ enum VoiceSettings {
         set { UserDefaults.standard.set(newValue, forKey: "voiceLanguageOfferDone") }
     }
 
-    /// Voice used to answer: "system" (macOS voices) or "elevenlabs" (user's API key).
+    /// Voice used to answer: "system" (macOS voices), "elevenlabs" (user's API key) or "mochi"
+    /// (fork: Kokoro on this Mac with the character chain, `MochiVoice`).
     static var ttsEngine: String {
         get { UserDefaults.standard.string(forKey: "voiceTTSEngine") ?? "system" }
         set { UserDefaults.standard.set(newValue, forKey: "voiceTTSEngine") }
