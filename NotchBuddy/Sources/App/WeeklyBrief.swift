@@ -1,0 +1,590 @@
+#if !APPSTORE
+import AppKit
+import Combine
+import SwiftUI
+
+// coucou-custom fork: the Weekly recap, in the notch or full screen (Settings → Briefs). Upstream's
+// recap card and its Monday rule stay; the fork's controller decides where it shows and gives it
+// a full-screen story: the week's work and how it compares, day by day, projects and agents, your
+// routines, the Mac's week, the Claude plan, then sharing it.
+
+enum WeeklyBriefSection: String, CaseIterable, Identifiable {
+    case summary, days, projects, routines, mac, plan
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .summary: "The week in numbers"
+        case .days: "Day by day"
+        case .projects: "Projects and agents"
+        case .routines: "Your routines"
+        case .mac: "The Mac's week"
+        case .plan: "Claude plan"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .summary: "Time with agents against the week before, sessions, active days, files, lines, commands, questions, approvals."
+        case .days: "Each day's time with agents, the busiest day and the longest session."
+        case .projects: "Where the time went: your top projects, and which agents did the work."
+        case .routines: "Water each day against your goal, focus sessions, reminders, timers, breathing."
+        case .mac: "The Mac's average load each day and its busiest moment of the week (needs the Daily brief's Mac's day)."
+        case .plan: "Your Claude plan's current session and weekly limits now."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .summary: "number"
+        case .days: "chart.bar.fill"
+        case .projects: "folder.fill"
+        case .routines: "drop.fill"
+        case .mac: "cpu"
+        case .plan: "staroflife.fill"
+        }
+    }
+}
+
+@MainActor
+final class WeeklyBriefSettings: ObservableObject {
+    static let shared = WeeklyBriefSettings()
+    private let defaults = UserDefaults.standard
+
+    /// Coucou's own recap by itself, once a week, when there was work (upstream's Monday 8:00 by default).
+    @Published var autoShow: Bool { didSet { defaults.set(autoShow, forKey: "weeklyRecapAutoShow") } }
+    /// The first time at the Mac on its day after its time, or at its time (never `.manual`: that is autoShow off).
+    @Published var trigger: DailyBriefTrigger { didSet { defaults.set(trigger.rawValue, forKey: "weeklyRecapTrigger") } }
+    /// 1 Monday … 7 Sunday.
+    @Published var weekday: Int { didSet { defaults.set(weekday, forKey: "weeklyRecapWeekday") } }
+    @Published var minuteOfDay: Int { didSet { defaults.set(minuteOfDay, forKey: "weeklyRecapMinute") } }
+    /// The notch by default: where the recap has always shown.
+    @Published var place: BriefPlace { didSet { defaults.set(place.rawValue, forKey: "weeklyRecapPlace") } }
+    @Published var period: WeeklyBriefPeriod { didSet { defaults.set(period.rawValue, forKey: "weeklyRecapPeriod") } }
+    @Published var sections: [WeeklyBriefSection] {
+        didSet { defaults.set(sections.map(\.rawValue), forKey: "weeklyRecapSections") }
+    }
+    @Published var autoAdvance: Int { didSet { defaults.set(autoAdvance, forKey: "weeklyRecapAutoAdvance") } }
+    @Published var sound: Bool { didSet { defaults.set(sound, forKey: "weeklyRecapSound") } }
+
+    private init() {
+        autoShow = defaults.object(forKey: "weeklyRecapAutoShow") as? Bool ?? true
+        let t = DailyBriefTrigger(rawValue: defaults.string(forKey: "weeklyRecapTrigger") ?? "") ?? .firstUse
+        trigger = t == .manual ? .firstUse : t
+        weekday = min(7, max(1, defaults.object(forKey: "weeklyRecapWeekday") as? Int ?? 1))
+        minuteOfDay = defaults.object(forKey: "weeklyRecapMinute") as? Int ?? 8 * 60
+        place = BriefPlace(rawValue: defaults.string(forKey: "weeklyRecapPlace") ?? "") ?? .notch
+        period = WeeklyBriefPeriod(rawValue: defaults.string(forKey: "weeklyRecapPeriod") ?? "") ?? .lastWeek
+        let stored = (defaults.stringArray(forKey: "weeklyRecapSections") ?? []).compactMap(WeeklyBriefSection.init(rawValue:))
+        sections = defaults.object(forKey: "weeklyRecapSections") == nil ? WeeklyBriefSection.allCases : stored
+        autoAdvance = defaults.object(forKey: "weeklyRecapAutoAdvance") as? Int ?? 0
+        sound = defaults.object(forKey: "weeklyRecapSound") as? Bool ?? true
+    }
+
+    func toggle(_ s: WeeklyBriefSection, _ on: Bool) {
+        if on, !sections.contains(s) {
+            // At the end: the order is yours (Settings → Briefs → Cards).
+            sections.append(s)
+        } else if !on {
+            sections.removeAll { $0 == s }
+        }
+    }
+}
+
+// MARK: - The week's data
+
+struct WeeklyBrief {
+    var date: Date
+    var weekStart: Date
+    var isThisWeek: Bool
+    var headline: String
+    var work: WeekWork
+    /// Millilitres each day, Monday first, and the goal; nil without Water.
+    var water: (days: [Int], goal: Int)?
+    var routines: BuddyDiary.Day
+    var macDays: [MacDay?]
+    var plan: ClaudePlanLimits?
+    var sections: [WeeklyBriefSection]
+
+    var rangeLabel: String {
+        let end = Calendar.current.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        return "\(weekStart.formatted(.dateTime.month(.abbreviated).day())) – \(end.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+
+    static let dayLetters = ["M", "T", "W", "T", "F", "S", "S"]
+    static let dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+}
+
+@MainActor
+enum WeeklyBriefBuilder {
+    static func build(now: Date = Date(), period: WeeklyBriefPeriod? = nil) async -> WeeklyBrief {
+        let s = WeeklyBriefSettings.shared
+        let cal = Calendar.current
+        let period = period ?? s.period
+        let start = period.weekStart(now: now, calendar: cal)
+        let records = RecapStore.shared.records()
+        let work = WeekWork.from(turns: records.turns, decisions: records.decisions, weekStart: start, calendar: cal)
+        let days = (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: start) }
+        let rs = BuddyRoutineSettings.shared
+        let diary = BuddyDiaryStore.diary
+        var sum = BuddyDiary.Day()
+        for d in days {
+            guard let day = diary.day(d, calendar: cal) else { continue }
+            sum.focusSessions += day.focusSessions
+            sum.focusMinutes += day.focusMinutes
+            sum.remindersDone += day.remindersDone
+            sum.timersDone += day.timersDone
+            sum.breathingSessions += day.breathingSessions
+        }
+        return WeeklyBrief(
+            date: now, weekStart: start, isThisWeek: period == .thisWeek,
+            headline: DailyBriefText.weekHeadline(work, isThisWeek: period == .thisWeek),
+            work: work,
+            water: rs.waterEnabled ? (days.map { rs.waterLog.total(on: $0, calendar: cal) }, rs.waterPlan.goal) : nil,
+            routines: sum,
+            macDays: days.map { MacDayRecorder.shared.day($0) },
+            plan: await ClaudePlanLimitsFetcher.shared.fetch(),
+            sections: s.sections)
+    }
+}
+
+@MainActor
+final class WeeklyBriefController {
+    static let shared = WeeklyBriefController()
+    private var timer: Timer?
+    private var subscription: AnyCancellable?
+
+    /// A timer for its next day and time; the check itself is AppDelegate.checkMondayRecap, as upstream's.
+    func start() {
+        subscription = WeeklyBriefSettings.shared.objectWillChange
+            .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
+            .sink { _ in MainActor.assumeIsolated { WeeklyBriefController.shared.schedule() } }
+        schedule()
+    }
+
+    private func schedule() {
+        timer?.invalidate()
+        timer = nil
+        let s = WeeklyBriefSettings.shared
+        guard s.autoShow else { return }
+        let due = WeeklyBriefSchedule.nextDue(weekday: s.weekday, minuteOfDay: s.minuteOfDay, after: Date())
+        let t = Timer(fire: due.addingTimeInterval(5), interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                NotificationCenter.default.post(name: .checkMondayRecap, object: nil)
+                WeeklyBriefController.shared.schedule()
+            }
+        }
+        t.tolerance = 30
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// `place` and `period` nil: as Settings → Briefs says.
+    func show(place: BriefPlace? = nil, period: WeeklyBriefPeriod? = nil) {
+        Task { @MainActor in
+            let brief = await WeeklyBriefBuilder.build(period: period)
+            switch place ?? WeeklyBriefSettings.shared.place {
+            case .notch:
+                BriefNotchModel.shared.weekly = brief
+                NotificationCenter.default.post(name: .hookExpand, object: IslandView.weeklyBrief)
+            case .fullScreen:
+                showFull(brief, takeKeyboard: true)
+            }
+        }
+    }
+
+    func showFull(_ brief: WeeklyBrief, takeKeyboard: Bool) {
+        let cards = WeeklyBriefCard.cards(for: brief.sections)
+        let story = BriefStory(count: cards.count, autoAdvance: WeeklyBriefSettings.shared.autoAdvance)
+        story.sound = WeeklyBriefSettings.shared.sound
+        if story.sound { SoundEngine.shared.play("greeting") }
+        let close = { FullScreenOverlay.shared.close(owner: "weekly") }
+        FullScreenOverlay.shared.present(
+            WeeklyBriefFullView(brief: brief, cards: cards, story: story, close: close),
+            owner: "weekly", dim: 0.56, takeKeyboard: takeKeyboard) { event in story.handle(event, close: close) }
+    }
+
+    func share(_ brief: WeeklyBrief) {
+        BriefSharePanel.show(name: "Weekly recap \(brief.rangeLabel)") { BriefShareCard.weekly(brief, hidePrivate: $0) }
+    }
+}
+
+// MARK: - Full screen
+
+enum WeeklyBriefCard: Hashable {
+    case intro, summary, days, projects, routines, mac, plan, closing
+
+    static func cards(for sections: [WeeklyBriefSection]) -> [WeeklyBriefCard] {
+        var out: [WeeklyBriefCard] = sections.map {
+            switch $0 {
+            case .summary: .summary
+            case .days: .days
+            case .projects: .projects
+            case .routines: .routines
+            case .mac: .mac
+            case .plan: .plan
+            }
+        }
+        out.insert(.intro, at: 0)
+        out.append(.closing)
+        return out
+    }
+}
+
+struct WeeklyBriefFullView: View {
+    let brief: WeeklyBrief
+    let cards: [WeeklyBriefCard]
+    @ObservedObject var story: BriefStory
+    let close: () -> Void
+
+    var body: some View {
+        BriefStoryFrame(story: story, title: "Weekly recap", date: brief.rangeLabel, close: close,
+                        share: { WeeklyBriefController.shared.share(brief) }) { i in
+            switch cards[i] {
+            case .intro: WeekIntro(brief: brief)
+            case .summary: WeekSummaryCard(brief: brief)
+            case .days: WeekDaysCard(brief: brief)
+            case .projects: WeekProjectsCard(brief: brief)
+            case .routines: WeekRoutinesCard(brief: brief)
+            case .mac: WeekMacCard(brief: brief)
+            case .plan: PlanCard(limits: brief.plan, close: close)
+            case .closing: WeekClosingCard(brief: brief, close: close)
+            }
+        }
+    }
+}
+
+/// The Weekly recap's first card: your week, your name, large.
+private struct WeekIntro: View {
+    let brief: WeeklyBrief
+
+    var body: some View {
+        let w = brief.work
+        var lines: [(String, String)] = []
+        if !w.total.isEmpty {
+            lines.append(("hammer.fill", "\(DailyBriefText.duration(minutes: w.total.minutes)) with your agents over \(w.activeDays) day\(w.activeDays == 1 ? "" : "s")"
+                          + (w.change.map { " (\(DailyBriefText.change($0)))" } ?? "")))
+            if let p = w.projects.first { lines.append(("folder.fill", "Mostly \(p.name)")) }
+            if let d = w.busiestDay { lines.append(("chart.bar.fill", "\(WeeklyBrief.dayNames[d]) was the busiest")) }
+        }
+        if let water = brief.water { lines.append(("drop.fill", "Water goal on \(water.days.filter { $0 >= water.goal }.count) of 7 days")) }
+        if lines.isEmpty { lines.append(("moon.zzz.fill", "A quiet week")) }
+        return BriefIntroCard(kicker: "Weekly recap · " + brief.rangeLabel,
+                              greeting: brief.isThisWeek ? "Your week so far," : "Your week,",
+                              name: DailyBriefSettings.shared.resolvedName,
+                              lines: Array(lines.prefix(4)), palette: BriefPalette.now(brief.date))
+    }
+}
+
+private struct WeekSummaryCard: View {
+    let brief: WeeklyBrief
+
+    var body: some View {
+        let w = brief.work
+        VStack(alignment: .leading, spacing: 12) {
+            CardTitle(label: brief.isThisWeek ? "This week so far" : "Last week", title: title(w))
+            if w.total.isEmpty {
+                Tile { Text("No agent session that week. Coucou counts them as your agents work.")
+                    .font(.system(size: 13)).foregroundColor(HubTheme.secondary) }
+                    .frame(height: 80)
+            } else {
+                Tile(glow: HubTheme.accent) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(DailyBriefText.duration(minutes: w.total.minutes)).font(.system(size: 40, weight: .bold).monospacedDigit())
+                        Text("with your agents").font(.system(size: 15)).foregroundColor(HubTheme.secondary)
+                        Spacer()
+                        if let c = w.change {
+                            Text(DailyBriefText.change(c))
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(c >= 0 ? HubTheme.green : Color(hex: "#F7B32B"))
+                                .padding(.horizontal, 10).frame(height: 26)
+                                .background(Capsule().fill((c >= 0 ? HubTheme.green : Color(hex: "#F7B32B")).opacity(0.14)))
+                        }
+                    }
+                }
+                .frame(height: 84)
+                Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+                    GridRow {
+                        Stat(value: "", label: w.total.sessions == 1 ? "agent session" : "agent sessions", count: w.total.sessions)
+                        Stat(value: "\(w.activeDays) of 7", label: "days with work")
+                        Stat(value: "", label: "files changed", count: w.total.filesChanged)
+                    }
+                    GridRow {
+                        Tile {
+                            HStack(spacing: 4) {
+                                Text("+\(w.total.linesAdded)").foregroundColor(HubTheme.green)
+                                Text("/").foregroundColor(HubTheme.muted)
+                                Text("−\(w.total.linesRemoved)").foregroundColor(HubTheme.red)
+                            }
+                            .font(.system(size: 26, weight: .bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
+                            Text("lines added / removed").font(.system(size: 12.5)).foregroundColor(HubTheme.secondary)
+                        }
+                        Stat(value: "", label: "commands run", count: w.total.commands)
+                        Stat(value: "\(w.total.questions) · \(w.total.approvals)", label: "questions · approvals")
+                    }
+                }
+                .frame(height: 200)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func title(_ w: WeekWork) -> String {
+        guard !w.total.isEmpty else { return "A quiet week." }
+        if let c = w.change, c >= 0.15 { return "A bigger week than the last." }
+        if let c = w.change, c <= -0.15 { return "A lighter week than the last." }
+        return "A steady week with your agents."
+    }
+}
+
+private struct WeekDaysCard: View {
+    let brief: WeeklyBrief
+
+    var body: some View {
+        let w = brief.work
+        let top = max(1, w.days.map(\.minutes).max() ?? 1)
+        VStack(alignment: .leading, spacing: 12) {
+            CardTitle(label: "Day by day", title: w.busiestDay.map { "\(WeeklyBrief.dayNames[$0]) was the busiest." } ?? "No busy day that week.")
+            Tile {
+                HStack(alignment: .bottom, spacing: 14) {
+                    ForEach(0..<7, id: \.self) { i in
+                        let m = w.days[i].minutes
+                        VStack(spacing: 6) {
+                            Text(m > 0 ? DailyBriefText.duration(minutes: m) : "")
+                                .font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundColor(HubTheme.secondary)
+                                .fixedSize()
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(i == w.busiestDay ? HubTheme.accent : HubTheme.accent.opacity(m > 0 ? 0.45 : 0.08))
+                                .frame(height: max(6, 190 * CGFloat(m) / CGFloat(top)))
+                            Text(WeeklyBrief.dayLetters[i]).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.muted)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+            .frame(height: 270)
+            HStack(spacing: 10) {
+                Stat(value: w.busiestDay.map { DailyBriefText.duration(minutes: w.days[$0].minutes) } ?? "—",
+                     label: "on \(w.busiestDay.map { WeeklyBrief.dayNames[$0] } ?? "the busiest day")")
+                Stat(value: DailyBriefText.duration(minutes: w.longestSessionMinutes), label: "longest session")
+                Stat(value: w.activeDays > 0 ? DailyBriefText.duration(minutes: w.total.minutes / w.activeDays) : "—", label: "a day with work, on average")
+            }
+            .frame(height: 90)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct WeekProjectsCard: View {
+    let brief: WeeklyBrief
+
+    var body: some View {
+        let w = brief.work
+        let total = max(1, w.projects.map(\.minutes).reduce(0, +))
+        let colors: [Color] = [HubTheme.accent, Color(hex: "#3B9EFF"), Color(hex: "#A78BFA"), HubTheme.green]
+        VStack(alignment: .leading, spacing: 12) {
+            CardTitle(label: "Projects and agents", title: w.projects.first.map { "Most of it went to \($0.name)." } ?? "No project that week.")
+            if !w.projects.isEmpty {
+                Tile {
+                    GeometryReader { g in
+                        HStack(spacing: 3) {
+                            ForEach(Array(w.projects.enumerated()), id: \.offset) { i, p in
+                                RoundedRectangle(cornerRadius: 4).fill(colors[i % colors.count])
+                                    .frame(width: max(6, (g.size.width - 9) * CGFloat(p.minutes) / CGFloat(total)))
+                            }
+                        }
+                    }
+                    .frame(height: 12)
+                    ForEach(Array(w.projects.enumerated()), id: \.offset) { i, p in
+                        HStack(spacing: 10) {
+                            Circle().fill(colors[i % colors.count]).frame(width: 9, height: 9)
+                            Text(p.name).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                            Spacer()
+                            Text("\(DailyBriefText.duration(minutes: p.minutes)) · \(p.sessions) session\(p.sessions == 1 ? "" : "s")")
+                                .font(.system(size: 12.5).monospacedDigit()).foregroundColor(HubTheme.secondary)
+                        }
+                        .padding(.top, 6)
+                    }
+                }
+                .frame(height: 70 + CGFloat(w.projects.count) * 30)
+            }
+            if !w.agents.isEmpty {
+                HubLabelRow(text: "Agents")
+                HStack(spacing: 8) {
+                    ForEach(w.agents.prefix(5), id: \.pill) { a in
+                        let def = PillCatalog.definition(for: a.pill)
+                        HStack(spacing: 6) {
+                            Circle().fill(Color(hex: def?.color ?? "#8E939C")).frame(width: 8, height: 8)
+                            Text(def?.name ?? a.pill).font(.system(size: 12.5, weight: .semibold))
+                            Text("\(a.sessions)").font(.system(size: 12.5).monospacedDigit()).foregroundColor(HubTheme.secondary)
+                        }
+                        .padding(.horizontal, 12).frame(height: 32)
+                        .background(Capsule().fill(HubTheme.card))
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct HubLabelRow: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2).foregroundColor(HubTheme.muted)
+    }
+}
+
+private struct WeekRoutinesCard: View {
+    let brief: WeeklyBrief
+
+    var body: some View {
+        let r = brief.routines
+        VStack(alignment: .leading, spacing: 12) {
+            CardTitle(label: "Your routines", title: title)
+            if let water = brief.water {
+                let met = water.days.filter { $0 >= water.goal }.count
+                Tile(glow: Color(hex: "#22D3EE")) {
+                    HStack {
+                        Text("Water").font(.system(size: 14, weight: .semibold))
+                        Spacer()
+                        Text("goal met \(met) of 7 days · \(DailyBriefText.water(water.days.reduce(0, +))) in all")
+                            .font(.system(size: 12).monospacedDigit()).foregroundColor(HubTheme.secondary)
+                    }
+                    HStack(alignment: .bottom, spacing: 12) {
+                        ForEach(0..<7, id: \.self) { i in
+                            let k = Double(water.days[i]) / Double(max(1, water.goal))
+                            VStack(spacing: 5) {
+                                ZStack(alignment: .bottom) {
+                                    RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.06))
+                                    RoundedRectangle(cornerRadius: 5).fill(Color(hex: "#22D3EE").opacity(k >= 1 ? 1 : 0.55))
+                                        .frame(height: 80 * CGFloat(min(1, k)))
+                                }
+                                .frame(height: 80)
+                                Text(WeeklyBrief.dayLetters[i]).font(.system(size: 11, weight: .semibold)).foregroundColor(HubTheme.muted)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .frame(height: 150)
+            }
+            HStack(spacing: 10) {
+                Stat(value: "", label: "focus sessions · \(DailyBriefText.duration(minutes: r.focusMinutes))", count: r.focusSessions)
+                Stat(value: "", label: "reminders done", count: r.remindersDone)
+                Stat(value: "\(r.timersDone)", label: "timers done")
+                Stat(value: "\(r.breathingSessions)", label: "breathing sessions")
+            }
+            .frame(height: 96)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var title: String {
+        if let water = brief.water {
+            let met = water.days.filter { $0 >= water.goal }.count
+            if met >= 5 { return "Well hydrated, \(met) days of 7." }
+        }
+        if brief.routines.focusSessions >= 10 { return "\(brief.routines.focusSessions) focus sessions. Strong week." }
+        return brief.routines.focusSessions + brief.routines.remindersDone > 0 ? "Your routines, all week." : "A week to start a routine."
+    }
+}
+
+private struct WeekMacCard: View {
+    let brief: WeeklyBrief
+
+    var body: some View {
+        let cpu = brief.macDays.map { $0?.averageCPU }
+        let mem = brief.macDays.map { $0?.averageMemory }
+        let peak = brief.macDays.enumerated().compactMap { i, d -> (Int, MacDayBucket)? in d?.peaks(count: 1).first.map { (i, $0) } }
+            .max { $0.1.cpuMax < $1.1.cpuMax }
+        VStack(alignment: .leading, spacing: 12) {
+            CardTitle(label: "The Mac's week", title: peak.map { p in
+                "Busiest on \(WeeklyBrief.dayNames[p.0]) at \(MacDay.clock(p.1.minute))\(p.1.peakApp.map { ", during \($0)" } ?? "")."
+            } ?? (cpu.contains { $0 != nil } ? "A calm week for the Mac." : "No record of the Mac's week yet."))
+            if cpu.contains(where: { $0 != nil }) {
+                Tile {
+                    HStack(spacing: 16) {
+                        legend("CPU", Color(hex: "#3B9EFF"))
+                        legend("Memory", Color(hex: "#A78BFA"))
+                        Spacer()
+                        Text("average each day").font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
+                    }
+                    HStack(alignment: .bottom, spacing: 14) {
+                        ForEach(0..<7, id: \.self) { i in
+                            VStack(spacing: 5) {
+                                HStack(alignment: .bottom, spacing: 3) {
+                                    bar(cpu[i], Color(hex: "#3B9EFF"))
+                                    bar(mem[i], Color(hex: "#A78BFA"))
+                                }
+                                .frame(height: 170)
+                                Text(WeeklyBrief.dayLetters[i]).font(.system(size: 11, weight: .semibold)).foregroundColor(HubTheme.muted)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .frame(height: 240)
+            } else {
+                Tile {
+                    Text("Turn on the Daily brief with its Mac's day card: Coucou then keeps one reading a minute, 14 days, on this Mac only, and the week shows here.")
+                        .font(.system(size: 13)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(height: 90)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func bar(_ v: Double?, _ c: Color) -> some View {
+        RoundedRectangle(cornerRadius: 4).fill(v == nil ? Color.white.opacity(0.06) : c)
+            .frame(width: 14, height: max(4, 170 * CGFloat(v ?? 0)))
+    }
+
+    private func legend(_ t: String, _ c: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(c).frame(width: 8, height: 8)
+            Text(t).font(.system(size: 12.5, weight: .semibold))
+        }
+    }
+}
+
+private struct WeekClosingCard: View {
+    let brief: WeeklyBrief
+    let close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            DesignMochi(size: 104, mode: .joy)
+                .frame(width: 124, height: 100)
+            Text(brief.work.total.isEmpty ? "Here's to the next one" : "That was your week")
+                .font(.system(size: 26, weight: .bold))
+            Text(brief.headline).font(.system(size: 13.5)).foregroundColor(HubTheme.secondary)
+                .multilineTextAlignment(.center).frame(maxWidth: 480)
+            HStack(spacing: 10) {
+                if !brief.work.total.isEmpty {
+                    Button { WeeklyBriefController.shared.share(brief) } label: {
+                        Label("Share as an image", systemImage: "square.and.arrow.up")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .padding(.horizontal, 18).frame(height: 40)
+                            .background(Capsule().fill(Color.white.opacity(0.1)))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button(action: close) {
+                    Text("Done").font(.system(size: 14, weight: .bold)).foregroundColor(HubTheme.onAccent)
+                        .padding(.horizontal, 26).frame(height: 40).background(Capsule().fill(HubTheme.accent))
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(RadialGradient(colors: [Color(hex: "#818CF8").opacity(0.2), HubTheme.card], center: .top, startRadius: 0, endRadius: 320)))
+    }
+}
+
+#endif

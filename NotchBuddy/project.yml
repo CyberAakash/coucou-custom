@@ -129,6 +129,10 @@ targets:
       - path: Resources/sounds
         buildPhase: resources
         type: folder
+      # coucou-custom fork: RunCat Neo's built-in runners for the menu-bar icon (Apache-2.0)
+      - path: Resources/runners
+        buildPhase: resources
+        type: folder
       - path: Resources/Localizable.xcstrings
         buildPhase: resources
       # What's new after an update, once in the notch (WhatsNewViews.swift; GitHub build)
@@ -153,6 +157,7 @@ targets:
         NSAccessibilityUsageDescription: "Pour lire le titre de la fenêtre active et l'attacher comme contexte."
         NSContactsUsageDescription: "Coucou looks up an email address when you ask it, by voice, to prepare an email."
         NSFocusStatusUsageDescription: "Coucou stays quiet about new WhatsApp messages while a Focus is on."
+        NSCalendarsFullAccessUsageDescription: "Coucou shows today's events in your Daily brief, when you turn on its Today ahead section."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleLocalizations:

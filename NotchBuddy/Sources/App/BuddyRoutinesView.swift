@@ -10,7 +10,7 @@ struct BuddyAssistantCard: View {
         HubCard {
             HubRow(title: "Let the chat act",
                    detail: "The notch chat can set reminders, start focus sessions and timers, turn on water nudges, start a breathing exercise, check your Mac and sum up your agents. Each action shows in the chat. Works with Claude (API key or Claude Code login), OpenAI and Gemini.") {
-                Toggle("", isOn: $settings.assistantTools).toggleStyle(.switch).labelsHidden()
+                BriefSwitch(isOn: $settings.assistantTools, tint: HubBuddyPage.tint)
             }
             HubDivider()
             HubRow(title: "Try it", detail: "\"Remind me in 10 minutes to stretch\", \"Start a 25 minute focus session\", \"Help me calm down\".") {
@@ -41,19 +41,19 @@ struct BuddyRoutinesCard: View {
             }
             HubDivider()
             HubRow(title: "Breathing full screen", detail: "The Buddy walks to the middle of the screen, which dims, and breathes with you in an orb; it walks back after. Drag it away to go on in a card by it. Off: the card only.") {
-                Toggle("", isOn: $settings.breathingFullScreen).toggleStyle(.switch).labelsHidden()
+                BriefSwitch(isOn: $settings.breathingFullScreen, tint: HubBuddyPage.tint)
             }
             HubDivider()
             HubRow(title: "Launch greeting", detail: "Launch Buddy: it says hello when Coucou starts.") {
                 HStack(spacing: 10) {
                     Toggle("Sound", isOn: $settings.launchGreetingSound).toggleStyle(.checkbox)
                         .disabled(!settings.launchGreeting)
-                    Toggle("", isOn: $settings.launchGreeting).toggleStyle(.switch).labelsHidden()
+                    BriefSwitch(isOn: $settings.launchGreeting, tint: HubBuddyPage.tint)
                 }
             }
             HubDivider()
             HubRow(title: "Alert sound", detail: "When a reminder or a timer is due, and when a focus session or a break ends.") {
-                Toggle("", isOn: $settings.alertSound).toggleStyle(.switch).labelsHidden()
+                BriefSwitch(isOn: $settings.alertSound, tint: HubBuddyPage.tint)
             }
             HubDivider()
             HubRow(title: "Start now", detail: "Also in the Buddy's right-click menu.") {
@@ -125,7 +125,7 @@ struct BuddyWaterCard: View {
             HubRow(title: "Water reminder", detail: settings.waterEnabled
                    ? "A gentle nudge, only while you are at the Mac\(plan.stopAtGoal ? ", until the goal" : "")\(routines.nextWaterNudge.map { ". Next at \($0.formatted(date: .omitted, time: .shortened))" } ?? "")."
                    : "A gentle nudge to take a water break, and a glass logged in one click.") {
-                Toggle("", isOn: $settings.waterEnabled).toggleStyle(.switch).labelsHidden()
+                BriefSwitch(isOn: $settings.waterEnabled, tint: HubBuddyPage.tint)
             }
             HubDivider()
             HubRow(title: "Daily goal") {
@@ -153,7 +153,7 @@ struct BuddyWaterCard: View {
             }
             HubDivider()
             HubRow(title: "Stop once the goal is reached", detail: "No more nudges that day.") {
-                Toggle("", isOn: $settings.waterPlan.stopAtGoal).toggleStyle(.switch).labelsHidden()
+                BriefSwitch(isOn: $settings.waterPlan.stopAtGoal, tint: HubBuddyPage.tint)
             }
         }
     }
@@ -229,90 +229,64 @@ struct BuddyAmountChips: View {
     }
 }
 
-/// A time of day, minutes after midnight.
+/// A time of day, minutes after midnight: the Briefs page's time picker.
 struct BuddyClockField: View {
     @Binding var minutes: Int
 
     var body: some View {
-        DatePicker("", selection: Binding(
-            get: { Calendar.current.date(byAdding: .minute, value: minutes, to: Calendar.current.startOfDay(for: .now)) ?? .now },
-            set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); minutes = (c.hour ?? 0) * 60 + (c.minute ?? 0) }),
-                   displayedComponents: .hourAndMinute)
-            .labelsHidden()
-            .datePickerStyle(.field)
-            .frame(width: 84)
+        BriefTimePicker(minuteOfDay: $minutes, tint: HubBuddyPage.tint, width: 170)
     }
 }
 
-/// The days of the week, in the user's order, each on or off.
+/// The days of the week, in the user's order, each on or off, as the Briefs page's day picker.
 struct BuddyWeekdayChips: View {
     @Binding var selection: Set<Int>
 
     var body: some View {
         let cal = Calendar.current
         let order = (0..<7).map { (cal.firstWeekday - 1 + $0) % 7 + 1 }
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ForEach(order, id: \.self) { d in
                 let on = selection.contains(d)
                 Button {
-                    if on { selection.remove(d) } else { selection.insert(d) }
+                    withAnimation(BriefLayout.pop) { if on { selection.remove(d) } else { selection.insert(d) } }
                 } label: {
-                    Text(cal.veryShortWeekdaySymbols[d - 1])
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                    Text(cal.shortWeekdaySymbols[d - 1])
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-                        .frame(width: 26, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+                        .frame(width: 44, height: 34)
+                        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(on ? HubBuddyPage.tint : Color.white.opacity(0.05)))
+                        .shadow(color: on ? HubBuddyPage.tint.opacity(0.45) : .clear, radius: 6)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(BriefPress())
                 .help(cal.weekdaySymbols[d - 1])
             }
         }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
     }
 }
 
-/// Chips for a few values, as the page's other chips.
+/// A few values to pick, or one of your own typed in: the Briefs page's combobox.
 struct BuddyChipRow: View {
     let values: [Int]
     let label: (Int) -> String
     @Binding var selection: Int
-    /// With a range, a Custom chip ends the row and opens a number field kept in it.
+    /// With a range, a value of your own can be typed in.
     var custom: ClosedRange<Int>? = nil
     var step = 1
     var unit = ""
-    @State private var editing = false
 
     var body: some View {
-        let isCustom = custom != nil && (editing || !values.contains(selection))
-        HStack(spacing: 4) {
-            ForEach(values, id: \.self) { v in
-                let on = selection == v && !isCustom
-                Button { editing = false; selection = v } label: {
-                    Text(label(v))
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-                        .padding(.horizontal, 8)
-                        .frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            if let range = custom {
-                BuddyCustomChip(on: isCustom) { editing = true }
-                if isCustom {
-                    BuddyNumberField(value: $selection, range: range, step: step, unit: unit)
-                }
-            }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        BriefComboBox(options: values.map { BriefComboOption(value: $0, title: label($0)) },
+                      selection: $selection, tint: HubBuddyPage.tint, symbol: unit == "ml" ? "drop" : "timer", width: 220,
+                      custom: custom.map { range in { text in
+                          let digits = text.filter(\.isNumber)
+                          guard let n = Int(digits), range.contains(n) else { return nil }
+                          return n
+                      } },
+                      customTitle: { "\($0) \(unit)" },
+                      placeholder: custom == nil ? "Search" : "Search, or type \(unit.isEmpty ? "a number" : unit)")
     }
 }
 

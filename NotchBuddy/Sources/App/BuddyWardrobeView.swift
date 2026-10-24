@@ -14,52 +14,16 @@ struct BuddyShadowChips: View {
 
     var body: some View {
         let preset = BuddyShadow.preset(opacity: opacity)
-        HStack(spacing: 4) {
-            ForEach(BuddyShadow.allCases) { s in
-                let on = preset == s
-                Button { opacity = s.opacity } label: {
-                    Text(s.label)
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            BuddyCustomChip(on: preset == nil) {
-                // Nudge off the preset so the slider shows, starting where the shadow is now.
-                if preset != nil { opacity = min(opacity + 0.02, BuddyShadow.customRange.upperBound) }
-            }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
-    }
-}
-
-/// The last chip of a preset row: picks a value of your own (the row's slider appears).
-struct BuddyCustomChip: View {
-    let on: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 10, weight: .bold))
-                Text("Custom").font(.system(size: 12, weight: .bold, design: .rounded))
-            }
-            .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("A value of your own")
+        BriefSegmented(options: BuddyShadow.allCases.map { BriefSegmentedOption(value: $0.opacity, title: $0.label) }
+                       + [BriefSegmentedOption(value: -1, title: "Custom", symbol: "slider.horizontal.3")],
+                       selection: Binding(get: { preset == nil ? -1 : opacity }, set: { v in
+                           if v < 0 {
+                               // Nudge off the preset so the slider shows, starting where the shadow is now.
+                               if preset != nil { opacity = min(opacity + 0.02, BuddyShadow.customRange.upperBound) }
+                           } else {
+                               opacity = v
+                           }
+                       }), tint: HubBuddyPage.tint)
     }
 }
 
@@ -190,18 +154,15 @@ struct BuddyWardrobeCard: View {
                 Text("No rules: it never changes on its own.")
                     .font(.system(size: 12)).foregroundColor(HubTheme.muted)
             }
-            ForEach(Array(settings.schedule.enumerated()), id: \.element.id) { i, rule in
-                BuddyRuleRow(rule: rule, index: i, count: settings.schedule.count,
+            // First match wins: drag a rule up to make it win first.
+            HubReorderList(items: Binding(get: { settings.schedule }, set: { new in settings.editSchedule { $0 = new } })) { rule in
+                let i = settings.schedule.firstIndex { $0.id == rule.id } ?? 0
+                BuddyRuleRow(rule: rule,
                              isActive: settings.alwaysWear == nil && active == i,
                              editing: editing == rule.id, color: settings.color,
                              onEdit: { editing = editing == rule.id ? nil : rule.id },
-                             change: { new in settings.editSchedule { if $0.indices.contains(i) { $0[i] = new } } },
-                             move: { d in settings.editSchedule { s in
-                                 let j = i + d
-                                 guard s.indices.contains(i), s.indices.contains(j) else { return }
-                                 s.swapAt(i, j)
-                             } },
-                             delete: { settings.editSchedule { if $0.indices.contains(i) { $0.remove(at: i) } } })
+                             change: { new in settings.editSchedule { s in if let j = s.firstIndex(where: { $0.id == rule.id }) { s[j] = new } } },
+                             delete: { settings.editSchedule { $0.removeAll { $0.id == rule.id } } })
             }
         }
         .onReceive(minute) { now = $0 }
@@ -222,21 +183,18 @@ struct BuddyWardrobeCard: View {
 /// One rule: on/off, the outfit, when; edit it inline.
 private struct BuddyRuleRow: View {
     let rule: BuddyWardrobeRule
-    let index: Int
-    let count: Int
     let isActive: Bool
     let editing: Bool
     let color: String
     let onEdit: () -> Void
     let change: (BuddyWardrobeRule) -> Void
-    let move: (Int) -> Void
     let delete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Toggle("", isOn: Binding(get: { rule.enabled }, set: { var r = rule; r.enabled = $0; change(r) }))
-                    .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                BriefSwitch(isOn: Binding(get: { rule.enabled }, set: { var r = rule; r.enabled = $0; change(r) }), tint: HubBuddyPage.tint)
+                    .controlSize(.small)
                 BuddyMochiThumb(outfit: rule.outfit, color: color).frame(width: 30, height: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(rule.outfit.name).font(.system(size: 13, weight: .semibold))
@@ -250,8 +208,6 @@ private struct BuddyRuleRow: View {
                         .background(Capsule().fill(HubTheme.green.opacity(0.14)))
                 }
                 Spacer()
-                HubIconButton(symbol: "chevron.up", help: "Earlier (wins first)") { move(-1) }.disabled(index == 0)
-                HubIconButton(symbol: "chevron.down", help: "Later") { move(1) }.disabled(index == count - 1)
                 HubIconButton(symbol: editing ? "checkmark" : "pencil", help: editing ? "Done" : "Edit") { onEdit() }
                 HubIconButton(symbol: "trash", help: "Delete") { delete() }
             }
@@ -276,10 +232,9 @@ private struct BuddyRuleEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Wear").frame(width: 70, alignment: .leading)
-                Picker("", selection: Binding(get: { rule.outfit }, set: { var r = rule; r.outfit = $0; change(r) })) {
-                    ForEach(BuddyOutfit.allCases) { Text($0.name).tag($0) }
-                }
-                .labelsHidden().fixedSize()
+                BriefComboBox(options: BuddyOutfit.allCases.map { BriefComboOption(value: $0, title: $0.name, symbol: "tshirt") },
+                              selection: Binding(get: { rule.outfit }, set: { var r = rule; r.outfit = $0; change(r) }),
+                              tint: HubBuddyPage.tint, symbol: "tshirt", width: 240, placeholder: "Search outfits")
             }
 
             // Time of day
@@ -318,9 +273,9 @@ private struct BuddyRuleEditor: View {
                                 Text(d.short)
                                     .font(.system(size: 11.5, weight: .bold))
                                     .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-                                    .frame(width: 38, height: 26)
-                                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
+                                    .frame(width: 40, height: 30)
+                                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(on ? HubBuddyPage.tint : Color.white.opacity(0.05)))
                             }
                             .buttonStyle(.plain)
                         }
@@ -354,30 +309,22 @@ private struct BuddyRuleEditor: View {
     }
 
     private func clockPicker(_ c: BuddyClock, set: @escaping (BuddyClock) -> Void) -> some View {
-        DatePicker("", selection: Binding(
-            get: { Calendar.current.date(bySettingHour: c.minutes / 60, minute: c.minutes % 60, second: 0, of: Date()) ?? Date() },
-            set: { let k = Calendar.current.dateComponents([.hour, .minute], from: $0)
-                   set(BuddyClock(hour: k.hour ?? 0, minute: k.minute ?? 0)) }),
-                   displayedComponents: .hourAndMinute)
-            .labelsHidden().datePickerStyle(.field).fixedSize()
+        BriefTimePicker(minuteOfDay: Binding(get: { c.minutes }, set: { set(BuddyClock(hour: $0 / 60, minute: $0 % 60)) }),
+                        tint: HubBuddyPage.tint, width: 170)
     }
 
     private func dayPicker(_ d: BuddyDay, set: @escaping (BuddyDay) -> Void) -> some View {
-        let maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][d.month - 1]
-        return HStack(spacing: 4) {
-            Picker("", selection: Binding(get: { d.month }, set: { m in
-                let max = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
-                if let n = BuddyDay(month: m, day: min(d.day, max)) { set(n) }
-            })) {
-                ForEach(1...12, id: \.self) { m in Text(Self.months.indices.contains(m - 1) ? Self.months[m - 1] : "\(m)").tag(m) }
-            }
-            .labelsHidden().fixedSize()
-            Picker("", selection: Binding(get: { d.day }, set: { if let n = BuddyDay(month: d.month, day: $0) { set(n) } })) {
-                ForEach(1...maxDay, id: \.self) { Text("\($0)").tag($0) }
-            }
-            .labelsHidden().fixedSize()
+        let lengths = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        return HStack(spacing: 6) {
+            BriefComboBox(options: (1...12).map { m in BriefComboOption(value: m, title: Self.months.indices.contains(m - 1) ? Self.months[m - 1] : "\(m)") },
+                          selection: Binding(get: { d.month }, set: { m in if let n = BuddyDay(month: m, day: min(d.day, lengths[m - 1])) { set(n) } }),
+                          tint: HubBuddyPage.tint, symbol: "calendar", width: 130, placeholder: "Month")
+            BriefComboBox(options: (1...lengths[d.month - 1]).map { BriefComboOption(value: $0, title: "\($0)") },
+                          selection: Binding(get: { d.day }, set: { if let n = BuddyDay(month: d.month, day: $0) { set(n) } }),
+                          tint: HubBuddyPage.tint, symbol: "number", width: 100, placeholder: "Day")
         }
     }
+
 }
 
 // MARK: - Clicks
@@ -404,15 +351,13 @@ struct BuddyClicksCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HubRow(title: g.label, detail: g.detail) {
                 HStack(spacing: 8) {
-                    Picker("", selection: Binding(get: { b.action }, set: { a in
-                        settings.setBinding(.init(action: a, parameter: a == b.action ? b.parameter : ""), for: g)
-                    })) {
-                        Text(BuddyAction.none.label).tag(BuddyAction.none)
-                        Section("Animations") { ForEach(BuddyAction.animations) { Text($0.label).tag($0) } }
-                        Section("Coucou") { ForEach(BuddyAction.coucou) { Text($0.label).tag($0) } }
-                        Section("Your own") { ForEach(BuddyAction.yours) { Text($0.label).tag($0) } }
-                    }
-                    .labelsHidden().frame(width: 230)
+                    BriefComboBox(options: [BriefComboOption(value: BuddyAction.none, title: BuddyAction.none.label, symbol: "circle.slash")]
+                                  + BuddyAction.animations.map { BriefComboOption(value: $0, title: $0.label, detail: "Animation", symbol: "sparkles") }
+                                  + BuddyAction.coucou.map { BriefComboOption(value: $0, title: $0.label, detail: "Coucou", symbol: "macwindow") }
+                                  + BuddyAction.yours.map { BriefComboOption(value: $0, title: $0.label, detail: "Your own", symbol: "wand.and.stars") },
+                                  selection: Binding(get: { b.action }, set: { a in
+                                      settings.setBinding(.init(action: a, parameter: a == b.action ? b.parameter : ""), for: g)
+                                  }), tint: HubBuddyPage.tint, symbol: "cursorarrow.click", width: 240, placeholder: "Search actions")
                     Button("Try") { BuddyController.shared.perform(b) }
                         .buttonStyle(HubButtonStyle())
                         .disabled(!b.isRunnable || !settings.enabled)
@@ -427,12 +372,11 @@ struct BuddyClicksCard: View {
         HStack(spacing: 8) {
             Spacer()
             if !shortcuts.isEmpty {
-                Picker("", selection: Binding(get: { shortcuts.contains(b.parameter) ? b.parameter : "" },
-                                              set: { if !$0.isEmpty { settings.setBinding(.init(action: .shortcut, parameter: $0), for: g) } })) {
-                    Text("Pick a Shortcut").tag("")
-                    ForEach(shortcuts, id: \.self) { Text($0).tag($0) }
-                }
-                .labelsHidden().frame(width: 200)
+                BriefComboBox(options: [BriefComboOption(value: "", title: "Pick a Shortcut", symbol: "square.stack.3d.up")]
+                              + shortcuts.map { BriefComboOption(value: $0, title: $0, symbol: "square.stack.3d.up.fill") },
+                              selection: Binding(get: { shortcuts.contains(b.parameter) ? b.parameter : "" },
+                                                 set: { if !$0.isEmpty { settings.setBinding(.init(action: .shortcut, parameter: $0), for: g) } }),
+                              tint: HubBuddyPage.tint, symbol: "square.stack.3d.up", width: 220, placeholder: "Search your Shortcuts")
             }
             HubField(placeholder: shortcuts.isEmpty ? "Shortcut name (none found in Shortcuts)" : "or its name",
                      text: Binding(get: { b.parameter }, set: { settings.setBinding(.init(action: .shortcut, parameter: $0), for: g) }))

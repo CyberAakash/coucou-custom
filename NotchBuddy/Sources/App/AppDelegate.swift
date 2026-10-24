@@ -230,7 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openWeeklyRecap() {
+        #if !APPSTORE
+        WeeklyBriefController.shared.show()   // coucou-custom fork: in the notch or full screen (Settings → Briefs)
+        #else
         islandController?.expand(to: .recap)
+        #endif
     }
 
     #if !APPSTORE
@@ -331,11 +335,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// On Monday ≥ 8 am, show the recap card once (if there is activity to display).
     /// Called from greetComplete, SessionStart/UserPromptSubmit hooks, and on wake.
     func checkMondayRecap() {
+        #if !APPSTORE
+        guard WeeklyBriefSettings.shared.autoShow else { return }   // coucou-custom fork: Settings → Briefs
+        #endif
         let cal = Calendar(identifier: .iso8601)
         let now = Date()
+        #if !APPSTORE
+        // coucou-custom fork: its day, time and way from Settings → Briefs → Weekly recap.
+        let w = WeeklyBriefSettings.shared
+        guard WeeklyBriefSchedule.shouldShow(trigger: w.trigger, weekday: w.weekday, minuteOfDay: w.minuteOfDay, now: now,
+                                             lastShownWeek: UserDefaults.standard.integer(forKey: "recapLastShownWeek")) else { return }
+        #else
         // weekday in ISO 8601 calendar: 2 = Monday
         guard cal.component(.weekday, from: now) == 2,
               cal.component(.hour,    from: now) >= 8 else { return }
+        #endif
         // Don't interrupt a pending approval or question
         let s = AppState.shared
         guard s.pendingApproval == nil, s.pendingQuestion == nil else { return }
@@ -344,11 +358,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let weekKey  = weekYear * 100 + weekNum
         let lastShown = UserDefaults.standard.integer(forKey: "recapLastShownWeek")
         guard weekKey != lastShown else { return }
+        #if !APPSTORE
+        // coucou-custom fork: the week it tells about had work.
+        let week = WeeklyBriefSettings.shared.period.weekStart(now: now)
+        guard RecapStore.shared.weeklySummary(for: week) != nil else { return }
+        #else
         guard RecapStore.shared.weeklySummary() != nil else { return }
+        #endif
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             let s = AppState.shared
             guard s.pendingApproval == nil, s.pendingQuestion == nil else { return }
+            #if !APPSTORE
+            WeeklyBriefController.shared.show()   // coucou-custom fork: in the notch or full screen, the week Settings says
+            #else
             self?.islandController?.expand(to: .recap)
+            #endif
             UserDefaults.standard.set(weekKey, forKey: "recapLastShownWeek")
         }
     }
@@ -393,6 +417,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WhatsAppController.shared.start()
         MacUpdater.shared.start()
         BuddyController.shared.start(island: islandController)   // coucou-custom fork: the desktop Buddy (Settings → Buddy)
+        RunnerStatusItem.shared.start()   // coucou-custom fork: the one menu-bar item (Settings → Menu bar)
+        MacDayRecorder.shared.start()     // coucou-custom fork: the Daily brief (Settings → Daily brief)
+        DailyBriefController.shared.start()
+        WeeklyBriefController.shared.start()
         ClaudeDesktopChatWatcher.shared.start()
         #endif
         CryptoController.shared.start()

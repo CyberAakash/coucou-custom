@@ -49,6 +49,12 @@ struct IslandContainer: View {
             && (state.view == .upload || state.view == .uploading || state.view == .choose)
 
         let greetingActive = state.mode == .expanded && state.view == .greeting
+        // coucou-custom fork: the briefs draw their own Mochi and no header (BriefNotchStage).
+        #if !APPSTORE
+        let briefActive = state.mode == .expanded && BriefLayout.isBrief(state.view)
+        #else
+        let briefActive = false
+        #endif
 
         return ZStack(alignment: .topLeading) {
             // coucou-custom fork: spotlight halo on an ambient pulse, behind the island so only
@@ -73,6 +79,13 @@ struct IslandContainer: View {
                         .clipShape(IslandShape(width: islandWidth, height: islandHeight,
                                               cornerRadius: cornerRadius, topRadius: islandTopRadius))
                         .transition(.opacity)
+                } else if briefActive {
+                    #if !APPSTORE
+                    BriefNotchStage(state: state, view: state.view, width: islandWidth, height: islandHeight)
+                        .clipShape(IslandShape(width: islandWidth, height: islandHeight,
+                                              cornerRadius: cornerRadius, topRadius: islandTopRadius))
+                        .transition(.opacity)
+                    #endif
                 } else if uploadActive {
                     ZStack(alignment: .topLeading) {
                         UploadCanvasView(state: state)
@@ -106,8 +119,8 @@ struct IslandContainer: View {
                     Rectangle().frame(width: islandWidth,
                                       height: state.mode == .expanded ? 320 : islandHeight)
                 }
-                .opacity(uploadActive || greetingActive ? 0 : 1)
-                .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive)
+                .opacity(uploadActive || greetingActive || briefActive ? 0 : 1)
+                .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive || briefActive)
 
             CountdownBar(state: state, islandW: islandWidth)
 
@@ -145,7 +158,10 @@ struct IslandContainer: View {
             let (w, h) = islandSize(mode: newMode, view: state.view,
                                     progress: state.uploadProgress,
                                     nw: state.notchWidth, nh: state.notchHeight)
-            let cr  = newMode == .expanded ? IslandConst.expandedCorner : IslandConst.roundedCorner
+            var cr  = newMode == .expanded ? IslandConst.expandedCorner : IslandConst.roundedCorner
+            #if !APPSTORE
+            if newMode == .expanded, let c = BriefLayout.corner(for: state.view) { cr = c }   // coucou-custom fork
+            #endif
             let tr: CGFloat = 0
             withAnimation(anim) {
                 islandWidth      = w
@@ -167,11 +183,27 @@ struct IslandContainer: View {
             withAnimation(openSpring) {
                 islandWidth  = w
                 islandHeight = newView == .prompt ? chatPromptHeight : h
+                #if !APPSTORE
+                cornerRadius = BriefLayout.corner(for: newView) ?? IslandConst.expandedCorner   // coucou-custom fork
+                #endif
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .islandChatFit)) { _ in
             guard state.mode == .expanded, state.view == .prompt else { return }
             withAnimation(openSpring) { islandHeight = chatPromptHeight }
+        }
+        // coucou-custom fork: a brief went from its pill to its card (GitHub build only).
+        .onReceive(NotificationCenter.default.publisher(for: .islandBriefFit)) { _ in
+            #if !APPSTORE
+            guard state.mode == .expanded,
+                  let (w, h) = BriefLayout.size(for: state.view, nw: state.notchWidth, nh: state.notchHeight),
+                  let c = BriefLayout.corner(for: state.view) else { return }
+            withAnimation(BriefLayout.spring) {
+                islandWidth = w
+                islandHeight = h
+                cornerRadius = c
+            }
+            #endif
         }
         // coucou-custom fork: the question card measured a new page height (QuestionFit).
         .onReceive(NotificationCenter.default.publisher(for: .islandQuestionFit)) { _ in

@@ -6,21 +6,34 @@ import AppKit
 // in the window's own style (HubPageScaffold, HubCard, HubRow).
 
 struct HubBuddyPage: View {
+    /// The page's colour: its banner, tabs, switches and choices.
+    static let tint = Color(hex: "#F472B6")
+
     @ObservedObject private var settings = BuddySettings.shared
     @ObservedObject private var routineSettings = BuddyRoutineSettings.shared
-    /// The filter bar: one section, or all ("").
-    @AppStorage("buddySettingsSection") private var sectionRaw = ""
+    /// The tab shown; a search shows what matches in every tab.
+    @AppStorage("buddySettingsSection") private var sectionRaw = BuddySection.look.rawValue
     @State private var query = ""
 
+    private var tab: BuddySection { BuddySection(rawValue: sectionRaw) ?? .look }
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+
     private func shows(_ s: BuddySection) -> Bool {
-        (sectionRaw.isEmpty || sectionRaw == s.rawValue) && s.matches(query)
+        searching ? s.matches(query) : (s == tab || (tab == .behaviour && s == .moving))
     }
 
     var body: some View {
-        HubPageScaffold(title: String(localized: "Buddy"), subtitle: String(localized: "hub.notch.buddy")) {
-            BuddyHeroCard(settings: settings)
+        // The page's one banner: its title and its switch.
+        HubPageScaffold(title: String(localized: "Buddy"), subtitle: String(localized: "hub.notch.buddy"),
+                        trailing: { HubBannerSwitch(title: "Show on the desktop", tint: Color(hex: "#F472B6"), isOn: $settings.enabled) }) {
+            BuddySearchField(query: $query)
+            BriefSegmented(options: BuddySection.tabs.map { BriefSegmentedOption(value: $0, title: $0.title, symbol: $0.symbol) },
+                           selection: Binding(get: { tab }, set: { query = ""; sectionRaw = $0.rawValue }),
+                           tint: Self.tint, height: 38)
+                .opacity(searching ? 0.45 : 1)
 
-            BuddyFilterBar(sectionRaw: $sectionRaw, query: $query)
+            HubLabel("Preview")
+            BuddyHeroCard(settings: settings)
 
             if !BuddySection.allCases.contains(where: shows) {
                 HubEmptyState(text: "No Buddy setting matches “\(query)”.", state: .thinking)
@@ -29,7 +42,7 @@ struct HubBuddyPage: View {
             if shows(.look) {
             HubLabel("Look")
             HubCard {
-                HubRow(title: "Size", detail: "\(BuddySize.preset(scale: settings.sizeScale)?.label ?? "Custom") · \(Int(BuddySize.side(scale: settings.sizeScale))) pt") {
+                BriefSettingRow(title: "Size", detail: "\(BuddySize.preset(scale: settings.sizeScale)?.label ?? "Custom") · \(Int(BuddySize.side(scale: settings.sizeScale))) pt") {
                     BuddySizeChips(scale: $settings.sizeScale)
                 }
                 if BuddySize.preset(scale: settings.sizeScale) == nil {
@@ -41,21 +54,21 @@ struct HubBuddyPage: View {
                     BuddyColorPicker(hex: $settings.color)
                 }
                 HubDivider()
-                HubRow(title: "Companions", detail: "Little Mochis around it, as on this window's banner. Click one to make it blush.") {
+                BriefSettingRow(title: "Companions", detail: "Little Mochis around it, as on this window's banner. Click one to make it blush.") {
                     BuddyCountChips(selection: $settings.companions)
                 }
                 if settings.companions > 0 {
                     HubDivider()
-                    HubRow(title: "Where they stay", detail: "On its left, its right, or both sides.") {
+                    BriefSettingRow(title: "Where they stay", detail: "On its left, its right, or both sides.") {
                         BuddySideChips(selection: $settings.companionSide)
                     }
                     HubDivider()
                     HubRow(title: "Same colour as the Buddy", detail: "Otherwise each wears one of this window's colours.") {
-                        Toggle("", isOn: $settings.companionsMatch).toggleStyle(.switch).labelsHidden()
+                        BriefSwitch(isOn: $settings.companionsMatch, tint: HubBuddyPage.tint)
                     }
                 }
                 HubDivider()
-                HubRow(title: "Shadow", detail: "On the floor under it and its companions; lighter as they jump.") {
+                BriefSettingRow(title: "Shadow", detail: "On the floor under it and its companions; lighter as they jump.") {
                     BuddyShadowChips(opacity: $settings.shadowOpacity)
                 }
                 if BuddyShadow.preset(opacity: settings.shadowOpacity) == nil {
@@ -79,6 +92,8 @@ struct HubBuddyPage: View {
             if shows(.routines) {
                 HubLabel("Routines")
                 BuddyRoutinesCard(settings: routineSettings)
+                HubLabel("Full screen")
+                BuddyFullScreenCard()
             }
 
             if shows(.water) {
@@ -91,21 +106,35 @@ struct HubBuddyPage: View {
             HubCard {
                 HubRow(title: "React to my agents",
                        detail: "Thinks, works, waits and cheers with your Claude Code and other agent sessions.") {
-                    Toggle("", isOn: $settings.reactToAgents).toggleStyle(.switch).labelsHidden()
+                    BriefSwitch(isOn: $settings.reactToAgents, tint: HubBuddyPage.tint)
                 }
                 HubDivider()
                 HubRow(title: "Speech bubbles",
                        detail: "A short line when a permission or a question waits, or something fails.") {
-                    Toggle("", isOn: $settings.speechBubbles).toggleStyle(.switch).labelsHidden()
+                    BriefSwitch(isOn: $settings.speechBubbles, tint: HubBuddyPage.tint)
                         .disabled(!settings.reactToAgents)
                 }
                 HubDivider()
                 HubRow(title: "Eyes follow the cursor") {
-                    Toggle("", isOn: $settings.followCursor).toggleStyle(.switch).labelsHidden()
+                    BriefSwitch(isOn: $settings.followCursor, tint: HubBuddyPage.tint)
                 }
                 HubDivider()
                 HubRow(title: "Nap when idle", detail: "Only when you are away: two minutes without keyboard, mouse or trackpad, and your agents quiet. Any input wakes it.") {
-                    Toggle("", isOn: $settings.napWhenIdle).toggleStyle(.switch).labelsHidden()
+                    BriefSwitch(isOn: $settings.napWhenIdle, tint: HubBuddyPage.tint)
+                }
+                HubDivider()
+                BriefSettingRow(title: "Card while dragging",
+                       detail: "The card of a focus session, a timer or an alert: it comes along, shrinks to its rings, or waits until you put the Buddy down.") {
+                    BriefSegmented(options: BuddyHUDDrag.allCases.map { BriefSegmentedOption(value: $0, title: $0.label) },
+                                   selection: $settings.hudWhileDragging, tint: HubBuddyPage.tint)
+                }
+                HubDivider()
+                HubRow(title: "Card distance", detail: "Between the card and the top of its head or hat, when the card sits above it.") {
+                    HStack(spacing: 8) {
+                        Slider(value: $settings.hudGap, in: BuddyHUDDrag.gapRange, step: 1).frame(width: 160)
+                        Text("\(Int(settings.hudGap)) pt").font(.system(size: 12).monospacedDigit())
+                            .foregroundColor(HubTheme.secondary).frame(width: 40, alignment: .trailing)
+                    }
                 }
             }
 
@@ -129,14 +158,14 @@ struct HubBuddyPage: View {
     }
 }
 
-// MARK: - Hero card: live preview, on/off, quick actions
+// MARK: - The preview: the Buddy as it looks on the desktop, its quick actions
 
 private struct BuddyHeroCard: View {
     @ObservedObject var settings: BuddySettings
     @StateObject private var preview = BuddyPreview()
 
     var body: some View {
-        HubGlowCard(color: Color(hex: "#F472B6"), padding: 22) {
+        HubCard(padding: 20) {
             VStack(alignment: .leading, spacing: 16) {
                 // The stage: the Buddy and its companions, as they look on the desktop.
                 preview.view
@@ -153,34 +182,16 @@ private struct BuddyHeroCard: View {
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.25)))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 6) {
-                        Circle().fill(settings.enabled ? HubTheme.green : HubTheme.muted).frame(width: 7, height: 7)
-                        Text(settings.enabled ? "On your desktop" : "Hidden")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(settings.enabled ? HubTheme.green : HubTheme.secondary)
-                    }
-                    Text("Your Mochi, on the desktop")
-                        .font(.system(size: 21, weight: .bold))
-                        .foregroundColor(HubTheme.text)
-                    Text("A Mochi of its own, apart from the notch's. It floats above your windows on every Space and keeps you company while your agents work.")
-                        .font(.system(size: 13))
-                        .foregroundColor(HubTheme.body)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 10) {
-                        Toggle(isOn: $settings.enabled) {
-                            Text("Show on the desktop").font(.system(size: 13, weight: .semibold))
-                        }
-                        .toggleStyle(.switch)
-                        Spacer(minLength: 8)
-                        Button("Say hi") { BuddyController.shared.wave(); preview.hello() }
-                            .buttonStyle(HubButtonStyle())
-                            .disabled(!settings.enabled)
-                        Button("Reset position") { BuddyController.shared.resetPosition() }
-                            .buttonStyle(HubButtonStyle())
-                            .disabled(!settings.enabled)
-                    }
-                    .padding(.top, 4)
+                HStack(spacing: 10) {
+                    Text(settings.enabled ? "On your desktop, above your windows on every Space. Click it here to say hi." : "Hidden: turn it on in the banner above.")
+                        .font(.system(size: 12.5)).foregroundColor(HubTheme.secondary)
+                    Spacer(minLength: 8)
+                    Button("Say hi") { BuddyController.shared.wave(); preview.hello() }
+                        .buttonStyle(HubButtonStyle())
+                        .disabled(!settings.enabled)
+                    Button("Reset position") { BuddyController.shared.resetPosition() }
+                        .buttonStyle(HubButtonStyle())
+                        .disabled(!settings.enabled)
                 }
             }
         }
@@ -233,7 +244,11 @@ private final class BuddyPreview: ObservableObject {
     }
 
     func hello() {
-        engine.triggerEmote(.happy, duration: 1.2, silent: true)
+        engine.anim("oy", keys: [TweenKey(target: -0.35, duration: 190, ease: Ease.out),
+                                 TweenKey(target: 0, duration: 260, ease: Ease.inOut)]) { [weak self] in
+            self?.engine.squash()
+        }
+        engine.triggerEmote(.happy, duration: 1.4, silent: true)
         companions?.greet()
     }
 
@@ -253,31 +268,18 @@ private struct BuddySizeChips: View {
 
     var body: some View {
         let preset = BuddySize.preset(scale: scale)
-        HStack(spacing: 4) {
-            ForEach(BuddySize.allCases) { size in
-                let on = preset == size && !custom
-                Button { custom = false; scale = size.rawValue } label: {
-                    Text(size.short)
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-                        .frame(width: 36, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(size.label)
-            }
-            BuddyCustomChip(on: preset == nil || custom) {
-                // Nudge off the preset so the slider shows, starting where the Buddy is now.
-                if preset != nil { scale = min(scale + 0.05, BuddySize.customRange.upperBound) }
-                custom = true
-            }
-        }
-        .onChange(of: scale) { _, s in if BuddySize.preset(scale: s) != nil && !custom { custom = false } }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        BriefSegmented(options: BuddySize.allCases.map { BriefSegmentedOption(value: $0.rawValue, title: $0.label) }
+                       + [BriefSegmentedOption(value: -1, title: "Custom", symbol: "slider.horizontal.3")],
+                       selection: Binding(get: { custom || preset == nil ? -1 : scale }, set: { v in
+                           if v < 0 {
+                               // Nudge off the preset so the slider shows, starting where the Buddy is now.
+                               if preset != nil { scale = min(scale + 0.05, BuddySize.customRange.upperBound) }
+                               custom = true
+                           } else {
+                               custom = false
+                               scale = v
+                           }
+                       }), tint: HubBuddyPage.tint)
     }
 }
 
@@ -299,9 +301,9 @@ private struct BuddyColorPicker: View {
                 .padding(.horizontal, 10)
                 .frame(height: 30)
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(hex.isEmpty ? HubTheme.accent.opacity(0.14) : Color.white.opacity(0.05)))
+                    .fill(hex.isEmpty ? HubBuddyPage.tint.opacity(0.14) : Color.white.opacity(0.05)))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(hex.isEmpty ? HubTheme.accent : Color.white.opacity(0.08)))
+                    .strokeBorder(hex.isEmpty ? HubBuddyPage.tint : Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -334,59 +336,24 @@ private struct BuddyColorPicker: View {
     }
 }
 
-/// None, 1…6.
 private struct BuddySideChips: View {
     @Binding var selection: BuddyCompanionSide
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(BuddyCompanionSide.allCases) { s in
-                let on = selection == s
-                Button { selection = s } label: {
-                    Text(s.label)
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        BriefSegmented(options: BuddyCompanionSide.allCases.map { BriefSegmentedOption(value: $0, title: $0.label) },
+                       selection: $selection, tint: HubBuddyPage.tint)
     }
 }
 
+/// None, 1…6.
 private struct BuddyCountChips: View {
     @Binding var selection: Int
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0...BuddyCompanionLayout.maxCount, id: \.self) { n in
-                let on = selection == n
-                Button { selection = n } label: {
-                    Text(n == 0 ? "None" : "\(n)")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-                        .frame(width: n == 0 ? 46 : 30, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        BriefSegmented(options: (0...BuddyCompanionLayout.maxCount).map { BriefSegmentedOption(value: $0, title: $0 == 0 ? "None" : "\($0)") },
+                       selection: $selection, tint: HubBuddyPage.tint)
     }
 }
-
-// MARK: - Tips
 
 private struct BuddyTip: View {
     let symbol: String
@@ -424,6 +391,9 @@ enum BuddySection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// The tabs: Moving it around shows under Behaviour.
+    static let tabs: [BuddySection] = [.look, .wardrobe, .routines, .water, .assistant, .behaviour, .clicks]
+
     var title: String {
         switch self {
         case .look: "Look"
@@ -455,9 +425,9 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .look: "size colour color companions side shadow look appearance scale"
         case .wardrobe: "wardrobe outfit clothes hat cap crown bow schedule seasons always wear nightcap"
         case .assistant: "assistant chat act tools ask mochi reminder timer slash commands"
-        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert sound start"
+        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert sound start full screen fullscreen moment"
         case .water: "water drink glass goal hydration nudge every between days ml litre"
-        case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep"
+        case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep card hud popup drag distance gap"
         case .clicks: "clicks click double triple many gesture action shortcut open app link"
         case .moving: "moving move drag right-click menu display position"
         }
@@ -471,56 +441,27 @@ enum BuddySection: String, CaseIterable, Identifiable {
     }
 }
 
-/// Search and section chips above the Buddy page's sections.
-private struct BuddyFilterBar: View {
-    @Binding var sectionRaw: String
+/// A search across every tab of the Buddy page.
+private struct BuddySearchField: View {
     @Binding var query: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.secondary)
-                TextField("Search Buddy settings: size, nap, water, focus…", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                if !query.isEmpty {
-                    Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundColor(HubTheme.secondary)
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.secondary)
+            TextField("Search every Buddy setting: size, nap, water, focus…", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundColor(HubTheme.secondary)
                 }
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
-
-            HubWrap(spacing: 6) {
-                chip(nil, "All", "square.grid.2x2")
-                ForEach(BuddySection.allCases) { chip($0, $0.title, $0.symbol) }
+                .buttonStyle(.plain)
             }
         }
-    }
-
-    private func chip(_ section: BuddySection?, _ title: String, _ symbol: String) -> some View {
-        let on = sectionRaw == (section?.rawValue ?? "")
-        let dim = section.map { !$0.matches(query) } ?? false
-        return Button { sectionRaw = section?.rawValue ?? "" } label: {
-            HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 10, weight: .bold))
-                Text(title).font(.system(size: 12, weight: .bold, design: .rounded))
-            }
-            .foregroundColor(on ? HubTheme.onAccent : HubTheme.body)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(on ? Color.clear : Color.white.opacity(0.07)))
-            .opacity(dim ? 0.4 : 1)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(HubTheme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
     }
 }
 #endif

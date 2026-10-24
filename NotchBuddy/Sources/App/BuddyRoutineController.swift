@@ -138,6 +138,8 @@ final class BuddyRoutineController: ObservableObject {
         dropAlerts { $0 == .focusDone || $0 == .breakDone }
         BuddyController.shared.react(.started)
         updateTick()
+        RoutineMoments.shared.started(.focusStart, title: "Focus starts now",   // coucou-custom fork: full screen
+                                      detail: "\(plan.focus) minutes, then a \(plan.shortBreak) min break")
     }
 
     func pauseFocus() { focus?.pause(at: .now); updateTick() }
@@ -170,6 +172,8 @@ final class BuddyRoutineController: ObservableObject {
         dropAlerts { $0 == .timerDone }
         BuddyController.shared.react(.started)
         updateTick()
+        RoutineMoments.shared.started(.timerStart, title: c.label.isEmpty ? "Timer started" : c.label,   // coucou-custom fork
+                                      detail: BuddyTimeText.duration(c.total))
         return true
     }
 
@@ -307,6 +311,7 @@ final class BuddyRoutineController: ObservableObject {
         case .done:
             if !breathDone {
                 breathDone = true
+                BuddyDiaryStore.record { $0.breathingSessions += 1 }   // coucou-custom fork: the Daily brief
                 BuddyController.shared.react(.done)
                 if settings.breathingCues { SoundEngine.shared.play("proud") }
                 BuddyController.shared.setBreath(1)
@@ -329,6 +334,19 @@ final class BuddyRoutineController: ObservableObject {
     // MARK: - Alerts
 
     func dismiss(_ alert: BuddyAlert) {
+        alerts.removeAll { $0.id == alert.id }
+        if case .reminder(let id) = alert.kind {
+            BuddyDiaryStore.record { $0.remindersDone += 1 }
+            reminders.removeAll { $0.id == id }
+            saveReminders()
+        }
+        updateTick()
+    }
+
+    /// coucou-custom fork: an alert shown full screen and closed unanswered while there is no
+    /// Buddy to keep it: gone, as the notch's one-time note is (a reminder leaves the list, not
+    /// counted as done).
+    func retire(_ alert: BuddyAlert) {
         alerts.removeAll { $0.id == alert.id }
         if case .reminder(let id) = alert.kind {
             reminders.removeAll { $0.id == id }
@@ -355,7 +373,10 @@ final class BuddyRoutineController: ObservableObject {
 
     private func raise(_ alert: BuddyAlert, sound: String) {
         if settings.alertSound { SoundEngine.shared.play(sound) }
-        guard BuddySettings.shared.enabled else {
+        // coucou-custom fork: chosen full screen for its kind (Settings → Buddy → Full screen), the
+        // alert is kept here even without the Buddy, and the full screen shows it.
+        let fullScreen = RoutineMomentKind.of(alert.kind).map(RoutineMomentSettings.shared.wants) ?? false
+        guard BuddySettings.shared.enabled || fullScreen else {
             // No Buddy to hold it: the notch says it once.
             let app = AppState.shared
             app.noteMessage = alert.detail.isEmpty ? alert.title : "\(alert.title) — \(alert.detail)"
@@ -368,6 +389,7 @@ final class BuddyRoutineController: ObservableObject {
         }
         alerts.append(alert)
         if alerts.count > 5 { alerts.removeFirst(alerts.count - 5) }
+        if fullScreen { RoutineMoments.shared.present(alert) }
         BuddyController.shared.react(.alert)
         if let after = alert.autoDismiss {
             let id = alert.id
@@ -456,6 +478,7 @@ final class BuddyRoutineController: ObservableObject {
             let wasFocus = f.phase == .focus
             f.advance(at: t)
             if wasFocus {
+                BuddyDiaryStore.record { $0.focusSessions += 1; $0.focusMinutes += f.plan.focus }
                 let mins = f.plan.minutes(f.phase)
                 raise(BuddyAlert(kind: .focusDone, title: "Focus session done",
                                  detail: "Time for a \(mins) min \(f.phase == .longBreak ? "long " : "")break", autoDismiss: 30),
@@ -471,6 +494,7 @@ final class BuddyRoutineController: ObservableObject {
         if let c = countdown, c.isOver(at: t) {
             lastTimerLabel = c.label
             countdown = nil
+            BuddyDiaryStore.record { $0.timersDone += 1 }
             raise(BuddyAlert(kind: .timerDone, title: c.label.isEmpty ? "Time's up" : c.label,
                              detail: "\(BuddyTimeText.duration(c.total)) timer"), sound: "finish")
         }

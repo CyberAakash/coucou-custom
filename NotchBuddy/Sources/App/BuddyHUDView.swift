@@ -5,17 +5,52 @@ import SwiftUI
 // the focus session, the timer — with its controls, and alerts until you act on them. Notch cards
 // (BuddyDesign): a ring for the progress, the time large, capsule buttons.
 
+/// Set by the Buddy while it is carried (Settings → Buddy → "Card while dragging": Shrink).
+@MainActor
+final class BuddyHUDLook: ObservableObject {
+    @Published var compact = false
+}
+
 struct BuddyHUDView: View {
     @ObservedObject var routines: BuddyRoutineController
+    @ObservedObject var look: BuddyHUDLook
 
     var body: some View {
-        VStack(spacing: 8) {
-            ForEach(routines.alerts) { alert in alertCard(alert) }
-            if let f = routines.focus { focusCard(f) }
-            if let c = routines.countdown { timerCard(c) }
+        Group {
+            if look.compact {
+                compactRow
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(routines.alerts) { alert in alertCard(alert) }
+                    if let f = routines.focus { focusCard(f) }
+                    if let c = routines.countdown { timerCard(c) }
+                }
+            }
         }
         .padding(12)
         .fixedSize()
+    }
+
+    /// While carried: only the rings, in one small capsule.
+    private var compactRow: some View {
+        HStack(spacing: 6) {
+            ForEach(routines.alerts) { a in
+                BuddyRing(progress: progress(a.kind), tint: tint(a.kind), symbol: icon(a.kind), size: 26, pulse: true)
+            }
+            if let f = routines.focus {
+                let total = TimeInterval(max(1, f.plan.minutes(f.phase) * 60))
+                BuddyRing(progress: 1 - f.remaining(at: routines.now) / total,
+                          tint: f.phase.isBreak ? BuddyPalette.green : BuddyPalette.indigo,
+                          symbol: f.phase.isBreak ? "cup.and.saucer.fill" : "brain.head.profile", size: 26)
+            }
+            if let c = routines.countdown {
+                BuddyRing(progress: 1 - c.remaining(at: routines.now) / max(1, c.total), tint: BuddyPalette.amber,
+                          symbol: "timer", size: 26)
+            }
+        }
+        .padding(6)
+        .background(Capsule().fill(Color(hex: "#15171B").opacity(0.94)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
     }
 
     // MARK: Cards
