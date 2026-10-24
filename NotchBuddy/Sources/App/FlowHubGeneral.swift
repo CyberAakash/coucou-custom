@@ -16,6 +16,7 @@ struct HubGeneralPage: View {
     @AppStorage(NotchAlertRules.openOnFinishKey) private var openOnFinish = true
     @AppStorage(NotchAlertRules.openOnErrorKey) private var openOnError = true
     @AppStorage(NotchAlertRules.ambientKey) private var ambientPulse = true
+    @AppStorage(IslandClickOutside.key) private var closesOnClickOutside = true   // coucou-custom fork
     @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
     #if PHONE_LINK
     @AppStorage("iPhoneSyncEnabled") private var iPhoneSyncEnabled = false
@@ -131,6 +132,12 @@ struct HubGeneralPage: View {
             HubRow(title: String(localized: "Close after"),
                    detail: String(localized: "hub.general.close-detail", defaultValue: "Folds the open notch when nothing happens in it.")) {
                 numberField($state.autoCloseInterval, unit: String(localized: "s inactive"))
+            }
+            HubDivider()
+            // coucou-custom fork
+            HubRow(title: "Close on a click outside",
+                   detail: "Folds the open notch when you click anywhere else; never while a permission or a question waits.") {
+                Toggle("", isOn: $closesOnClickOutside).toggleStyle(.switch).labelsHidden()
             }
             HubDivider()
             HubRow(title: String(localized: "Hide after"),

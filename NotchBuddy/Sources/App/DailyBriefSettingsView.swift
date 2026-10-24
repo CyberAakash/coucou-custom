@@ -448,18 +448,22 @@ private struct BriefSettingsPreview: View {
     }
 }
 
-/// Settings → Buddy: which routine moments take the whole screen.
+/// Settings → Buddy: where each routine's alert shows — the Buddy's card, the notch, or full screen.
 struct BuddyFullScreenCard: View {
     @ObservedObject private var settings = RoutineMomentSettings.shared
+    @ObservedObject private var buddy = BuddySettings.shared
 
     var body: some View {
         HubCard {
-            Text("A routine's moment over the whole screen, Mochi in the middle, instead of the Buddy's card. Return and Esc work on it when Coucou has the keyboard; it never takes it from what you type. The Buddy's companions wait in its pouch meanwhile.")
+            Text("Buddy card: on the Buddy, with its buttons. Notch: a line in the notch, gone after a moment, no buttons. Full screen: over the whole screen, Mochi in the middle; Return and Esc work on it when Coucou has the keyboard, never taking it from what you type.")
                 .font(.system(size: 12.5)).foregroundColor(HubTheme.body).fixedSize(horizontal: false, vertical: true)
+            if !buddy.enabled {
+                HubNote(text: "The Buddy is hidden: what is set to its card shows in the notch until you show it again.")
+            }
             ForEach(Array(RoutineMomentKind.allCases.enumerated()), id: \.element) { i, kind in
                 if i > 0 { HubDivider() }
-                HubRow(title: kind.title, detail: kind.closesByItself ? "A short moment, gone by itself." : "Waits for you.") {
-                    BriefSwitch(isOn: Binding(get: { settings.wants(kind) }, set: { settings.toggle(kind, $0) }), tint: HubBuddyPage.tint)
+                BriefSettingRow(title: kind.title, detail: detail(kind)) {
+                    BuddyAlertStylePicker(kind: kind)
                 }
             }
             HubDivider()
@@ -477,13 +481,40 @@ struct BuddyFullScreenCard: View {
                         .frame(width: 40, alignment: .trailing)
                 }
             }
-            HStack {
-                Spacer()
-                Button("Try it") {
-                    RoutineMoments.shared.preview()
-                }
-                .buttonStyle(HubButtonStyle())
+        }
+    }
+
+    private func detail(_ kind: RoutineMomentKind) -> String {
+        switch kind {
+        case .focusStart, .timerStart: "A short moment, gone by itself; on the Buddy, its card shows it running."
+        case .breakDone: "Waits for you. In the notch, start the next session yourself: there is no button."
+        default: "Waits for you."
+        }
+    }
+
+    static func symbol(_ s: RoutineAlertStyle) -> String {
+        switch s {
+        case .buddy: "face.smiling"
+        case .notch: "rectangle.topthird.inset.filled"
+        case .fullScreen: "rectangle.inset.filled"
+        }
+    }
+}
+/// Where one kind of alert shows, and a Try that shows a sample there (Settings → Buddy).
+struct BuddyAlertStylePicker: View {
+    let kind: RoutineMomentKind
+    @ObservedObject private var settings = RoutineMomentSettings.shared
+
+    var body: some View {
+        HStack(spacing: 8) {
+            BriefSegmented(options: RoutineAlertStyle.allCases.map {
+                BriefSegmentedOption(value: $0, title: $0.label, symbol: BuddyFullScreenCard.symbol($0))
+            }, selection: Binding(get: { settings.style(kind) }, set: { settings.set(kind, $0) }), tint: HubBuddyPage.tint)
+            Button { BuddyRoutineController.shared.previewAlert(kind) } label: {
+                Label("Try", systemImage: "play.fill").font(.system(size: 12, weight: .semibold))
             }
+            .buttonStyle(HubButtonStyle())
+            .help("Show a sample, where it is set to show; it does nothing")
         }
     }
 }

@@ -371,8 +371,17 @@ final class RunnerStatusItem: NSObject {
                      "readStreak=\(brief.readStreak) week=\(brief.weekRead)"]
             + BuddyOutfit.allCases.map { "headroom \($0.rawValue)=\(String(format: "%.3f", BuddyHeadroom.top($0)))" }
         debugWrite(BuddyFullScreenCard().frame(width: 760).padding(20).background(Color(hex: "#0E0F11")), "fullscreen-card.png")
-        debugWrite(MenuBarPanelView(close: {}, resize: {}).content.frame(width: MenuBarPanelView.width).background(Color(hex: "#1C1D21"))
+        debugWrite(MenuBarPanelView(close: {}, resize: { _ in }).content.frame(width: MenuBarPanelView.width).background(Color(hex: "#1C1D21"))
             .environment(\.colorScheme, .dark), "panel-render.png")
+        debugWrite(PanelFooter(close: {}).frame(width: MenuBarPanelView.width).background(Color(hex: "#1C1D21"))
+            .environment(\.colorScheme, .dark), "panel-footer.png")
+        for kind in RoutineMomentKind.allCases {
+            debugWrite(BuddyRoutineCard(moment: RoutineMoment.sample(kind), routines: .shared)
+                .padding(20).background(Color(hex: "#3A3F48")), "card-\(kind.rawValue).png")
+            RoutineNotchModel.shared.moment = RoutineMoment.sample(kind)
+            debugWrite(RoutineNotchCard().frame(width: 640, height: 110).padding(8).background(Color.black), "notch-\(kind.rawValue).png")
+        }
+        RoutineNotchModel.shared.moment = nil
         debugWrite(HubDailyBriefPage().frame(width: 820, height: 1900).background(Color(hex: "#0E0F11")), "briefs-settings.png")
         debugWrite(BriefShareCard.daily(brief, hidePrivate: true), "share-daily.png")
         debugWrite(BriefTimePanel(minuteOfDay: .constant(8 * 60 + 30), tint: BriefsTab.daily.tint, done: {}).background(Color(hex: "#1C1D21")), "time-picker.png")

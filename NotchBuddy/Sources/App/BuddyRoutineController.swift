@@ -27,6 +27,8 @@ struct BuddyAlert: Identifiable, Equatable {
     var detail: String = ""
     /// Gone on its own after this long; nil stays until dismissed.
     var autoDismiss: TimeInterval?
+    /// Settings' Try (coucou-custom fork): shown as the real one, its buttons do nothing.
+    var isPreview = false
 }
 
 @MainActor
@@ -100,6 +102,7 @@ final class BuddyRoutineController: ObservableObject {
     func removeReminder(_ id: String) -> Bool {
         let before = reminders.count
         reminders.removeAll { $0.id == id.lowercased() }
+        inNotch.remove(id.lowercased())
         dropAlerts { $0 == .reminder(id: id.lowercased()) }
         saveReminders()
         return reminders.count != before
@@ -111,11 +114,16 @@ final class BuddyRoutineController: ObservableObject {
         reminders[i].due = Date.now.addingTimeInterval(TimeInterval(max(1, minutes) * 60))
         reminders[i].snoozes += 1
         let r = reminders[i]
+        inNotch.remove(r.id)
         reminders = BuddyReminders.sorted(reminders)
         dropAlerts { $0 == .reminder(id: r.id) }
         saveReminders()
         return r
     }
+
+    /// Reminders due and showing in the notch's card (coucou-custom fork): not raised again until
+    /// you snooze or end them, or Coucou restarts.
+    private var inNotch: Set<String> = []
 
     func clearReminders() {
         reminders = []
@@ -187,6 +195,15 @@ final class BuddyRoutineController: ObservableObject {
         updateTick()
     }
 
+    /// A finished timer again (coucou-custom fork's quick actions): for `minutes`, or as long as it
+    /// was (nil), with its label.
+    func rerunTimer(minutes: Int?) {
+        dropAlerts { $0 == .timerDone }
+        startTimer(seconds: minutes.map { TimeInterval($0 * 60) } ?? lastTimerTotal, label: lastTimerLabel)
+    }
+
+    private var lastTimerTotal: TimeInterval = 300
+
     /// "Snooze 5 minutes" on a finished timer: it runs again.
     func snoozeTimer() {
         let label = lastTimerLabel
@@ -210,13 +227,15 @@ final class BuddyRoutineController: ObservableObject {
     var waterToday: Int { settings.waterLog.total(on: .now) }
 
     /// A glass (or `ml`) drunk: logged for today; reaching the goal is celebrated.
-    func logWater(_ ml: Int? = nil) {
+    /// `keepOpen` (coucou-custom fork): the water reminder stays up, for another glass; its Done
+    /// closes it. Otherwise logging answers the reminder, as before.
+    func logWater(_ ml: Int? = nil, keepOpen: Bool = false) {
         let amount = ml ?? settings.waterPlan.glass
         let before = waterToday
         var log = settings.waterLog
         log.add(amount, on: .now)
         settings.waterLog = log
-        dropAlerts { $0 == .water }
+        if keepOpen { waterLoggedAt = .now } else { dropAlerts { $0 == .water } }
         let goal = settings.waterPlan.goal
         if amount > 0, before < goal, waterToday >= goal {
             BuddyController.shared.celebrate("Water goal reached! \(BuddyWater.amount(goal)) 💧")
@@ -228,6 +247,9 @@ final class BuddyRoutineController: ObservableObject {
     }
 
     /// The nudge again in a while.
+    /// The last glass logged from an open reminder: it is not closed by itself while you log.
+    private var waterLoggedAt: Date?
+
     func snoozeWater() {
         dropAlerts { $0 == .water }
         nextWater = Date.now.addingTimeInterval(TimeInterval(BuddyWater.snoozeMinutes * 60))
@@ -333,9 +355,38 @@ final class BuddyRoutineController: ObservableObject {
 
     // MARK: - Alerts
 
+    /// Settings' Try (coucou-custom fork): a sample of the kind's alert where it is set to show —
+    /// the Buddy's card, the notch or full screen — that logs, snoozes and starts nothing.
+    func previewAlert(_ kind: RoutineMomentKind) {
+        let sample = RoutineMoment.sample(kind)
+        switch RoutineMomentSettings.shared.shownStyle(kind) {
+        case .fullScreen:
+            RoutineMoments.shared.preview(kind)
+        case .notch:
+            RoutineNotchModel.shared.show(sample)
+        case .buddy:
+            // Its own card, its buttons idle; a start, which has none on the Buddy, as a plain one.
+            let alert = sample.alert ?? BuddyAlert(kind: .greeting, title: sample.title, detail: sample.detail + " · a preview")
+            alerts.append(alert)
+            BuddyController.shared.react(.alert)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let a = self.alerts.first(where: { $0.id == alert.id }) else { return }
+                    self.dismiss(a)
+                }
+            }
+        }
+    }
+
+    /// A preview's card closed: no reminder done, nothing recorded.
+    func withdraw(_ alert: BuddyAlert) {
+        alerts.removeAll { $0.id == alert.id }
+    }
+
     func dismiss(_ alert: BuddyAlert) {
         alerts.removeAll { $0.id == alert.id }
         if case .reminder(let id) = alert.kind {
+            inNotch.remove(id)
             BuddyDiaryStore.record { $0.remindersDone += 1 }
             reminders.removeAll { $0.id == id }
             saveReminders()
@@ -373,11 +424,20 @@ final class BuddyRoutineController: ObservableObject {
 
     private func raise(_ alert: BuddyAlert, sound: String) {
         if settings.alertSound { SoundEngine.shared.play(sound) }
-        // coucou-custom fork: chosen full screen for its kind (Settings → Buddy → Full screen), the
-        // alert is kept here even without the Buddy, and the full screen shows it.
-        let fullScreen = RoutineMomentKind.of(alert.kind).map(RoutineMomentSettings.shared.wants) ?? false
-        guard BuddySettings.shared.enabled || fullScreen else {
-            // No Buddy to hold it: the notch says it once.
+        // coucou-custom fork: where its kind shows (Settings → Buddy → Alerts) — the Buddy's card,
+        // the notch, or full screen (the alert is kept here even without the Buddy, and the full
+        // screen shows it). The card goes to the notch while the Buddy is hidden.
+        let style = RoutineMomentKind.of(alert.kind).map(RoutineMomentSettings.shared.shownStyle)
+            ?? RoutineAlertStyle.buddy.resolved(buddyShown: BuddySettings.shared.enabled)
+        let fullScreen = style == .fullScreen
+        if style == .notch, let kind = RoutineMomentKind.of(alert.kind) {
+            // coucou-custom fork: the routine's own notch card, with its quick actions.
+            if case .reminder(let id) = alert.kind { inNotch.insert(id) }
+            RoutineNotchModel.shared.show(RoutineMoment(kind: kind, alert: alert))
+            return
+        }
+        guard style != .notch else {
+            // The notch says it once.
             let app = AppState.shared
             app.noteMessage = alert.detail.isEmpty ? alert.title : "\(alert.title) — \(alert.detail)"
             NotificationCenter.default.post(name: .hookExpand, object: IslandView.note)
@@ -396,6 +456,8 @@ final class BuddyRoutineController: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, let a = self.alerts.first(where: { $0.id == id }) else { return }
+                    // coucou-custom fork: still logging glasses from it: it waits for its Done.
+                    if a.kind == .water, let at = self.waterLoggedAt, Date.now.timeIntervalSince(at) < after { return }
                     self.dismiss(a)
                 }
             }
@@ -410,7 +472,7 @@ final class BuddyRoutineController: ObservableObject {
         dueTimer = nil
         let alerted = Set(alerts.compactMap { a -> String? in
             if case .reminder(let id) = a.kind { id } else { nil }
-        })
+        }).union(inNotch)
         let next = ([nextWater] + reminders.filter { !alerted.contains($0.id) }.map(\.due)).compactMap { $0 }.min()
         guard let next else { return }
         let t = Timer(fire: max(next, Date.now.addingTimeInterval(0.2)), interval: 0, repeats: false) { [weak self] _ in
@@ -425,7 +487,7 @@ final class BuddyRoutineController: ObservableObject {
         let now = Date.now
         let alerted = Set(alerts.compactMap { a -> String? in
             if case .reminder(let id) = a.kind { id } else { nil }
-        })
+        }).union(inNotch)
         for r in reminders where r.due <= now && !alerted.contains(r.id) {
             let late = now.timeIntervalSince(r.due) > 120
             raise(BuddyAlert(kind: .reminder(id: r.id), title: r.text,
@@ -493,6 +555,7 @@ final class BuddyRoutineController: ObservableObject {
         }
         if let c = countdown, c.isOver(at: t) {
             lastTimerLabel = c.label
+            lastTimerTotal = c.total
             countdown = nil
             BuddyDiaryStore.record { $0.timersDone += 1 }
             raise(BuddyAlert(kind: .timerDone, title: c.label.isEmpty ? "Time's up" : c.label,

@@ -913,6 +913,26 @@ final class IslandWindowController: NSWindowController {
             self?.collapse()
         }
 
+        // coucou-custom fork: a click elsewhere folds the open notch (Settings → General → Close on a
+        // click outside) — in another app or on the desktop, or in another of Coucou's own windows.
+        // Never while a permission or a question waits in it.
+        let clickedOutside: @MainActor () -> Void = { [weak self] in
+            guard let self, IslandClickOutside.enabled, self.state.mode == .expanded,
+                  self.state.pendingApproval == nil, self.state.pendingQuestion == nil,
+                  self.window?.frame.contains(NSEvent.mouseLocation) == false else { return }
+            self.collapse()
+        }
+        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
+            MainActor.assumeIsolated { clickedOutside() }
+        }
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                // Coucou's ordinary windows only (Settings, the Coucou window), not the Buddy or the panel.
+                if event.window !== self?.window, event.window?.level == .normal { clickedOutside() }
+            }
+            return event
+        }
+
         // Wardrobe open/close from desktop Mochi right-click (does NOT post .hookExpand)
         NotificationCenter.default.addObserver(forName: .openWardrobeFromDesktop, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
@@ -2049,6 +2069,12 @@ extension Notification.Name {
     static let openWardrobeFromDesktop = Notification.Name("notchBuddy.openWardrobeFromDesktop")
     // Island moved to another screen (resting size may differ: notch vs bar)
     static let islandScreenChanged = Notification.Name("notchBuddy.islandScreenChanged")
+}
+
+/// coucou-custom fork: Settings → General → Close on a click outside (on by default).
+enum IslandClickOutside {
+    static let key = "islandClosesOnClickOutside"
+    static var enabled: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 
 // MARK: - islandSize (takes real notch dimensions)

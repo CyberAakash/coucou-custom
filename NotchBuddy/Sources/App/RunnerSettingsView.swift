@@ -228,7 +228,7 @@ private struct MenuBarPanelSettingsCard: View {
 
     var body: some View {
         HubCard {
-            Text("What a click on the icon shows, top to bottom: drag a section to move it. The gear at its top opens these settings; the bar at its bottom keeps the Daily brief, the Weekly brief and Quit.")
+            Text("What a click on the icon shows, top to bottom: drag a section to move it. The gear at its top opens these settings; the bar at its bottom has quick actions (a glass of water, focus, breathe, ask Mochi) and Quit.")
                 .font(.system(size: 12.5)).foregroundColor(HubTheme.body).fixedSize(horizontal: false, vertical: true)
             HubReorderList(items: $settings.panelSections,
                            fixed: MenuBarPanelSection.allCases.filter { !settings.panelSections.contains($0) }) { section in

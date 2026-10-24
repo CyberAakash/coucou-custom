@@ -148,6 +148,21 @@ enum RoutineMomentKind: String, CaseIterable, Identifiable {
     /// A start is a short moment that closes by itself; the others wait for you.
     var closesByItself: Bool { self == .focusStart || self == .timerStart }
 
+    /// What Settings' Try shows for it.
+    @MainActor var sample: (title: String, detail: String) {
+        switch self {
+        case .water:
+            let s = BuddyRoutineSettings.shared
+            return ("Time for some water", "\(BuddyWater.amount(s.waterLog.total(on: Date()))) of \(BuddyWater.amount(s.waterPlan.goal)) today")
+        case .reminder: return ("Call Sam", "Reminder")
+        case .focusStart: return ("Focus starts now", "\(BuddyRoutineSettings.shared.focusPlan.focus) min")
+        case .focusDone: return ("Focus session done", "Time for a break")
+        case .breakDone: return ("Break over", "Ready for the next session?")
+        case .timerStart: return ("Timer started", "5 min")
+        case .timerDone: return ("Timer done", "5 min")
+        }
+    }
+
     static func of(_ alert: BuddyAlert.Kind) -> RoutineMomentKind? {
         switch alert {
         case .water: .water
@@ -165,10 +180,11 @@ final class RoutineMomentSettings: ObservableObject {
     static let shared = RoutineMomentSettings()
     private let defaults = UserDefaults.standard
 
-    /// Each one off until chosen: a full screen is a strong interruption.
-    @Published var enabled: Set<RoutineMomentKind> {
-        didSet { defaults.set(enabled.map(\.rawValue).sorted(), forKey: "routineMomentsFullScreen") }
+    /// Where each kind shows; the Buddy's card until chosen (a full screen is a strong interruption).
+    @Published private(set) var styles: [RoutineMomentKind: RoutineAlertStyle] {
+        didSet { defaults.set(Dictionary(uniqueKeysWithValues: styles.map { ($0.key.rawValue, $0.value.rawValue) }), forKey: Self.stylesKey) }
     }
+    private static let stylesKey = "routineAlertStyles"
     /// Seconds a start stays up.
     @Published var startSeconds: Int { didSet { defaults.set(startSeconds, forKey: "routineMomentsStartSeconds") } }
     /// How dark the screen behind goes, 0.2…0.85.
@@ -177,16 +193,30 @@ final class RoutineMomentSettings: ObservableObject {
     static let startChoices = [2, 3, 5, 8]
 
     private init() {
-        enabled = Set((defaults.stringArray(forKey: "routineMomentsFullScreen") ?? []).compactMap(RoutineMomentKind.init(rawValue:)))
+        if let stored = defaults.dictionary(forKey: Self.stylesKey) as? [String: String] {
+            styles = Dictionary(uniqueKeysWithValues: stored.compactMap { k, v in
+                guard let kind = RoutineMomentKind(rawValue: k), let style = RoutineAlertStyle(rawValue: v) else { return nil }
+                return (kind, style)
+            })
+        } else {
+            // The first build kept only which kinds go full screen.
+            let full = (defaults.stringArray(forKey: "routineMomentsFullScreen") ?? []).compactMap(RoutineMomentKind.init(rawValue:))
+            styles = Dictionary(uniqueKeysWithValues: full.map { ($0, .fullScreen) })
+        }
         startSeconds = defaults.object(forKey: "routineMomentsStartSeconds") as? Int ?? 3
         dim = min(0.85, max(0.2, defaults.object(forKey: "routineMomentsDim") as? Double ?? 0.55))
     }
 
-    func wants(_ kind: RoutineMomentKind) -> Bool { enabled.contains(kind) }
+    func style(_ kind: RoutineMomentKind) -> RoutineAlertStyle { styles[kind] ?? .buddy }
 
-    func toggle(_ kind: RoutineMomentKind, _ on: Bool) {
-        if on { enabled.insert(kind) } else { enabled.remove(kind) }
+    /// Where it shows now: the Buddy's card goes to the notch while the Buddy is hidden.
+    func shownStyle(_ kind: RoutineMomentKind) -> RoutineAlertStyle {
+        style(kind).resolved(buddyShown: BuddySettings.shared.enabled)
     }
+
+    func wants(_ kind: RoutineMomentKind) -> Bool { style(kind) == .fullScreen }
+
+    func set(_ kind: RoutineMomentKind, _ style: RoutineAlertStyle) { styles[kind] = style }
 }
 
 @MainActor
@@ -223,7 +253,12 @@ final class RoutineMoments {
     }
 
     /// A focus session or a timer starting: a short moment, gone by itself. Never over an alert.
+    /// Set to the notch, the notch says it; on the Buddy, its card already shows it running.
     func started(_ kind: RoutineMomentKind, title: String, detail: String) {
+        if RoutineMomentSettings.shared.shownStyle(kind) == .notch {
+            RoutineNotchModel.shared.show(RoutineMoment(kind: kind, alert: nil, startTitle: title, startDetail: detail))
+            return
+        }
         guard RoutineMomentSettings.shared.wants(kind), shownAlert == nil else { return }
         show(RoutineMoment(kind: kind, alert: nil, startTitle: title, startDetail: detail))
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.close(acted: true) } }
@@ -231,21 +266,18 @@ final class RoutineMoments {
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(RoutineMomentSettings.shared.startSeconds), execute: work)
     }
 
-    /// Settings' "Try it": a water moment, gone after a few seconds, whatever is chosen.
-    func preview() {
+    /// Settings' Try: a moment, gone after a few seconds, whatever is chosen; it does nothing.
+    func preview(_ kind: RoutineMomentKind = .water) {
         guard shownAlert == nil else { return }
-        show(RoutineMoment(kind: .water, alert: nil, startTitle: "Time for some water",
-                           startDetail: "This is how a moment looks. It closes by itself."))
+        show(RoutineMoment.sample(kind))
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.close(acted: true) } }
         autoClose = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
     }
 
     private func show(_ moment: RoutineMoment) {
         autoClose?.cancel()
-        // The Buddy walks to the middle of that screen and stands in the ring, as for breathing.
-        let radius = BuddyController.shared.visitCenter(of: FullScreenOverlay.targetScreen)
-        let view = RoutineMomentView(moment: moment, buddyRadius: radius, perform: { [weak self] action in self?.perform(action) })
+        let view = RoutineMomentView(moment: moment, perform: { [weak self] action in self?.perform(action) })
         FullScreenOverlay.shared.present(view, owner: "moment", dim: RoutineMomentSettings.shared.dim) { [weak self] event in
             self?.key(event, moment) ?? false
         }
@@ -254,8 +286,10 @@ final class RoutineMoments {
     /// A button or a key: the screen goes first, so whatever the action starts (a snoozed timer's
     /// own "Timer starts") can show.
     func perform(_ action: RoutineMoment.Action?) {
+        guard let action else { close(acted: true); return }
+        if action.keepsOpen { action.run(); return }
         close(acted: true)
-        action?.run()
+        action.run()
     }
 
     /// Closed without an answer while the Buddy is off: no card holds the alert, so it is
@@ -269,7 +303,6 @@ final class RoutineMoments {
         }
         shownAlert = nil
         FullScreenOverlay.shared.close(owner: "moment")
-        BuddyController.shared.leaveCenter()
         showNextQueued()
     }
 
@@ -298,19 +331,35 @@ final class RoutineMoments {
     }
 }
 
+/// One routine alert, as all three places draw it — the Buddy's card, the notch's card, the full
+/// screen: its colour and icon, its words, its ring, its quick actions (some keep it up: water's
+/// glasses), and the buttons that close it.
 struct RoutineMoment {
     let kind: RoutineMomentKind
     let alert: BuddyAlert?
     var startTitle = ""
     var startDetail = ""
+    /// Settings' Try with no alert behind it (a start): its buttons do nothing.
+    var preview = false
 
     struct Action {
         let title: String
+        /// Acts and stays: the moment is closed by another button (water's glasses).
+        var keepsOpen = false
+        var symbol: String? = nil
         let run: () -> Void
     }
 
+    var isPreview: Bool { preview || alert?.isPreview == true }
+
     @MainActor var title: String { alert?.title ?? startTitle }
-    @MainActor var detail: String { alert?.detail ?? startDetail }
+
+    /// Water's total follows each glass logged; the others say what their alert said.
+    @MainActor var detail: String {
+        guard kind == .water else { return alert?.detail ?? startDetail }
+        let s = BuddyRoutineSettings.shared
+        return "\(BuddyWater.amount(s.waterLog.total(on: Date()))) of \(BuddyWater.amount(s.waterPlan.goal)) today"
+    }
 
     var tint: Color {
         switch kind {
@@ -319,6 +368,17 @@ struct RoutineMoment {
         case .focusStart: Color(hex: "#818CF8")
         case .focusDone, .breakDone: Color(hex: "#34D399")
         case .timerStart, .timerDone: Color(hex: "#F7B32B")
+        }
+    }
+
+    var symbol: String {
+        switch kind {
+        case .water: "drop.fill"
+        case .reminder: "bell.fill"
+        case .focusStart: "brain.head.profile"
+        case .focusDone: "cup.and.saucer.fill"
+        case .breakDone: "brain.head.profile"
+        case .timerStart, .timerDone: "timer"
         }
     }
 
@@ -331,7 +391,7 @@ struct RoutineMoment {
         }
     }
 
-    /// The ring around Mochi: water drunk today, or full for a done moment.
+    /// The ring: water drunk today, full for a done moment, none for a reminder or a start.
     @MainActor var progress: Double? {
         switch kind {
         case .water:
@@ -342,50 +402,109 @@ struct RoutineMoment {
         }
     }
 
-    /// The buttons, in order; the last is the main one (Return).
-    @MainActor var actions: [Action] {
+    /// An action that does nothing in a preview.
+    private func action(_ title: String, keepsOpen: Bool = false, symbol: String? = nil, _ run: @escaping () -> Void) -> Action {
+        let preview = isPreview
+        return Action(title: title, keepsOpen: keepsOpen, symbol: symbol) { if !preview { run() } }
+    }
+
+    /// The quick actions, a row of their own: water's glasses (it stays up for another), a
+    /// reminder's snoozes, a timer's again, a focus session's next step.
+    @MainActor var quick: [Action] {
         let r = BuddyRoutineController.shared
-        guard let a = alert else { return [Action(title: "OK") {}] }
-        switch a.kind {
+        switch kind {
         case .water:
-            return [Action(title: "Skip") { r.dismiss(a) }, Action(title: "Later") { r.snoozeWater() },
-                    Action(title: "+\(BuddyWater.amount(BuddyRoutineSettings.shared.waterPlan.glass))") { r.act(on: a) }]
+            let glass = BuddyRoutineSettings.shared.waterPlan.glass
+            return [glass, glass * 2, 1000].map { ml in
+                action("+\(BuddyWater.amount(ml))", keepsOpen: true, symbol: "drop.fill") { r.logWater(ml, keepOpen: true) }
+            }
         case .reminder:
-            return [Action(title: "Snooze 5 min") { r.act(on: a) }, Action(title: "Done") { r.dismiss(a) }]
+            guard case .reminder(let id)? = alert?.kind else { return [] }
+            return [(5, "5 min"), (15, "15 min"), (60, "1 hour")].map { m, label in
+                action(label, symbol: "zzz") { _ = r.snoozeReminder(id, minutes: m) }
+            }
         case .timerDone:
-            return [Action(title: "Snooze 5 min") { r.act(on: a) }, Action(title: "Dismiss") { r.dismiss(a) }]
+            return [action("+1 min", symbol: "goforward") { r.rerunTimer(minutes: 1) },
+                    action("+5 min", symbol: "goforward.5") { r.rerunTimer(minutes: 5) },
+                    action("Again", symbol: "arrow.counterclockwise") { r.rerunTimer(minutes: nil) }]
+        case .focusDone:
+            return [action("Skip the break", symbol: "forward.fill") { r.skipFocus() },
+                    action("End the session", symbol: "stop.fill") { r.endFocus() }]
         case .breakDone:
-            return [Action(title: "End") { r.endFocus() }, Action(title: "Start focus") { r.act(on: a) }]
-        case .focusDone, .greeting:
-            return [Action(title: "OK") { r.dismiss(a) }]
+            return []
+        case .focusStart:
+            return [action("Pause", symbol: "pause.fill") { r.pauseFocus() },
+                    action("End", symbol: "stop.fill") { r.endFocus() }]
+        case .timerStart:
+            return [action("+1 min", keepsOpen: true, symbol: "goforward") { r.addToTimer(60) },
+                    action("Cancel", symbol: "xmark") { r.cancelTimer() }]
         }
     }
 
-    @MainActor var primary: Action? { actions.last }
-    /// Esc: the gentle choice — later, snooze, OK. Never "End" (a break over closes the screen
+    /// The buttons that close it, in order; the last is the main one.
+    @MainActor var actions: [Action] {
+        let r = BuddyRoutineController.shared
+        guard let a = alert else { return [action("OK") {}] }
+        switch a.kind {
+        case .water: return [action("Later") { r.snoozeWater() }, action("Done") { r.dismiss(a) }]
+        case .reminder: return [action("Done") { r.dismiss(a) }]
+        case .timerDone: return [action("Done") { r.dismiss(a) }]
+        case .breakDone: return [action("End") { r.endFocus() }, action("Start focus") { r.act(on: a) }]
+        case .focusDone, .greeting: return [action("OK") { r.dismiss(a) }]
+        }
+    }
+
+    /// Return: water logs a glass (and stays); the others, their main button.
+    @MainActor var primary: Action? { kind == .water ? quick.first : actions.last }
+    /// Esc: the gentle choice — done, a snooze, OK. Never "End" (a break over closes the screen
     /// only, the alert stays on the Buddy's card).
     @MainActor var secondary: Action? {
-        switch alert?.kind {
-        case .water: return actions.count > 1 ? actions[1] : nil   // Later
-        case .reminder, .timerDone: return actions.first            // Snooze 5 min
+        switch kind {
+        case .reminder: return quick.first   // Snooze 5 min
         case .breakDone: return nil
         default: return actions.last
         }
     }
+
+    /// Settings' Try: a sample of the kind, its buttons idle.
+    @MainActor static func sample(_ kind: RoutineMomentKind) -> RoutineMoment {
+        let s = kind.sample
+        let alertKind: BuddyAlert.Kind? = switch kind {
+        case .water: .water
+        case .reminder: .reminder(id: "preview")
+        case .focusDone: .focusDone
+        case .breakDone: .breakDone
+        case .timerDone: .timerDone
+        case .focusStart, .timerStart: nil
+        }
+        if let alertKind {
+            return RoutineMoment(kind: kind, alert: BuddyAlert(kind: alertKind, title: s.title, detail: s.detail, isPreview: true))
+        }
+        return RoutineMoment(kind: kind, alert: nil, startTitle: s.title, startDetail: s.detail, preview: true)
+    }
 }
 
 /// As Claude Design drew the routine alerts: a glow in the moment's colour, a ring (water drunk
-/// today, or full for a done moment) with Mochi in it, the title, its line, the buttons and their
-/// keys. The ring sits in the screen's middle: the desktop Buddy comes to stand in it, as it does
-/// for full-screen breathing (`buddyRadius`); without the Buddy, the design's Mochi is drawn there.
+/// today, or full for a done moment) with the design's Mochi in it, the title, its line, the
+/// buttons and their keys. The desktop Buddy stays where it is: a moment is short, unlike
+/// full-screen breathing, which it walks to the middle for.
 struct RoutineMomentView: View {
     let moment: RoutineMoment
-    /// The ring's radius around the Buddy standing in the middle; nil: the ring holds its own Mochi.
-    var buddyRadius: CGFloat? = nil
     let perform: (RoutineMoment.Action) -> Void
     @State private var appeared = false
+    /// Water's total and ring follow each glass logged here.
+    @ObservedObject private var water = BuddyRoutineSettings.shared
+    /// Today's water when the moment came: what was poured since shows beside the total.
+    @State private var startTotal: Int?
 
-    private var radius: CGFloat { buddyRadius ?? 116 }
+    private let radius: CGFloat = 116
+
+    private var detail: String {
+        guard moment.kind == .water else { return moment.detail }
+        let today = water.waterLog.total(on: Date())
+        let poured = today - (startTotal ?? today)
+        return moment.detail + (poured > 0 ? " · +\(BuddyWater.amount(poured)) just now" : "")
+    }
 
     private var mochiMode: DesignMochi.Mode {
         switch moment.kind {
@@ -413,6 +532,7 @@ struct RoutineMomentView: View {
         .ignoresSafeArea()
         .foregroundColor(HubTheme.text)
         .onAppear {
+            startTotal = water.waterLog.total(on: Date())
             withAnimation(BriefLayout.spring) { appeared = true }
         }
     }
@@ -425,9 +545,7 @@ struct RoutineMomentView: View {
                 .rotationEffect(.degrees(-90))
                 .opacity(moment.progress == nil ? 0 : 1)
                 .animation(BriefLayout.spring.delay(0.3), value: appeared)
-            if buddyRadius == nil {
-                DesignMochi(size: 132, mode: mochiMode).padding(.top, 16)
-            }
+            DesignMochi(size: 132, mode: mochiMode).padding(.top, 16)
         }
         .frame(width: radius * 2, height: radius * 2)
         .scaleEffect(appeared ? 1 : 0.92)
@@ -440,19 +558,42 @@ struct RoutineMomentView: View {
                 Text(moment.title)
                     .font(.system(size: 38, weight: .bold)).tracking(-0.76)
                     .multilineTextAlignment(.center)
-                if !moment.detail.isEmpty {
-                    Text(moment.detail).font(.system(size: 17).monospacedDigit()).foregroundColor(Color(hex: "#8E939C"))
+                if !detail.isEmpty {
+                    Text(detail).font(.system(size: 17).monospacedDigit()).foregroundColor(Color(hex: "#8E939C"))
                         .multilineTextAlignment(.center)
+                        .contentTransition(.numericText())
+                        .animation(BriefLayout.spring, value: detail)
                 }
             }
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : 14)
             .animation(BriefLayout.spring.delay(0.12), value: appeared)
 
-            if moment.alert != nil {
+            if !moment.quick.isEmpty {
+                HStack(spacing: 12) {
+                    ForEach(Array(moment.quick.enumerated()), id: \.offset) { i, log in
+                        Button { perform(log) } label: {
+                            Label(log.title, systemImage: log.symbol ?? moment.symbol)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundColor(i == 0 && moment.kind == .water ? Color(hex: "#06131A") : moment.tint)
+                                .padding(.horizontal, 26).frame(height: 52)
+                                .background(Capsule().fill(i == 0 && moment.kind == .water ? moment.tint : moment.tint.opacity(0.14)))
+                                .overlay(Capsule().strokeBorder(moment.tint.opacity(i == 0 && moment.kind == .water ? 0 : 0.45)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(BriefPress())
+                    }
+                }
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 20)
+                .animation(BriefLayout.spring.delay(0.16), value: appeared)
+            }
+
+            if moment.alert != nil || !moment.quick.isEmpty {
                 HStack(spacing: 12) {
                     ForEach(Array(moment.actions.enumerated()), id: \.offset) { i, action in
-                        let main = i == moment.actions.count - 1
+                        // With water's glasses first, Done is a quiet button.
+                        let main = moment.kind != .water && i == moment.actions.count - 1
                         Button { perform(action) } label: {
                             Text(action.title)
                                 .font(.system(size: 17, weight: .bold))

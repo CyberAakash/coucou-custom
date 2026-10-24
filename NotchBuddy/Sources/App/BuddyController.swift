@@ -1027,6 +1027,17 @@ final class BuddyController {
             return p
         }()
         hud = h
+        hudLook.resized = { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, let h = self.hud, let host = h.contentView else { return }
+                    let size = host.fittingSize
+                    guard h.frame.size != size else { return }
+                    h.setContentSize(size)
+                    self.moveHUD()
+                }
+            }
+        }
         // objectWillChange fires before the change lands: size on the next turn.
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
@@ -1172,31 +1183,6 @@ final class BuddyController {
         centered = false
         if let p = panel, let home = breathHome { teleport(p, foot: home) }
         breathHome = nil
-    }
-
-    /// A full-screen routine moment's trip to the middle (RoutineMoments).
-    private var visiting = false
-
-    /// A routine moment full screen: the Buddy walks to the middle of `screen` and stands in its
-    /// ring, as for full-screen breathing. Returns the ring's radius around it; nil when the Buddy
-    /// is off or busy in the middle already, and the moment draws its own Mochi.
-    func visitCenter(of screen: NSScreen) -> CGFloat? {
-        guard settings.enabled, let p = panel, !centered, calmFull == nil, hop == nil, !dragging else { return nil }
-        centered = true
-        visiting = true
-        breathHome = foot(p)
-        hideBubble()
-        teleport(p, foot: CGPoint(x: screen.frame.midX, y: screen.frame.midY - side / 2)) { [weak self] in
-            self?.panel?.orderFrontRegardless()   // over the dim
-        }
-        return max(116, side * 0.95)
-    }
-
-    /// The moment closed: back home, as after breathing.
-    func leaveCenter() {
-        guard visiting else { return }
-        visiting = false
-        walkHome()
     }
 
     /// A trip in progress: shrinking where it is, then growing where it goes (tick moves it).
