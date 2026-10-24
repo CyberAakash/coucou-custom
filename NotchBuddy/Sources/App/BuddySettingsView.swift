@@ -92,7 +92,7 @@ struct HubBuddyPage: View {
             if shows(.routines) {
                 HubLabel("Routines")
                 BuddyRoutinesCard(settings: routineSettings)
-                HubLabel("Full screen")
+                HubLabel("Alerts")
                 BuddyFullScreenCard()
             }
 
@@ -425,7 +425,7 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .look: "size colour color companions side shadow look appearance scale"
         case .wardrobe: "wardrobe outfit clothes hat cap crown bow schedule seasons always wear nightcap"
         case .assistant: "assistant chat act tools ask mochi reminder timer slash commands"
-        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert sound start full screen fullscreen moment"
+        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert alerts sound start full screen fullscreen moment notch card popup where show"
         case .water: "water drink glass goal hydration nudge every between days ml litre"
         case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep card hud popup drag distance gap"
         case .clicks: "clicks click double triple many gesture action shortcut open app link"

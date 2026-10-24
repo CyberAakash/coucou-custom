@@ -128,6 +128,11 @@ struct BuddyWaterCard: View {
                 BriefSwitch(isOn: $settings.waterEnabled, tint: HubBuddyPage.tint)
             }
             HubDivider()
+            // coucou-custom fork: the same choice as Routines → Alerts, with its Try.
+            BriefSettingRow(title: "The nudge shows as", detail: "On the Buddy with its +glass button, a line in the notch, or full screen.") {
+                BuddyAlertStylePicker(kind: .water)
+            }
+            HubDivider()
             HubRow(title: "Daily goal") {
                 BuddyAmountChips(values: BuddyWaterPlan.goals, selection: $settings.waterPlan.goal, custom: BuddyWaterPlan.goalRange, step: 250)
             }

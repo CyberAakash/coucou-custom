@@ -18,6 +18,7 @@ enum BuddyRoutinesTests {
         testFocus()
         testCountdown()
         testWater()
+        testAlertStyle()
         testBreathing()
         testText()
         testTools()
@@ -99,6 +100,13 @@ enum BuddyRoutinesTests {
         precondition(c.isOver(at: t0.addingTimeInterval(1800)) && !c.isOver(at: t0.addingTimeInterval(1799)), "over after resume")
         c.add(300, at: t0.addingTimeInterval(1000))
         precondition(c.remaining(at: t0.addingTimeInterval(1000)) == 1100, "add while running")
+    }
+
+    static func testAlertStyle() {
+        precondition(RoutineAlertStyle.buddy.resolved(buddyShown: true) == .buddy, "the card, with the Buddy")
+        precondition(RoutineAlertStyle.buddy.resolved(buddyShown: false) == .notch, "no Buddy: the notch")
+        precondition(RoutineAlertStyle.fullScreen.resolved(buddyShown: false) == .fullScreen, "full screen needs no Buddy")
+        precondition(RoutineAlertStyle.notch.resolved(buddyShown: true) == .notch, "the notch stays the notch")
     }
 
     static func testWater() {

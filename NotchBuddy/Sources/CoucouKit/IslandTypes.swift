@@ -20,6 +20,7 @@ enum IslandView: String, CaseIterable {
     case whatsNew     // Coucou just updated itself: what the version brings, then your Coucou so far (GitHub build)
     case dailyBrief   // the Daily brief in the notch (coucou-custom fork)
     case weeklyBrief  // the Weekly recap in the notch, the fork's richer card (coucou-custom fork)
+    case routineAlert // a routine's alert in the notch, with its quick actions (coucou-custom fork)
 }
 
 // MARK: - Bot State
@@ -255,6 +256,7 @@ enum IslandConst {
         // coucou-custom fork: the briefs, a little taller than the recap for their numbers
         .dailyBrief:   ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         .weeklyBrief:  ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
+        .routineAlert: ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
     ]
 
     // Project colors — keyed by lowercase display name or slug

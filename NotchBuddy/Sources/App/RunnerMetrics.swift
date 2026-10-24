@@ -54,6 +54,7 @@ final class RunnerSampler: ObservableObject {
     private var lastTicks: (busy: UInt64, total: UInt64)?
     private var lastNetwork: (rx: UInt64, tx: UInt64, at: TimeInterval)?
     private var lastStorageRead: TimeInterval = 0
+    private var readingStorage = false
 
     var running: Bool { timer != nil }
 
@@ -92,11 +93,22 @@ final class RunnerSampler: ObservableObject {
             next.memoryTotal = memory.total
         }
         let now = ProcessInfo.processInfo.systemUptime
-        // The disk changes slowly; once a minute is enough.
-        if now - lastStorageRead > 60 || next.storageTotal == nil, let disk = Self.storage() {
-            next.storageUsed = disk.used
-            next.storageTotal = disk.total
+        // The disk changes slowly; once a minute is enough. Its free space can take macOS a
+        // moment to work out (purgeable space), so it is asked off the main thread: asked here,
+        // it held the menu-bar panel as it opened.
+        if now - lastStorageRead > 60 || next.storageTotal == nil, !readingStorage {
+            readingStorage = true
             lastStorageRead = now
+            Task.detached(priority: .utility) {
+                let disk = Self.storage()
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.readingStorage = false
+                    guard let disk, self.sample.storageUsed != disk.used || self.sample.storageTotal != disk.total else { return }
+                    self.sample.storageUsed = disk.used
+                    self.sample.storageTotal = disk.total
+                }
+            }
         }
         if let battery = MachineVitals.readBattery() {
             next.batteryPercent = battery.percent
@@ -145,7 +157,7 @@ final class RunnerSampler: ObservableObject {
         return (min(used, total), total)
     }
 
-    static func storage() -> (used: UInt64, total: UInt64)? {
+    nonisolated static func storage() -> (used: UInt64, total: UInt64)? {
         let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
         guard let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: keys),
               let total = values.volumeTotalCapacity, total > 0,

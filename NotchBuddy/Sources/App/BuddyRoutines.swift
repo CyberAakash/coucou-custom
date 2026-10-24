@@ -559,3 +559,23 @@ enum BuddyTimeText {
         return rem == 0 ? unit(h, "hour") : unit(h, "hour") + " " + unit(rem, "minute")
     }
 }
+
+/// Where a routine's alert shows (Settings → Buddy → Alerts): on the Buddy's card, said in the
+/// notch, or over the whole screen.
+enum RoutineAlertStyle: String, CaseIterable, Identifiable, Codable {
+    case buddy, notch, fullScreen
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .buddy: "Buddy card"
+        case .notch: "Notch"
+        case .fullScreen: "Full screen"
+        }
+    }
+
+    /// The Buddy's card needs the Buddy: while it is hidden, the notch says it instead.
+    func resolved(buddyShown: Bool) -> RoutineAlertStyle {
+        self == .buddy && !buddyShown ? .notch : self
+    }
+}

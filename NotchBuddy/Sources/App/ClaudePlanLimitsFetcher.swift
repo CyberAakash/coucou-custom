@@ -37,13 +37,16 @@ final class ClaudePlanLimitsFetcher: ObservableObject {
     func fetch(maxAge: TimeInterval = minInterval) async -> ClaudePlanLimits? {
         while inFlight { try? await Task.sleep(for: .milliseconds(200)) }
         guard Date().timeIntervalSince(lastAttempt) >= max(maxAge, Self.minInterval) else { return best }
-        guard let path = ClaudeCodeCLI.executablePath(), ClaudeCodeCLI.isSignedByAnthropic(path) else {
-            lastError = "Claude Code is not installed or not signed by Anthropic."
-            return best
-        }
         inFlight = true
         lastAttempt = Date()
-        let result = await Task.detached(priority: .utility) { Self.ask(path: path) }.value
+        // Off the main thread: checking the signature hashes the whole `claude` binary (seconds),
+        // which froze the menu-bar panel as it opened.
+        let result = await Task.detached(priority: .utility) { () -> Result<ClaudePlanLimits, Failure> in
+            guard let path = ClaudeCodeCLI.executablePath(), Self.trusted(path) else {
+                return .failure(Failure(message: "Claude Code is not installed or not signed by Anthropic."))
+            }
+            return Self.ask(path: path)
+        }.value
         inFlight = false
         switch result {
         case .success(let l): limits = l; lastError = nil
@@ -53,6 +56,20 @@ final class ClaudePlanLimitsFetcher: ObservableObject {
     }
 
     struct Failure: Error { let message: String }
+
+    /// The binary last found signed by Anthropic, by its path, size and date: checked again only
+    /// when Claude Code is updated or moved. Touched only from the one fetch in flight.
+    nonisolated(unsafe) private static var verified: (path: String, size: Int, modified: Date)?
+
+    nonisolated private static func trusted(_ path: String) -> Bool {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: (path as NSString).resolvingSymlinksInPath)
+        let size = (attributes?[.size] as? NSNumber)?.intValue ?? -1
+        let modified = attributes?[.modificationDate] as? Date ?? .distantPast
+        if let v = verified, v.path == path, v.size == size, v.modified == modified { return true }
+        guard ClaudeCodeCLI.isSignedByAnthropic(path) else { verified = nil; return false }
+        verified = (path, size, modified)
+        return true
+    }
 
     nonisolated private static func ask(path: String) -> Result<ClaudePlanLimits, Failure> {
         let process = Process()

@@ -5,8 +5,8 @@ import SwiftUI
 
 // coucou-custom fork: the panel under Coucou's menu-bar item, in Liquid Glass — your agents, today
 // and this week, the Claude plan's limits, the Mac as a bento, water, focus and the timer,
-// reminders, breathing, your Custom Metrics; the settings at the top right, the two briefs and Quit
-// in a bar that stays at the bottom. Each section can be hidden or moved
+// reminders, breathing, your Custom Metrics; the settings at the top right, quick actions (water,
+// focus, breathe, ask Mochi) and Quit in a bar that stays at the bottom. Each section can be hidden or moved
 // (Settings → Menu bar → Panel). A borderless panel right under the menu bar, like Control Centre's,
 // gone on Esc or a click anywhere else.
 
@@ -79,6 +79,8 @@ final class MenuBarPanelController {
     /// Bumped on each show: a fade-out that ends after a new show leaves the panel alone.
     private var generation = 0
     private weak var anchor: NSStatusBarButton?
+    /// The content's last measured height: the panel opens at it, then follows the content.
+    private var lastHeight: CGFloat = 520
     var onClose: (() -> Void)?
 
     var isShown: Bool { panel?.isVisible == true }
@@ -93,8 +95,8 @@ final class MenuBarPanelController {
         let p = panel ?? makePanel()
         panel = p
         host?.rootView = AnyView(MenuBarPanelView(close: { [weak self] in self?.close() },
-                                                  resize: { [weak self] in self?.fit() }))
-        fit()
+                                                  resize: { [weak self] h in self?.fit(height: h) }))
+        fit(height: lastHeight)
         p.alphaValue = 0
         p.orderFrontRegardless()
         p.makeKey()
@@ -136,23 +138,27 @@ final class MenuBarPanelController {
         p.hidesOnDeactivate = false
         p.appearance = NSAppearance(named: .darkAqua)
         let h = NSHostingView(rootView: AnyView(EmptyView()))
+        // The window's size is set from the content's measured height (fit), not by the
+        // hosting view: letting it size the window ran a layout pass of the whole panel each change.
+        h.sizingOptions = []
         p.contentView = h
         host = h
         return p
     }
 
     /// As tall as its content, up to what the screen has under the menu bar.
-    func fit() {
-        guard let p = panel, let host, let button = anchor, let window = button.window,
+    func fit(height content: CGFloat) {
+        lastHeight = content
+        guard let p = panel, let button = anchor, let window = button.window,
               let screen = window.screen ?? NSScreen.main else { return }
         let buttonFrame = window.convertToScreen(button.convert(button.bounds, to: nil))
         let maxHeight = min(MenuBarPanelView.maxHeight, screen.visibleFrame.height - 16)
-        let size = host.fittingSize
-        let height = min(max(120, size.height), maxHeight)
+        let height = min(max(120, content.rounded(.up)), maxHeight)
         var x = buttonFrame.midX - MenuBarPanelView.width / 2
         x = min(max(x, screen.visibleFrame.minX + 8), screen.visibleFrame.maxX - MenuBarPanelView.width - 8)
         let frame = NSRect(x: x, y: screen.visibleFrame.maxY - 6 - height, width: MenuBarPanelView.width, height: height)
-        if p.frame != frame { p.setFrame(frame, display: true) }
+        guard abs(p.frame.height - frame.height) >= 1 || abs(p.frame.minX - frame.minX) >= 1 || abs(p.frame.maxY - frame.maxY) >= 1 else { return }
+        p.setFrame(frame, display: true)
     }
 
     private func watchOutside() {
@@ -195,40 +201,39 @@ struct MenuBarPanelView: View {
     static let footerHeight: CGFloat = 54
 
     let close: () -> Void
-    let resize: () -> Void
+    /// The panel's whole height as its content measures it, for the window.
+    let resize: (CGFloat) -> Void
 
+    // Each section watches only its own data (the routines' clock ticks every second, the Mac
+    // is read every few): one watching everything here redrew the whole panel each time.
     @ObservedObject private var settings = RunnerSettings.shared
-    @ObservedObject private var sampler = RunnerSampler.shared
-    @ObservedObject private var center = RunnerMetricsCenter.shared
-    @ObservedObject private var live = LiveSessions.shared
-    @ObservedObject private var plan = ClaudePlanLimitsFetcher.shared
-    @ObservedObject private var routines = BuddyRoutineController.shared
-    @ObservedObject private var routineSettings = BuddyRoutineSettings.shared
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
+                // A preference from inside the ScrollView reached the window as 0: the content's
+                // own geometry, read where it is laid out, is its real height.
                 content
-                    .background(GeometryReader { g in Color.clear.preference(key: PanelHeightKey.self, value: g.size.height) })
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                        guard h > 0 else { return }
+                        DispatchQueue.main.async { resize(h + Self.footerHeight) }
+                    }
             }
             .scrollIndicators(.never)
-            .frame(maxHeight: Self.maxHeight - Self.footerHeight)
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: .infinity)
             PanelFooter(close: close)
         }
         .frame(width: Self.width)
         .modifier(PanelGlass())
         .foregroundColor(HubTheme.text)
         .environment(\.colorScheme, .dark)
-        .onPreferenceChange(PanelHeightKey.self) { _ in DispatchQueue.main.async { resize() } }
-        .onChange(of: settings.panelSections) { DispatchQueue.main.async { resize() } }
-        .onAppear { if settings.panelSections.contains(.plan) { plan.refresh() } }
+        .onAppear { if settings.panelSections.contains(.plan) { ClaudePlanLimitsFetcher.shared.refresh() } }
     }
 
     /// What scrolls (also drawn off screen by the debug hook, which cannot draw a ScrollView).
     var content: some View {
         VStack(alignment: .leading, spacing: 14) {
-            header
+            PanelHeader(close: close)
             ForEach(settings.panelSections) { section in
                 sectionView(section)
             }
@@ -236,7 +241,26 @@ struct MenuBarPanelView: View {
         .padding(14)
     }
 
-    // MARK: Header
+    @ViewBuilder private func sectionView(_ s: MenuBarPanelSection) -> some View {
+        switch s {
+        case .agents: PanelAgents(close: close)
+        case .briefs: PanelBriefs(close: close)
+        case .plan: PanelPlan()
+        case .mac: PanelMac()
+        case .water: PanelWater()
+        case .focus: PanelFocusTimer()
+        case .remind: PanelReminders()
+        case .breathe: PanelBreathe(close: close)
+        case .metrics: PanelMetrics()
+        }
+    }
+}
+
+private struct PanelHeader: View {
+    let close: () -> Void
+    @ObservedObject private var live = LiveSessions.shared
+
+    var body: some View { header }
 
     private var busySessions: [SessionTracker.Session] { live.sessions.filter(\.isBusy) }
 
@@ -267,23 +291,13 @@ struct MenuBarPanelView: View {
         return parts.isEmpty ? "No agent at work" : parts.joined(separator: " · ")
     }
 
-    // MARK: Sections
+}
 
-    @ViewBuilder private func sectionView(_ s: MenuBarPanelSection) -> some View {
-        switch s {
-        case .agents: agentsSection
-        case .briefs: briefsSection
-        case .plan: planSection
-        case .mac: macSection
-        case .water: PanelWater()
-        case .focus: PanelFocusTimer()
-        case .remind: PanelReminders()
-        case .breathe: PanelBreathe(close: close)
-        case .metrics: metricsSection
-        }
-    }
+private struct PanelAgents: View {
+    let close: () -> Void
+    @ObservedObject private var live = LiveSessions.shared
 
-    // Agents
+    var body: some View { agentsSection }
 
     @ViewBuilder private var agentsSection: some View {
         let shown = live.sessions.filter(\.needsAttention).sorted { $0.lastActivity > $1.lastActivity }.prefix(5)
@@ -307,38 +321,55 @@ struct MenuBarPanelView: View {
         }
     }
 
-    // Today & this week
+}
 
-    private var briefsSection: some View {
+/// Today & this week, counted once when the panel opens: it reads the recap's weeks and the
+/// diary, too much to redo on every redraw.
+private struct PanelBriefs: View {
+    let close: () -> Void
+    @State private var lines: (today: String, week: String)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PanelLabel(text: "Today & this week")
+            VStack(spacing: 0) {
+                PanelBriefRow(symbol: "sun.max.fill", tint: Color(hex: "#F7B32B"), title: "Today", line: lines?.today ?? " ") {
+                    close(); DailyBriefController.shared.show()
+                }
+                Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 50)
+                PanelBriefRow(symbol: "calendar", tint: Color(hex: "#818CF8"), title: "This week", line: lines?.week ?? " ") {
+                    close(); WeeklyBriefController.shared.show(period: .thisWeek)
+                }
+            }
+            .background(PanelCard())
+        }
+        .onAppear { if lines == nil { lines = Self.count() } }
+    }
+
+    static func count() -> (today: String, week: String) {
         let records = RecapStore.shared.records()
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let day = DayWork.from(turns: records.turns, decisions: records.decisions, start: today,
                                end: cal.date(byAdding: .day, value: 1, to: today) ?? Date(), calendar: cal)
         let week = WeekWork.from(turns: records.turns, decisions: records.decisions, weekStart: WeekWork.monday(of: Date()), calendar: cal)
-        let water = routineSettings.waterEnabled ? routineSettings.waterLog.total(on: Date()) : nil
+        let rs = BuddyRoutineSettings.shared
+        let water = rs.waterEnabled ? rs.waterLog.total(on: Date()) : nil
         let focus = BuddyDiaryStore.diary.day(Date())?.focusSessions ?? 0
-        return VStack(alignment: .leading, spacing: 8) {
-            PanelLabel(text: "Today & this week")
-            VStack(spacing: 0) {
-                PanelBriefRow(symbol: "sun.max.fill", tint: Color(hex: "#F7B32B"), title: "Today",
-                              line: [day.isEmpty ? "No agent work yet" : "\(DailyBriefText.duration(minutes: day.minutes)) with agents · \(day.sessions) sessions",
-                                     water.map { "\(DailyBriefText.water($0)) water" }, focus > 0 ? "\(focus) focus" : nil]
-                                .compactMap { $0 }.joined(separator: " · ")) {
-                    close(); DailyBriefController.shared.show()
-                }
-                Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 50)
-                PanelBriefRow(symbol: "calendar", tint: Color(hex: "#818CF8"), title: "This week",
-                              line: week.total.isEmpty ? "No agent work yet"
-                                : "\(DailyBriefText.duration(minutes: week.total.minutes)) over \(week.activeDays) day\(week.activeDays == 1 ? "" : "s")" + (week.projects.first.map { " · \($0.name)" } ?? "")) {
-                    close(); WeeklyBriefController.shared.show(period: .thisWeek)
-                }
-            }
-            .background(PanelCard())
-        }
+        let todayLine = [day.isEmpty ? "No agent work yet" : "\(DailyBriefText.duration(minutes: day.minutes)) with agents · \(day.sessions) sessions",
+                         water.map { "\(DailyBriefText.water($0)) water" }, focus > 0 ? "\(focus) focus" : nil]
+            .compactMap { $0 }.joined(separator: " · ")
+        let weekLine = week.total.isEmpty ? "No agent work yet"
+            : "\(DailyBriefText.duration(minutes: week.total.minutes)) over \(week.activeDays) day\(week.activeDays == 1 ? "" : "s")" + (week.projects.first.map { " · \($0.name)" } ?? "")
+        return (todayLine, weekLine)
     }
+}
 
-    // Plan: as claude.ai's usage page lists it.
+/// The plan as claude.ai's usage page lists it.
+private struct PanelPlan: View {
+    @ObservedObject private var plan = ClaudePlanLimitsFetcher.shared
+
+    var body: some View { planSection }
 
     @ViewBuilder private var planSection: some View {
         if let limits = plan.best {
@@ -373,7 +404,14 @@ struct MenuBarPanelView: View {
         }
     }
 
-    // Mac: a bento, whatever the number of tiles.
+}
+
+/// The Mac as a bento, whatever the number of tiles.
+private struct PanelMac: View {
+    @ObservedObject private var settings = RunnerSettings.shared
+    @ObservedObject private var sampler = RunnerSampler.shared
+
+    var body: some View { macSection }
 
     private var macSection: some View {
         let tiles = macTiles
@@ -425,7 +463,13 @@ struct MenuBarPanelView: View {
         }
     }
 
-    // Custom Metrics
+}
+
+private struct PanelMetrics: View {
+    @ObservedObject private var settings = RunnerSettings.shared
+    @ObservedObject private var center = RunnerMetricsCenter.shared
+
+    var body: some View { metricsSection }
 
     @ViewBuilder private var metricsSection: some View {
         if !settings.sources.isEmpty {
@@ -466,11 +510,6 @@ private struct PanelBlur: NSViewRepresentable {
         return v
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
-
-private struct PanelHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 // MARK: - Pieces
@@ -972,19 +1011,35 @@ private struct PanelBreathe: View {
 
 // MARK: - The bottom bar and the settings button
 
-/// Always there under the scroll: the two briefs (where Settings → Briefs puts them; right-click
-/// for the other place) and Quit.
-private struct PanelFooter: View {
+/// Always there under the scroll: quick actions — a glass of water, focus, a breath, Mochi's
+/// chat — and Quit. The briefs open from Today & this week.
+struct PanelFooter: View {
     let close: () -> Void
+    @ObservedObject private var routines = BuddyRoutineController.shared
+    @ObservedObject private var settings = BuddyRoutineSettings.shared
+    @State private var logged = false
 
     var body: some View {
+        let glass = settings.waterPlan.glass
         HStack(spacing: 6) {
-            PanelFooterButton(symbol: "sun.max.fill", title: "Daily brief", tint: Color(hex: "#F7B32B"),
-                              open: { close(); DailyBriefController.shared.show() },
-                              openIn: { p in close(); DailyBriefController.shared.show(place: p) })
-            PanelFooterButton(symbol: "calendar", title: "Weekly brief", tint: Color(hex: "#818CF8"),
-                              open: { close(); WeeklyBriefController.shared.show(period: .thisWeek) },
-                              openIn: { p in close(); WeeklyBriefController.shared.show(place: p) })
+            PanelQuickAction(symbol: logged ? "checkmark" : "drop.fill",
+                             title: logged ? "Logged" : "+\(BuddyWater.amount(glass))", tint: PanelRoutine.water.tint) {
+                routines.logWater(glass)
+                withAnimation(BriefLayout.pop) { logged = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { withAnimation(.easeOut(duration: 0.2)) { logged = false } }
+            }
+            .help("Log a glass of water")
+            focusAction
+            PanelQuickAction(symbol: "wind", title: "Breathe", tint: PanelRoutine.breathe.tint) {
+                close()
+                routines.startBreathing(settings.lastBreathing)
+            }
+            .help("A minute of calm: \(settings.lastBreathing.name)")
+            PanelQuickAction(symbol: "bubble.left.and.text.bubble.right.fill", title: "Ask Mochi", tint: HubTheme.accent) {
+                close()
+                BuddyController.shared.openChat()
+            }
+            .help("Mochi's chat in the notch")
             PanelQuitButton { close(); RunnerStatusItem.perform("quitCompletely") }
         }
         .padding(.horizontal, 12)
@@ -992,39 +1047,50 @@ private struct PanelFooter: View {
         .background(Color.black.opacity(0.14))
         .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1) }
     }
+
+    @ViewBuilder private var focusAction: some View {
+        if let f = routines.focus {
+            PanelQuickAction(symbol: f.isPaused ? "play.fill" : "pause.fill", title: f.isPaused ? "Resume" : "Pause",
+                             tint: PanelRoutine.focus.tint) {
+                f.isPaused ? routines.resumeFocus() : routines.pauseFocus()
+            }
+            .help("The focus session")
+        } else {
+            PanelQuickAction(symbol: "brain.head.profile", title: "Focus \(settings.focusPlan.focus)m", tint: PanelRoutine.focus.tint) {
+                routines.startFocus(minutes: settings.focusPlan.focus)
+            }
+            .help("Start a focus session")
+        }
+    }
 }
 
-private struct PanelFooterButton: View {
+/// One quick action: its icon over a word, lit in its colour on hover.
+private struct PanelQuickAction: View {
     let symbol: String
     let title: String
     let tint: Color
-    let open: () -> Void
-    let openIn: (BriefPlace) -> Void
+    let action: () -> Void
     @State private var hover = false
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 7) {
-                Image(systemName: symbol).font(.system(size: 11, weight: .bold)).foregroundColor(tint)
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 12, weight: .bold)).foregroundColor(tint)
                     .scaleEffect(hover ? 1.12 : 1)
-                    .rotationEffect(.degrees(hover && symbol.hasPrefix("sun") ? 25 : 0))
-                Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    .contentTransition(.symbolEffect(.replace))
+                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .foregroundColor(HubTheme.text)
-            .frame(maxWidth: .infinity).frame(height: 32)
+            .frame(maxWidth: .infinity).frame(height: 38)
             .background(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(LinearGradient(colors: [tint.opacity(hover ? 0.26 : 0.14), Color.white.opacity(hover ? 0.08 : 0.05)],
-                                         startPoint: .leading, endPoint: .trailing)))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(tint.opacity(hover ? 0.4 : 0.16)))
+                    .fill(LinearGradient(colors: [tint.opacity(hover ? 0.24 : 0.12), Color.white.opacity(hover ? 0.08 : 0.04)],
+                                         startPoint: .top, endPoint: .bottom)))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(tint.opacity(hover ? 0.4 : 0.14)))
             .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
         .buttonStyle(PanelPressStyle())
         .onHover { h in withAnimation(.spring(response: 0.28, dampingFraction: 0.7)) { hover = h } }
-        .contextMenu {
-            ForEach(BriefPlace.allCases) { p in Button(p.label) { openIn(p) } }
-        }
-        .help("\(title): click to open, right-click to pick the notch or full screen")
     }
 }
 
@@ -1036,7 +1102,7 @@ private struct PanelQuitButton: View {
         Button(action: quit) {
             Image(systemName: "power").font(.system(size: 12, weight: .bold))
                 .foregroundColor(hover ? HubTheme.red : HubTheme.body)
-                .frame(width: 32, height: 32)
+                .frame(width: 34, height: 38)
                 .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(hover ? HubTheme.red.opacity(0.16) : Color.white.opacity(0.06)))
                 .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
