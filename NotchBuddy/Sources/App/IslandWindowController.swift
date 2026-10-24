@@ -628,6 +628,16 @@ final class IslandWindowController: NSWindowController {
         state.lastActivity = .now
     }
 
+    /// A spoken answer in progress, or a task card waiting for the user's click, is not folded by
+    /// a click elsewhere (a click would also cut the speech); Escape or the notch still close it.
+    private var voiceHoldsOpen: Bool {
+        #if !APPSTORE
+        return state.voiceActive || state.voiceCards.contains { $0.kind == .confirm }
+        #else
+        return false
+        #endif
+    }
+
     func collapse(allowPendingApproval: Bool = false) {
         let keepsApprovalPending = allowPendingApproval && state.pendingApproval != nil
         #if !APPSTORE
@@ -1849,16 +1859,6 @@ extension IslandWindowController {
     /// Speak the result, then stop listening — unless the answer is a question, in which
     /// case listen once for the reply. Coucou cannot tell whether I am talking to it or
     /// to someone else, so it only keeps the mic open when it asked something.
-    /// A spoken answer in progress, or a task card waiting for the user's click, is not folded by
-    /// a click elsewhere (a click would also cut the speech); Escape or the notch still close it.
-    private var voiceHoldsOpen: Bool {
-        #if !APPSTORE
-        return state.voiceActive || state.voiceCards.contains { $0.kind == .confirm }
-        #else
-        return false
-        #endif
-    }
-
     /// The answer in the notch itself (fork): the island opens as the voice card.
     @MainActor
     private func showVoiceCard() {
