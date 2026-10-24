@@ -51,7 +51,9 @@ enum TerminalFocus {
         worker.async {
             let done = plan()
             DispatchQueue.main.async {
-                appendAppLog("nb.log", "[Terminal] \(name): \(done ? "focused its tab in \(app ?? "?")" : "tab not found, app only")")
+                // "asked": a link or script was handed to the terminal; whether it reached the tab
+                // is only known to the terminal. The front check below says if it came forward.
+                appendAppLog("nb.log", "[Terminal] \(name): \(done ? "asked \(app ?? "?") for its tab" : "tab not found, app only") (front was \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"))")
                 if done {
                     if let app { activate(app) }
                 } else {
@@ -71,8 +73,7 @@ enum TerminalFocus {
 
     @discardableResult
     static func activate(_ bundleId: String) -> Bool {
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else { return false }
-        return app.activate()
+        AppActivation.bringToFront(bundleId: bundleId)
     }
 
     // MARK: Per-terminal plans (run on `worker`, return true when the tab was focused)
