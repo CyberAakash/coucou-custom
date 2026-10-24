@@ -29,6 +29,9 @@ enum TurnEndPolicy {
     static let conversationEndPhrases: Set<String> = [
         "merci", "c est bon", "c'est bon", "that s all", "that's all", "stop",
         "laisse tomber", "annule", "annuler", "cancel", "never mind", "bye", "au revoir",
+        // English thanks (fork): with the follow-up window open after every answer, these
+        // are how an exchange naturally ends.
+        "thanks", "thank you", "ok thanks", "okay thanks", "no thanks", "that s it", "that's it",
     ]
 
     // Words that suggest the utterance is mid-thought and should get extra silence.

@@ -27,6 +27,12 @@ final class IslandWindowController: NSWindowController {
     private var voiceResultWork: DispatchWorkItem?
     /// True only while Coucou listens for the answer to a question it asked.
     private var isInConversation = false
+    /// The open turn is a follow-up window Coucou opened on its own after an answer, not the
+    /// reply to a question it asked (coucou-custom fork): noise closes it quietly.
+    private var followUpWithoutQuestion = false
+    /// How long the last exchange stays in Claude's memory once the mic closes: long enough to
+    /// come back to it after a sip of coffee, short enough that tomorrow starts clean.
+    private static let contextKeepAlive: TimeInterval = 600
     /// Context (last action, on-device model session) is kept a little after a turn so
     /// "OK Coucou, et Stripe aussi" still works; this resets it.
     private var voiceContextExpiry: DispatchWorkItem?
@@ -1524,6 +1530,22 @@ extension IslandWindowController {
         // Mochi transitions to "thinking" while we process
         AppState.shared.voiceSubState = .thinking
 
+        // ── Follow-up window Coucou opened without asking anything ─────────────────
+        // One word there is almost always noise or talk meant for someone else: close
+        // quietly rather than send it to Claude. A pill name or a known command still counts.
+        if isInConversation && followUpWithoutQuestion && runner.pendingQuestion == nil {
+            let normWords = normTranscript.split(separator: " ")
+            if normWords.count < 2,
+               !pills.contains(where: { IntentParser.normalise($0.name) == normTranscript }),
+               IntentParser.parse(normTranscript, pills: pills) == .unknown {
+                appendAppLog("nb.log", "[Voice] ignoring short transcript in follow-up window")
+                VoiceTranscriptHistory.shared.record(transcript: transcript, note: "—", origin: .ignored)
+                closeVoiceTurn()
+                return
+            }
+        }
+        followUpWithoutQuestion = false
+
         // ── Claude as the brain (Settings → Voice, the user's Anthropic key) ───────
         // Every phrase goes to Claude, which acts with Coucou's tools. Only when Claude
         // can't be reached does the phrase parser below take over.
@@ -1886,14 +1908,17 @@ extension IslandWindowController {
             }
             return
         }
-        // One follow-up only: the reply to a question closes the turn after it is handled
-        // (unless that reply leads to another question, e.g. "which one do I remove?").
-        if expectAnswer && VoiceEngine.shared.isEnabled {
+        // The reply to a question, or (fork) a short follow-up window after any answer so the
+        // exchange goes on without the wake phrase; silence or an end phrase closes it.
+        let followUp = VoiceSettings.followUpSeconds
+        if (expectAnswer || followUp > 0) && VoiceEngine.shared.isEnabled {
             isInConversation = true
+            followUpWithoutQuestion = !expectAnswer
             if !ClaudeVoiceBrain.isActive { VoiceBrain.shared.beginConversation() }
             if AppState.shared.soundEnabled { SoundEngine.shared.play("tick") }
             AppState.shared.voiceSubState = .listening
-            VoiceEngine.shared.startConversationTurn(firstWordTimeout: Self.answerWait(8.0))
+            VoiceEngine.shared.startConversationTurn(
+                firstWordTimeout: expectAnswer ? Self.answerWait(8.0) : followUp)
         } else {
             closeVoiceTurn()
         }
@@ -1980,10 +2005,11 @@ extension IslandWindowController {
     }
 
     /// Stop listening and let the island settle. The context (last action, model session)
-    /// stays 90 s so a new "OK Coucou, et Stripe aussi" still understands "aussi".
+    /// stays `contextKeepAlive` so a new "OK Coucou, et Stripe aussi" still understands "aussi".
     @MainActor
     private func closeVoiceTurn() {
         isInConversation = false
+        followUpWithoutQuestion = false
         consecutiveFailures = 0
         hasSpokenPasCompris = false
         VoiceEngine.shared.endConversation()
@@ -1999,7 +2025,7 @@ extension IslandWindowController {
             }
         }
         voiceContextExpiry = expiry
-        DispatchQueue.main.asyncAfter(deadline: .now() + 90, execute: expiry)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.contextKeepAlive, execute: expiry)
     }
 
     /// Kept for the paths that still call it (collapse, end phrase): close and forget.
