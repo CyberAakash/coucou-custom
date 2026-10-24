@@ -1803,6 +1803,7 @@ extension IslandWindowController {
         AppState.shared.voiceResult = result
 
         if case .question = result.outcome {
+            showVoiceCard()
             // Speak the question aloud, then re-listen once speech finishes.
             // Give 5 s initial silence so the user has time to read/hear the question.
             let speaker = VoiceSpeaker.shared
@@ -1842,8 +1843,16 @@ extension IslandWindowController {
     /// Speak the result, then stop listening — unless the answer is a question, in which
     /// case listen once for the reply. Coucou cannot tell whether I am talking to it or
     /// to someone else, so it only keeps the mic open when it asked something.
+    /// The answer in the notch itself (fork): the island opens as the voice card.
+    @MainActor
+    private func showVoiceCard() {
+        guard VoiceSettings.replyInNotch, AppState.shared.voiceMailDraft == nil else { return }
+        if state.view != .voiceResult || state.mode != .expanded { expand(to: .voiceResult) }
+    }
+
     @MainActor
     private func speakAndContinueConversation(_ result: VoiceActionResult) {
+        showVoiceCard()
         let asks = Self.isQuestion(result)
         let speaker = VoiceSpeaker.shared
         if VoiceSettings.speakEnabled {
@@ -2120,6 +2129,8 @@ func islandSize(mode: IslandMode, view: IslandView,
         #if !APPSTORE
         // coucou-custom fork: the briefs open as a pill, then as their card (BriefLayout).
         if let size = BriefLayout.size(for: view, nw: nw, nh: nh) { return size }
+        // coucou-custom fork: the voice card is as tall as its answer.
+        if VoiceCardLayout.applies(to: view) { return (VoiceCardLayout.width, VoiceCardLayout.height) }
         #endif
         // coucou-custom fork: the chat is wider and as tall as its conversation (ChatFit).
         if view == .prompt { return (ChatLayout.width, ChatLayout.height) }

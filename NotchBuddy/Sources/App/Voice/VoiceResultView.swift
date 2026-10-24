@@ -9,6 +9,14 @@ struct VoiceResultView: View {
     @ObservedObject private var state = AppState.shared
 
     var body: some View {
+        if VoiceSettings.replyInNotch {
+            VoiceCardView()   // coucou-custom fork: the answer in the notch, with the waves
+        } else {
+            classic
+        }
+    }
+
+    private var classic: some View {
         ZStack {
             CardBackground(wash: state.voiceResult?.outcome == .success
                            ? .green
