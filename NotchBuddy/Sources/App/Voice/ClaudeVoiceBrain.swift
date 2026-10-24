@@ -49,7 +49,7 @@ final class ClaudeVoiceBrain {
         for _ in 0..<5 {
             guard let turn = await ClaudeService.shared.voiceTurn(system: Self.systemPrompt(),
                                                                    messages: messages,
-                                                                   tools: Self.tools) else {
+                                                                   tools: Self.tools + VoiceAgentTools.tools) else {
                 // Leave the history coherent: drop the question that got no answer.
                 if let last = messages.last, last["role"] as? String == "user",
                    last["content"] is String { messages.removeLast() }
@@ -135,6 +135,7 @@ final class ClaudeVoiceBrain {
         wants_attachment and tell them to drop the file on the notch.
         When you need an answer from the user, end with one short question. Otherwise never end \
         with a question.
+        \(VoiceAgentTools.promptLines)
         Pills in the notch (at most 4 besides the main one). Active: \(active.joined(separator: ", ")). \
         Available: \(available).
         """
@@ -233,6 +234,8 @@ final class ClaudeVoiceBrain {
             return r
         }
 
+        // The fork's tools first: cards, links, Claude Code tasks, Buddy's routines.
+        if let r = await VoiceAgentTools.run(tool, input) { return r }
         switch tool {
         case "pills":
             let action = input["action"] as? String ?? ""

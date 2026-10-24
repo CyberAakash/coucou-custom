@@ -497,6 +497,9 @@ final class AppState: ObservableObject {
     /// Listening / thinking / speaking — drives per-frame Mochi animations.
     /// Set by IslandWindowController; read by BotCanvasView each display frame.
     @Published var voiceSubState: BotVoiceSubState = .none
+    /// Cards the brain showed beside its answer (coucou-custom fork): results, a question's
+    /// choices, a task to approve, a session's progress.
+    @Published var voiceCards: [VoiceCard] = []
     #endif
 
     // Claude plan gauge (from statusline hook)
