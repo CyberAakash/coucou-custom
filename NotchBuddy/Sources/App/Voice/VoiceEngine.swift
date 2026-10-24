@@ -281,6 +281,7 @@ final class VoiceEngine: ObservableObject {
         recorder.start(keepingLast: 0.3)
         recordingFromWake = false
         if CommandHearing.usesParakeet { Parakeet.shared.preload() }
+        if MochiVoice.isActive { MochiVoice.shared.preload() }
         directInitialTimeout  = firstWordTimeout
         loggedDropWhileSpeaking = false
         audio.bypassVAD       = true
@@ -720,6 +721,7 @@ final class VoiceEngine: ObservableObject {
         recorder.start(keepingLast: 1.2)
         recordingFromWake = true
         if CommandHearing.usesParakeet { Parakeet.shared.preload() }
+        if MochiVoice.isActive { MochiVoice.shared.preload() }
         // After "OK Coucou", leave time to start the sentence (the island no longer
         // opens, the caption shows "Je t'écoute…" instead). 3 s was too short.
         directInitialTimeout  = Self.wakeFirstWordTimeout
@@ -879,9 +881,12 @@ final class VoiceEngine: ObservableObject {
         var candidates: [Locale]
         switch VoiceSettings.listenLanguage {
         case "fr": candidates = [Locale(identifier: "fr-FR"), Locale(identifier: "fr-CA")]
-        case "en": candidates = [Locale(identifier: "en-US"), Locale(identifier: "en-GB"), Locale(identifier: "en-AU")]
-        // Indian English has its own on-device model; en-US mishears Indian-accented wake words (fork).
-        case "en-IN": candidates = [Locale(identifier: "en-IN"), Locale(identifier: "en-US"), Locale(identifier: "en-GB")]
+        // Indian English has its own on-device model; en-US mishears Indian-accented wake words
+        // (fork): on a Mac set to India it comes first.
+        case "en", "en-IN":
+            let india = VoiceSettings.listenLanguage == "en-IN" || Locale.current.region?.identifier == "IN"
+            candidates = india ? [Locale(identifier: "en-IN"), Locale(identifier: "en-US"), Locale(identifier: "en-GB")]
+                               : [Locale(identifier: "en-US"), Locale(identifier: "en-GB"), Locale(identifier: "en-AU")]
         default:   candidates = []
         }
         candidates += MacDictation.automaticLocales()

@@ -1569,10 +1569,9 @@ struct SettingsView: View {
     @State private var elevenKeySaved: Bool = KeychainStore.shared.get(ElevenLabsTTS.keyName) != nil
 
     private func speakVoiceSample() {
-        let en = voiceLanguage != "fr"
-        VoiceSpeaker.shared.speak(en ? "Hi, I'm Coucou. Say OK Coucou whenever you need me."
-                                     : "Salut, c'est Coucou. Dis OK Coucou quand tu as besoin de moi.",
-                                  locale: Locale(identifier: en ? "en-US" : "fr-FR"))
+        let sample = VoiceSettings.sampleSentence(wakePhrase: wakePhrase)
+        if ttsEngine == "mochi" { MochiVoice.shared.speakSample(sample, locale: Locale(identifier: "en-US")) }
+        else { VoiceSpeaker.shared.speak(sample, locale: Locale(identifier: "en-US")) }
     }
 
     @ViewBuilder private var voiceSection: some View {
