@@ -1660,6 +1660,7 @@ struct SettingsView: View {
                         Text(String(localized: "voice.lang-auto")).tag("auto")
                         Text(verbatim: "Français").tag("fr")
                         Text(verbatim: "English").tag("en")
+                        Text(verbatim: "English (India)").tag("en-IN")
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
@@ -3300,6 +3301,8 @@ extension SettingsView {
                 HubField(placeholder: "OK Coucou", text: $wakePhrase).frame(width: 240)
             }
             HubDivider()
+            WakePhraseTestRows(engine: voiceEngine, phrase: phrase)
+            HubDivider()
             HubRow(title: String(localized: "hub.voice.city", defaultValue: "Your city"),
                    detail: String(localized: "hub.voice.city-detail", defaultValue: "For the weather and local questions. Empty: no weather.")) {
                 HubField(placeholder: String(localized: "hub.voice.city-placeholder", defaultValue: "e.g. Chennai"), text: $weatherCity)
@@ -3332,8 +3335,10 @@ extension SettingsView {
                     Text(String(localized: "voice.lang-auto")).tag("auto")
                     Text(verbatim: "Français").tag("fr")
                     Text(verbatim: "English").tag("en")
+                    Text(verbatim: "English (India)").tag("en-IN")
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .onChange(of: listenLanguage) { _, _ in voiceEngine.reloadLanguage() }
             }
             HubDivider()
             HubRow(title: String(localized: "voice.language")) {

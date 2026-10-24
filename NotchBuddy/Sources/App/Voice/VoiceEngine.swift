@@ -31,6 +31,18 @@ final class VoiceEngine: ObservableObject {
     @Published private(set) var commandTranscript: String = ""
     @Published private(set) var recognizerUnavailable: Bool = false
     @Published private(set) var audioError: String? = nil
+    /// Settings → Voice → "Test the wake phrase" (coucou-custom fork): what the wake windows hear
+    /// while the test runs. Memory only, dropped when Settings closes; never logged.
+    @Published private(set) var wakeTest: WakeTestState? = nil
+    private var wakeTestWork: DispatchWorkItem?
+
+    struct WakeTestState {
+        var current = ""          // latest partial of the open window
+        var heard: [String] = []  // what each finished window ended on
+        var matches = 0
+        var finished = false
+        let endsAt: Date
+    }
     /// Read by Mochi's canvas every frame; not published, so ~20 updates/s while I talk
     /// don't re-render Settings or the island views.
     private(set) var micLevel: Double = 0
@@ -128,6 +140,47 @@ final class VoiceEngine: ObservableObject {
     }
 
     func cancelListening() { endCommand(postFinished: false) }
+
+    // MARK: - Wake phrase test (coucou-custom fork)
+
+    func startWakeTest(duration: TimeInterval = 20) {
+        wakeTestWork?.cancel()
+        wakeTest = WakeTestState(endsAt: Date().addingTimeInterval(duration))
+        let item = DispatchWorkItem { [weak self] in Task { @MainActor in self?.stopWakeTest() } }
+        wakeTestWork = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: item)
+    }
+
+    /// Ends the test but keeps what was heard on screen until the next start or `clearWakeTest`.
+    func stopWakeTest() {
+        wakeTestWork?.cancel(); wakeTestWork = nil
+        guard var st = wakeTest, !st.finished else { return }
+        wakeTestWindowEnded()
+        st = wakeTest ?? st
+        st.finished = true
+        wakeTest = st
+    }
+
+    func clearWakeTest() {
+        wakeTestWork?.cancel(); wakeTestWork = nil
+        wakeTest = nil
+    }
+
+    private func wakeTestHeard(_ transcript: String, matched: Bool) {
+        guard var st = wakeTest, !st.finished else { return }
+        st.current = transcript
+        if matched { st.matches += 1 }
+        wakeTest = st
+    }
+
+    /// The open window closed (final, error, 20 s restart or a wake): freeze its last partial.
+    private func wakeTestWindowEnded() {
+        guard var st = wakeTest, !st.finished, !st.current.isEmpty else { return }
+        st.heard.append(st.current)
+        if st.heard.count > 12 { st.heard.removeFirst() }
+        st.current = ""
+        wakeTest = st
+    }
 
     /// Settings → Voice language changed: restart recognition in the new language.
     func reloadLanguage() {
@@ -231,7 +284,12 @@ final class VoiceEngine: ObservableObject {
             self?.endCommand(postFinished: true)
         }
 
+        s.onWakeTranscript = { [weak self] transcript, matched in
+            self?.wakeTestHeard(transcript, matched: matched)
+        }
+
         s.onWakeWindowEnded = { [weak self] wasError in
+            self?.wakeTestWindowEnded()
             guard let self, !isListeningForCommand, voiceSegmentActive else { return }
 
             if wasError {
@@ -415,6 +473,7 @@ final class VoiceEngine: ObservableObject {
         let item = DispatchWorkItem { [weak self] in
             guard let self, !isListeningForCommand else { return }
             let st = spotter.endWindow()
+            self.wakeTestWindowEnded()
             // Log only: a 20 s window can be steady background noise with no words.
             appendAppLog("nb.log", "[Voice] window close (20s) \(Self.describe(st))")
             self.openWakeWindow(audio: audio, spotter: spotter, locale: locale)
@@ -588,6 +647,7 @@ final class VoiceEngine: ObservableObject {
         wakeWindowWork?.cancel();  wakeWindowWork  = nil
         unavailableWork?.cancel(); unavailableWork = nil
         firstUnavailableAt  = nil
+        wakeTestWindowEnded()
         backoff.reset()
         consecErrorStreak   = 0
         isListeningForCommand = true
@@ -704,6 +764,8 @@ final class VoiceEngine: ObservableObject {
         switch VoiceSettings.listenLanguage {
         case "fr": candidates = [Locale(identifier: "fr-FR"), Locale(identifier: "fr-CA")]
         case "en": candidates = [Locale(identifier: "en-US"), Locale(identifier: "en-GB"), Locale(identifier: "en-AU")]
+        // Indian English has its own on-device model; en-US mishears Indian-accented wake words (fork).
+        case "en-IN": candidates = [Locale(identifier: "en-IN"), Locale(identifier: "en-US"), Locale(identifier: "en-GB")]
         default:   candidates = []
         }
         candidates += MacDictation.automaticLocales()
