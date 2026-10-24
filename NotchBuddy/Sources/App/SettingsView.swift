@@ -3361,10 +3361,16 @@ extension SettingsView {
         HubCard {
             HubRow(title: String(localized: "hub.voice.engine", defaultValue: "Engine")) {
                 Picker("", selection: $ttsEngine) {
+                    Text(verbatim: "Mochi").tag("mochi")
                     Text(String(localized: "voice.tts-system")).tag("system")
                     Text(verbatim: "ElevenLabs").tag("elevenlabs")
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .onChange(of: ttsEngine) { _, e in if e == "mochi" { MochiVoice.shared.prepare() } }
+            }
+            if ttsEngine == "mochi" {
+                HubDivider()
+                MochiVoiceRows()
             }
             if ttsEngine == "elevenlabs" {
                 HubDivider()
@@ -3382,6 +3388,7 @@ extension SettingsView {
                 }
             }
             HubDivider()
+            if ttsEngine != "mochi" {
             HubRow(title: String(localized: "voice.tts-gender")) {
                 Picker("", selection: $elevenGender) {
                     Text(String(localized: "voice.tts-female")).tag("female")
@@ -3389,6 +3396,7 @@ extension SettingsView {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .onChange(of: elevenGender) { _, _ in ElevenLabsTTS.shared.reset() }
+            }
             }
             if ttsEngine == "system" {
                 HubDivider()
