@@ -96,21 +96,79 @@ enum WakePhrase {
     // MARK: - Private
 
     /// Word index just after the last occurrence of `phrase`. Compared with spaces removed, so
-    /// the recognizer splitting or merging words ("jar vis" / "jarvis", "heymochi") still matches.
+    /// the recognizer splitting or merging words ("jar vis" / "jarvis", "heymochi") still matches,
+    /// after a phonetic fold and within `tolerance(for:)` edits, so a misheard letter
+    /// ("hey siber", "ok task") still wakes.
     private static func lastCustomMatchEnd(_ normWords: [String], phrase: String) -> Int? {
         let target = normalise(phrase).split(separator: " ").map { normWord(String($0)) }
-        let joined = target.joined()
+        let joined = phoneticFold(target.joined())
         guard !joined.isEmpty else { return nil }
+        let tol = tolerance(for: target)
         var last: Int? = nil
         for start in normWords.indices {
             var concat = ""
             for end in start..<min(normWords.count, start + target.count + 2) {
                 concat += normWords[end]
-                if concat == joined { last = max(last ?? 0, end + 1); break }
-                if concat.count >= joined.count { break }
+                let heard = phoneticFold(concat)
+                if heard.count > joined.count + tol { break }
+                if heard.count + tol >= joined.count, editDistance(heard, joined) <= tol {
+                    last = max(last ?? 0, end + 1); break
+                }
             }
         }
         return last
+    }
+
+    /// Edits allowed between the phrase and what was heard. A single word gets none ("computer"
+    /// must not wake on "computers"); the lead-in word of a longer phrase is what guards it.
+    static func tolerance(for phraseWords: [String]) -> Int {
+        guard phraseWords.count >= 2 else { return 0 }
+        switch phraseWords.joined().count {
+        case ..<6:  return 0
+        case 6...9: return 1
+        default:    return 2
+        }
+    }
+
+    /// Collapses spellings the recognizer swaps for the same sound (cyber/siber, phil/fil,
+    /// mochi/mochee), applied to both sides before comparing.
+    static func phoneticFold(_ s: String) -> String {
+        var t = s
+        for (from, to) in [("ph", "f"), ("ck", "k"), ("ce", "se"), ("ci", "si"), ("cy", "si"),
+                           ("c", "k"), ("q", "k"), ("z", "s"), ("y", "i"), ("ee", "i"), ("ea", "i")] {
+            t = t.replacingOccurrences(of: from, with: to)
+        }
+        var out = ""
+        for ch in t where ch != out.last { out.append(ch) }   // "tt" → "t"
+        return out
+    }
+
+    /// Levenshtein distance; both strings are a handful of letters.
+    static func editDistance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var prev = Array(0...b.count)
+        var cur  = [Int](repeating: 0, count: b.count + 1)
+        for i in 1...a.count {
+            cur[0] = i
+            for j in 1...b.count {
+                let sub = prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1)
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, sub)
+            }
+            swap(&prev, &cur)
+        }
+        return prev[b.count]
+    }
+
+    /// True when a word of `raw` sounds one edit away from a word (4+ letters) of the custom
+    /// phrase: the "heard something close but not the phrase" diagnostic of the wake-window log.
+    static func resembles(_ raw: String, customPhrase: String) -> Bool {
+        let targets = normalise(customPhrase).split(separator: " ")
+            .map { phoneticFold(normWord(String($0))) }.filter { $0.count >= 4 }
+        guard !targets.isEmpty else { return false }
+        let words = raw.components(separatedBy: .whitespaces).map { phoneticFold(normWord($0)) }
+        return words.contains { w in !w.isEmpty && targets.contains { editDistance(w, $0) <= 1 } }
     }
 
     /// Normalise a single word token for wake-phrase matching.
