@@ -50,6 +50,13 @@ enum VoiceSettings {
         return d.object(forKey: followUpSecondsKey) == nil ? 8 : d.double(forKey: followUpSecondsKey)
     }
 
+    /// Replies show in the notch itself (fork, default) or in the caption capsule under it.
+    static let replyInNotchKey = "voiceReplyInNotch"
+    static var replyInNotch: Bool {
+        let d = UserDefaults.standard
+        return d.object(forKey: replyInNotchKey) == nil ? true : d.bool(forKey: replyInNotchKey)
+    }
+
     /// Which recognizer gives the final text of a command (fork): "parakeet" (default; Apple's
     /// recognizer still spots the wake word and shows live words) or "apple".
     static let commandRecognizerKey = "voiceCommandRecognizer"

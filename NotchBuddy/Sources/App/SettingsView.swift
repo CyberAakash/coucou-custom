@@ -1557,6 +1557,7 @@ struct SettingsView: View {
     @AppStorage("voiceListenLanguage") private var listenLanguage: String = "auto"
     @AppStorage(VoiceSettings.wakePhraseKey) private var wakePhrase: String = ""
     @AppStorage(VoiceSettings.followUpSecondsKey) private var followUpSeconds: Double = 8
+    @AppStorage(VoiceSettings.replyInNotchKey) private var replyInNotch: Bool = true
     @AppStorage("voiceWeatherCity") private var weatherCity: String = ""
     @AppStorage("voiceTTSEngine")      private var ttsEngine: String = "system"
     @AppStorage("voiceElevenGender")   private var elevenGender: String = "female"
@@ -3323,6 +3324,16 @@ extension SettingsView {
                     Text(verbatim: "5 s").tag(5.0)
                     Text(verbatim: "8 s").tag(8.0)
                     Text(verbatim: "15 s").tag(15.0)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            HubDivider()
+            HubRow(title: String(localized: "hub.voice.reply-surface", defaultValue: "Replies appear"),
+                   detail: String(localized: "hub.voice.reply-surface-detail",
+                                  defaultValue: "In the notch: the island opens as a card with what you said, the answer and the waves. Caption: a capsule under the notch, the island stays small.")) {
+                Picker("", selection: $replyInNotch) {
+                    Text(String(localized: "hub.voice.reply-notch", defaultValue: "In the notch")).tag(true)
+                    Text(String(localized: "hub.voice.reply-caption", defaultValue: "Caption")).tag(false)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }

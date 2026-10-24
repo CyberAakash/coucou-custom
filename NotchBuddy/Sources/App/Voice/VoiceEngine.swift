@@ -372,7 +372,7 @@ final class VoiceEngine: ObservableObject {
             }
         }
 
-        a.onBuffer = { [recorder] buf, _ in s.feed(buf); recorder.append(buf) }
+        a.onBuffer = { [recorder] buf, _ in s.feed(buf); recorder.append(buf); VoiceLevels.shared.consume(buf) }
 
         do {
             try a.start()

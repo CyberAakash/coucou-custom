@@ -61,6 +61,16 @@ final class VoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDe
 
     func stop() { stopPlayback() }
 
+    /// Loudness of what is playing, 0…1 (fork, for the waves); −1 while the Mac voice speaks,
+    /// which cannot be metered.
+    var outputLevel: Double {
+        if let p = player, p.isPlaying {
+            p.updateMeters()
+            return Double(max(0, min(1, (p.averagePower(forChannel: 0) + 45) / 45)))
+        }
+        return synth.isSpeaking ? -1 : 0
+    }
+
     /// What the mic gate uses: what is actually playing or about to play, never a flag
     /// alone, so a missed callback cannot leave Coucou deaf.
     var isBusy: Bool {
@@ -94,6 +104,7 @@ final class VoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDe
             self.waitingForAudio = false
             if let data, let p = try? AVAudioPlayer(data: data) {
                 p.delegate = self
+                p.isMeteringEnabled = true   // the voice card's waves follow what Coucou says (fork)
                 self.player = p
                 if p.play() { return }
                 self.player = nil
