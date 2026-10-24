@@ -78,9 +78,9 @@ extension ClaudeVoiceBrain {
     /// The brain's own tools; Anthropic's server-side web_search is the CLI's WebSearch here.
     /// With a city set, service_info also answers the weather (Open-Meteo, no key), which is
     /// quicker and surer than a web search.
-    static var mcpTools: [[String: Any]] {
+    @MainActor static var mcpTools: [[String: Any]] {
         let hasCity = !VoiceSettings.weatherCity.trimmingCharacters(in: .whitespaces).isEmpty
-        return tools.filter { $0["input_schema"] != nil }.map { tool in
+        return (tools + VoiceAgentTools.tools).filter { $0["input_schema"] != nil }.map { tool in
             guard hasCity, tool["name"] as? String == "service_info" else { return tool }
             var tool = tool
             tool["description"] = (tool["description"] as? String ?? "") + " Also the weather today or tomorrow at the user's city."

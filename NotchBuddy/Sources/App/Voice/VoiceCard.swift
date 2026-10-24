@@ -15,7 +15,7 @@ enum VoiceCardLayout {
     static let width: CGFloat = 560
     static let corner: CGFloat = 26
     static let minHeight: CGFloat = 132
-    static let maxHeight: CGFloat = 340
+    static let maxHeight: CGFloat = 460
     /// Top and bottom padding around the measured content.
     static let chrome: CGFloat = 30
     nonisolated(unsafe) static var height: CGFloat = 150
@@ -80,6 +80,7 @@ struct VoiceCardView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if !answer.isEmpty { answerText }
+                    if !state.voiceCards.isEmpty { VoiceCardsView(cards: state.voiceCards) }
                     HStack(spacing: 10) {
                         VoiceWaveView(compact: false).frame(height: 26)
                         if !status.isEmpty {

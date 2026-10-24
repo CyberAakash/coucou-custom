@@ -124,6 +124,7 @@ final class VoiceEngine: ObservableObject {
     // MARK: - Init
 
     private init() {
+        observeDebugCommands()
         lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
         let buildHash = Bundle.main.object(forInfoDictionaryKey: "CoucouGitHash") as? String ?? "unknown"
         appendAppLog("nb.log", "[Voice] build \(buildHash)")
@@ -144,6 +145,60 @@ final class VoiceEngine: ObservableObject {
     }
 
     func cancelListening() { endCommand(postFinished: false) }
+
+    // MARK: - Debug: a typed voice command (coucou-custom fork, Debug builds)
+
+    /// `fr.louisraille.NotchBuddy.debug.voiceCommand` with the text as object runs it as if it
+    /// had been heard, so the brain, the cards and the island can be exercised from a terminal.
+    func observeDebugCommands() {
+        #if DEBUG
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("fr.louisraille.NotchBuddy.debug.voiceCommand"), object: nil, queue: .main
+        ) { note in
+            guard let text = note.object as? String, !text.isEmpty else { return }
+            Task { @MainActor in
+                AppState.shared.voiceActive = true
+                AppState.shared.voiceSubState = .thinking
+                NotificationCenter.default.post(name: .voiceWoke, object: "direct" as NSString)
+                NotificationCenter.default.post(name: .voiceFinished, object: text as NSString)
+            }
+        }
+        // `…debug.voiceApprove`: clicks Approve on the first confirm card (tests only; the real
+        // approval is the user's click).
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("fr.louisraille.NotchBuddy.debug.voiceApprove"), object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in
+                if let card = AppState.shared.voiceCards.first(where: { $0.kind == .confirm }) { VoiceAgentTools.approve(card) }
+            }
+        }
+        // `…debug.voiceDump`: the voice state (island mode and view, card size, cards) as JSON in
+        // ~/Library/Caches/NotchBuddy/voice-debug.json, for checking without a screen.
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("fr.louisraille.NotchBuddy.debug.voiceDump"), object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in
+                let st = AppState.shared
+                let cards: [[String: Any]] = st.voiceCards.map { c in
+                    ["kind": c.kind.rawValue, "title": c.title ?? "", "text": c.text ?? "", "choices": c.choices,
+                     "url": c.url ?? "", "sessionID": c.sessionID ?? "",
+                     "items": c.items.map { ["title": $0.title, "detail": $0.detail ?? "", "source": $0.source ?? "", "url": $0.url ?? "", "image": $0.imageURL ?? ""] }]
+                }
+                let dump: [String: Any] = [
+                    "mode": "\(st.mode)", "view": "\(st.view)", "voiceActive": st.voiceActive, "subState": "\(st.voiceSubState)",
+                    "cardHeight": VoiceCardLayout.height, "result": st.voiceResult?.message ?? "",
+                    "userLine": VoiceCaptionManager.shared.state.userLine, "responseLine": VoiceCaptionManager.shared.state.responseLine,
+                    "cards": cards,
+                ]
+                let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("NotchBuddy")
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                if let data = try? JSONSerialization.data(withJSONObject: dump, options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: dir.appendingPathComponent("voice-debug.json"))
+                }
+            }
+        }
+        #endif
+    }
 
     // MARK: - Wake phrase test (coucou-custom fork)
 
