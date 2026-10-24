@@ -630,6 +630,9 @@ final class IslandWindowController: NSWindowController {
 
     func collapse(allowPendingApproval: Bool = false) {
         let keepsApprovalPending = allowPendingApproval && state.pendingApproval != nil
+        #if !APPSTORE
+        if state.voiceActive { appendAppLog("nb.log", "[Voice] collapse while voice active (fsm \(fsm.state))") }
+        #endif
         guard fsm.isHeldOpen?() != true || keepsApprovalPending else { return }
         if !keepsApprovalPending { state.isPinned = false }
         finishedPinTimer?.cancel()
@@ -925,6 +928,7 @@ final class IslandWindowController: NSWindowController {
         let clickedOutside: @MainActor () -> Void = { [weak self] in
             guard let self, IslandClickOutside.enabled, self.state.mode == .expanded,
                   self.state.pendingApproval == nil, self.state.pendingQuestion == nil,
+                  !self.voiceHoldsOpen,
                   self.window?.frame.contains(NSEvent.mouseLocation) == false else { return }
             self.collapse()
         }
@@ -1529,6 +1533,8 @@ extension IslandWindowController {
 
         // Mochi transitions to "thinking" while we process
         AppState.shared.voiceSubState = .thinking
+        // A new request: last turn's result cards go; a task waiting for a click or in progress stays.
+        AppState.shared.voiceCards.removeAll { $0.kind != .confirm && $0.kind != .progress }
 
         // ── Follow-up window Coucou opened without asking anything ─────────────────
         // One word there is almost always noise or talk meant for someone else: close
@@ -1843,11 +1849,22 @@ extension IslandWindowController {
     /// Speak the result, then stop listening — unless the answer is a question, in which
     /// case listen once for the reply. Coucou cannot tell whether I am talking to it or
     /// to someone else, so it only keeps the mic open when it asked something.
+    /// A spoken answer in progress, or a task card waiting for the user's click, is not folded by
+    /// a click elsewhere (a click would also cut the speech); Escape or the notch still close it.
+    private var voiceHoldsOpen: Bool {
+        #if !APPSTORE
+        return state.voiceActive || state.voiceCards.contains { $0.kind == .confirm }
+        #else
+        return false
+        #endif
+    }
+
     /// The answer in the notch itself (fork): the island opens as the voice card.
     @MainActor
     private func showVoiceCard() {
         guard VoiceSettings.replyInNotch, AppState.shared.voiceMailDraft == nil else { return }
         if state.view != .voiceResult || state.mode != .expanded { expand(to: .voiceResult) }
+        appendAppLog("nb.log", "[Voice] card: mode \(state.mode) view \(state.view) fsm \(fsm.state) active \(state.voiceActive) cards \(state.voiceCards.count)")
     }
 
     @MainActor
@@ -1920,6 +1937,9 @@ extension IslandWindowController {
         // The reply to a question, or (fork) a short follow-up window after any answer so the
         // exchange goes on without the wake phrase; silence or an end phrase closes it.
         let followUp = VoiceSettings.followUpSeconds
+        // Voice paused meanwhile (screen asleep or locked): no follow-up window can open, and
+        // without this the turn stayed open with the card on screen until the next wake.
+        if VoiceEngine.shared.isPaused { closeVoiceTurn(); return }
         if (expectAnswer || followUp > 0) && VoiceEngine.shared.isEnabled {
             isInConversation = true
             followUpWithoutQuestion = !expectAnswer
@@ -2054,9 +2074,11 @@ extension IslandWindowController {
             if AppState.shared.voiceActive {
                 NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.wink)
             }
+            appendAppLog("nb.log", "[Voice] dismiss: mode \(AppState.shared.mode) view \(AppState.shared.view)")
             AppState.shared.voiceSubState = .none
             AppState.shared.voiceResult = nil
             AppState.shared.voiceActive = false
+            AppState.shared.voiceCards = []
             if AppState.shared.voiceMailDraft != nil {
                 // The voice email card stays open until I click Send or Cancel.
                 self.fsm.openedExternally()
