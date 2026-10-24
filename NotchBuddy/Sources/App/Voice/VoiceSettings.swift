@@ -41,6 +41,15 @@ enum VoiceSettings {
         (UserDefaults.standard.string(forKey: wakePhraseKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Seconds the mic stays open for a follow-up after an answer that was not a question
+    /// (coucou-custom fork), like Siri's conversation mode. 0: only after Coucou asked
+    /// something, upstream's behaviour.
+    static let followUpSecondsKey = "voiceFollowUpSeconds"
+    static var followUpSeconds: Double {
+        let d = UserDefaults.standard
+        return d.object(forKey: followUpSecondsKey) == nil ? 8 : d.double(forKey: followUpSecondsKey)
+    }
+
     /// Language Coucou ANSWERS in: "en" (default) or "fr".
     static var language: String {
         get { UserDefaults.standard.string(forKey: "voiceLanguage") ?? "en" }

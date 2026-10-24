@@ -1556,6 +1556,7 @@ struct SettingsView: View {
     @AppStorage("voiceLanguage")       private var voiceLanguage: String = "en"
     @AppStorage("voiceListenLanguage") private var listenLanguage: String = "auto"
     @AppStorage(VoiceSettings.wakePhraseKey) private var wakePhrase: String = ""
+    @AppStorage(VoiceSettings.followUpSecondsKey) private var followUpSeconds: Double = 8
     @AppStorage("voiceWeatherCity") private var weatherCity: String = ""
     @AppStorage("voiceTTSEngine")      private var ttsEngine: String = "system"
     @AppStorage("voiceElevenGender")   private var elevenGender: String = "female"
@@ -3309,6 +3310,21 @@ extension SettingsView {
                     .onChange(of: weatherCity) { _, city in
                         VoiceSettings.weatherEnabled = !city.trimmingCharacters(in: .whitespaces).isEmpty
                     }
+            }
+        }
+
+        HubLabel(String(localized: "hub.voice.conversation", defaultValue: "Conversation"))
+        HubCard {
+            HubRow(title: String(localized: "hub.voice.follow-up", defaultValue: "Keep listening after an answer"),
+                   detail: String(localized: "hub.voice.follow-up-detail",
+                                  defaultValue: "Reply without saying the wake phrase again. Silence, or \"thanks\", ends the exchange. Off: only when Coucou asks you something.")) {
+                Picker("", selection: $followUpSeconds) {
+                    Text(String(localized: "hub.voice.follow-up-off", defaultValue: "Off")).tag(0.0)
+                    Text(verbatim: "5 s").tag(5.0)
+                    Text(verbatim: "8 s").tag(8.0)
+                    Text(verbatim: "15 s").tag(15.0)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
         }
 
