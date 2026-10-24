@@ -118,7 +118,7 @@ final class VoiceCaptionManager {
     // MARK: - Show / hide
 
     func show(on screen: NSScreen, notchHeight: CGFloat) {
-        guard VoiceSettings.captionEnabled else { return }
+        guard VoiceSettings.captionEnabled, !VoiceSettings.replyInNotch else { return }   // fork: the notch card shows it
         hideTask?.cancel()
         hideTask = nil
         state.isExpanded = false

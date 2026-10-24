@@ -140,15 +140,7 @@ struct IslandContainer: View {
                     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: demoEngine.isActive)
             }
 
-            Group {
-                if state.mode == .compact {
-                    CompactMiniGrid(state: state)
-                        .scaleEffect(IslandRestingLayout(width: islandWidth, height: islandHeight).miniGridScale)
-                        .position(x: islandWidth - 40, y: islandHeight / 2)
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: state.mode == .compact)
+            CompactSideContent(state: state, islandWidth: islandWidth, islandHeight: islandHeight)
         }
         .frame(width: islandWidth, height: islandHeight, alignment: .topLeading)
         .modifier(NotchWiggle())   // coucou-custom fork: shake on an ambient pulse
@@ -158,10 +150,7 @@ struct IslandContainer: View {
             let (w, h) = islandSize(mode: newMode, view: state.view,
                                     progress: state.uploadProgress,
                                     nw: state.notchWidth, nh: state.notchHeight)
-            var cr  = newMode == .expanded ? IslandConst.expandedCorner : IslandConst.roundedCorner
-            #if !APPSTORE
-            if newMode == .expanded, let c = BriefLayout.corner(for: state.view) { cr = c }   // coucou-custom fork
-            #endif
+            let cr = newMode == .expanded ? expandedCorner(for: state.view) : IslandConst.roundedCorner
             let tr: CGFloat = 0
             withAnimation(anim) {
                 islandWidth      = w
@@ -183,9 +172,7 @@ struct IslandContainer: View {
             withAnimation(openSpring) {
                 islandWidth  = w
                 islandHeight = newView == .prompt ? chatPromptHeight : h
-                #if !APPSTORE
-                cornerRadius = BriefLayout.corner(for: newView) ?? IslandConst.expandedCorner   // coucou-custom fork
-                #endif
+                cornerRadius = expandedCorner(for: newView)   // coucou-custom fork
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .islandChatFit)) { _ in
@@ -205,6 +192,8 @@ struct IslandContainer: View {
             }
             #endif
         }
+        // coucou-custom fork: the voice card measured its answer (VoiceCardLayout).
+        .onReceive(NotificationCenter.default.publisher(for: .islandVoiceFit)) { _ in applyVoiceFit() }
         // coucou-custom fork: the question card measured a new page height (QuestionFit).
         .onReceive(NotificationCenter.default.publisher(for: .islandQuestionFit)) { _ in
             guard state.mode == .expanded, state.view == .question, let h = QuestionLayout.height else { return }
@@ -750,6 +739,70 @@ struct ClaudePlanHeaderPill: View {
     }
 }
 #endif
+
+// MARK: - Voice card fit (coucou-custom fork)
+
+extension IslandContainer {
+    /// Corner of the expanded island: the briefs' and the voice card's own, else upstream's.
+    func expandedCorner(for view: IslandView) -> CGFloat {
+        #if !APPSTORE
+        if let c = BriefLayout.corner(for: view) { return c }
+        if VoiceCardLayout.applies(to: view) { return VoiceCardLayout.corner }
+        #endif
+        return IslandConst.expandedCorner
+    }
+
+    /// The voice card measured its answer: the island follows (GitHub build only).
+    func applyVoiceFit() {
+        #if !APPSTORE
+        guard state.mode == .expanded, VoiceCardLayout.applies(to: state.view) else { return }
+        withAnimation(openSpring) {
+            islandHeight = VoiceCardLayout.height
+            islandWidth = VoiceCardLayout.width
+        }
+        #endif
+    }
+}
+
+// MARK: - Compact side content (coucou-custom fork)
+
+/// To the right of the notch while compact: the other agents' mini Mochis, or the voice waves
+/// while Coucou listens, thinks or talks (GitHub build only).
+struct CompactSideContent: View {
+    @ObservedObject var state: AppState
+    let islandWidth: CGFloat
+    let islandHeight: CGFloat
+
+    var body: some View {
+        Group {
+            if state.mode == .compact {
+                if showsWaves {
+                    #if !APPSTORE
+                    VoiceWaveView(compact: true)
+                        .frame(width: 112, height: 24)
+                        .position(x: islandWidth - 66, y: islandHeight / 2)
+                        .transition(.opacity)
+                    #endif
+                } else {
+                    CompactMiniGrid(state: state)
+                        .scaleEffect(IslandRestingLayout(width: islandWidth, height: islandHeight).miniGridScale)
+                        .position(x: islandWidth - 40, y: islandHeight / 2)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: state.mode == .compact)
+        .animation(.easeInOut(duration: 0.25), value: showsWaves)
+    }
+
+    private var showsWaves: Bool {
+        #if !APPSTORE
+        return state.voiceActive
+        #else
+        return false
+        #endif
+    }
+}
 
 // MARK: - Compact mini mochi grid (2×2 to the right of the notch)
 
