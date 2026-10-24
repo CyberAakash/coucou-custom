@@ -239,7 +239,7 @@ struct OverviewView: View {
         case "integration_claude":
             #if !APPSTORE
             // coucou-custom fork: the session's own tab first (TerminalFocus).
-            TerminalFocus.open(LiveSessions.shared.latest(for: task.id)) {
+            TerminalFocus.open(LiveSessions.shared.latest(for: task.id), from: "overview") {
                 if ClaudeHost.activate(task.hostApp) { return }
                 let vscodeBundleId = "com.microsoft.VSCode"
                 if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == vscodeBundleId }) {
@@ -734,13 +734,14 @@ struct ErrorView: View {
                     } else {
                         #if !APPSTORE
                         PrimaryButton("Open terminal") {
-                            if let pill = task?.id { LiveSessions.shared.markShownSeen(pill: pill) }
+                            // Open first: marking the card seen forgets which session it is about.
                             openSessionApp(task)
+                            if let pill = task?.id { LiveSessions.shared.markShownSeen(pill: pill) }
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
                         #endif
                     }
-                    if let pill = state.focusTask?.id, let s = LiveSessions.shared.shown(for: pill) {
+                    if let pill = state.focusTask?.id, let s = LiveSessions.shared.cardSession(for: pill) {
                         SecondaryButton("Details") {
                             LiveSessions.shared.select(s.id)
                             state.view = .sessions
@@ -763,8 +764,9 @@ struct ErrorView: View {
 #if !APPSTORE
 /// The app a session runs in (its terminal, or VS Code), else any known terminal.
 @MainActor private func openSessionApp(_ task: AgentTask?) {
-    // coucou-custom fork: the session's own tab first (TerminalFocus), then the app.
-    TerminalFocus.open(LiveSessions.shared.latest(for: task?.id)) {
+    // coucou-custom fork: the session's own tab first (TerminalFocus), then the app. The card's
+    // own session, not the pill's latest: with two agents on the pill they differ.
+    TerminalFocus.open(LiveSessions.shared.cardSession(for: task?.id), from: "card") {
         if !(task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp)),
            !TerminalTarget.activate(sessionBundleId: task?.sessionBundleId) {
             TerminalFocus.openDefaultTerminal()
@@ -810,13 +812,14 @@ struct FinishedView: View {
                     } else {
                         #if !APPSTORE
                         PrimaryButton("Open terminal") {
-                            if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
+                            // Open first: marking the card seen forgets which session it is about.
                             openSessionApp(state.focusTask)
+                            if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
                         #endif
                     }
-                    if let pill = state.focusTask?.id, let s = LiveSessions.shared.shown(for: pill) {
+                    if let pill = state.focusTask?.id, let s = LiveSessions.shared.cardSession(for: pill) {
                         SecondaryButton("Details") {
                             LiveSessions.shared.select(s.id)
                             state.view = .sessions

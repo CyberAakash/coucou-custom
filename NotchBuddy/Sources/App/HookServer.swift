@@ -719,7 +719,7 @@ final class HookServer: @unchecked Sendable {
                     if !quietForTerminal && showsAlert(for: agentId, focused: focused) {
                         nbLog("[Notch] open: session \(sessionId.prefix(8)) done (another session still works)")
                         LiveSessions.shared.markAnnounced(sessionId)
-                        LiveSessions.shared.select(sessionId)
+                        LiveSessions.shared.showOnCard(sessionId, pill: agentId)
                         if !finalText.isEmpty, let idx = state.tasks.firstIndex(where: { $0.id == agentId }) {
                             state.tasks[idx].finalLine = finalText
                         }
@@ -763,6 +763,7 @@ final class HookServer: @unchecked Sendable {
                 if !quietForTerminal && showsAlert(for: agentId, focused: focused) {
                     nbLog("[Notch] open: session \(sessionId.prefix(8)) done")
                     LiveSessions.shared.markAnnounced(sessionId)
+                    LiveSessions.shared.showOnCard(sessionId, pill: agentId)   // coucou-custom fork
                     expandIfNeeded(to: .finished)
                 } else {
                     nbLog("[Notch] Stop \(sessionId.prefix(8)) done: \(quietForTerminal ? "its terminal is in front" : "another card is open"), light only")
@@ -799,6 +800,7 @@ final class HookServer: @unchecked Sendable {
             } else {
                 if !terminalInFront { SoundEngine.shared.play("error") }
                 if !terminalInFront && showsAlert(for: agentId, focused: focused) {
+                    LiveSessions.shared.showOnCard(sessionId, pill: agentId)   // coucou-custom fork
                     expandIfNeeded(to: .error)
                 } else {
                     setPillBadge(id: agentId, badge: .error)
@@ -1151,7 +1153,7 @@ final class HookServer: @unchecked Sendable {
             #if !APPSTORE
             // coucou-custom fork: the session's own tab, where the plan changes are typed.
             let host = head.hostApp
-            TerminalFocus.open(LiveSessions.shared.session(head.sessionId)) { ClaudeHost.activate(host) }
+            TerminalFocus.open(LiveSessions.shared.session(head.sessionId), from: "plan change") { ClaudeHost.activate(host) }
             #else
             ClaudeHost.activate(head.hostApp)
             #endif

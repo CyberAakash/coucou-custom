@@ -862,7 +862,11 @@ final class IslandWindowController: NSWindowController {
         }
         let bundle = state.focusTask?.sessionBundleId
         // coucou-custom fork: the session's own tab first (TerminalFocus), then the app.
-        TerminalFocus.open(LiveSessions.shared.latest(for: state.focusTask?.id)) {
+        // A Finished or Error card on screen: its session, else the pill's latest.
+        let onCard = state.mode == .expanded && (state.view == .finished || state.view == .error)
+        let target = onCard ? LiveSessions.shared.cardSession(for: state.focusTask?.id)
+                            : LiveSessions.shared.latest(for: state.focusTask?.id)
+        TerminalFocus.open(target, from: onCard ? "hotkey on card" : "hotkey") {
             if !TerminalTarget.activate(sessionBundleId: bundle) { TerminalFocus.openDefaultTerminal() }
         }
         collapse(allowPendingApproval: true)

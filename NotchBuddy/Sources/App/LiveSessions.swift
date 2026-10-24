@@ -47,6 +47,8 @@ final class LiveSessions: ObservableObject {
         } else if event == "UserPromptSubmit", let id, !userPickedRecently {
             selectedID = id                           // follow the session you just typed in
         }
+        // A new prompt in the card's session: that card is over.
+        if event == "UserPromptSubmit", let id, cardSessionID[pill] == id { cardSessionID[pill] = nil }
     }
 
     var selected: SessionTracker.Session? {
@@ -70,11 +72,30 @@ final class LiveSessions: ObservableObject {
 
     /// The Finished/Error card of `pill` was answered: the session it showed is seen.
     func markShownSeen(pill: String) {
-        if let id = shown(for: pill)?.id { markSeen(id) }
+        if let id = cardSession(for: pill)?.id { markSeen(id) }
+        cardSessionID[pill] = nil
     }
 
     /// The notch opened "done" for this session's current prompt (NotchAlertRules).
     func markAnnounced(_ id: String) { tracker.markAnnounced(id) }
+
+    /// coucou-custom fork: the session each pill's Finished or Error card is about. The card's
+    /// Open terminal, Details and OK act on it; they used the pill's shown session, which
+    /// could be another one (the one typed in last, a sibling that finished before), so the
+    /// card for one agent opened the other agent's tab.
+    private var cardSessionID: [String: String] = [:]
+
+    /// The notch opens a Finished or Error card for `id` on `pill`.
+    func showOnCard(_ id: String, pill: String) {
+        cardSessionID[pill] = id
+        selectedID = id     // the home card follows it too; not a pick by hand
+    }
+
+    /// The session the card of `pill` is about; else the pill's latest (`latest(for:)`).
+    func cardSession(for pill: String?) -> SessionTracker.Session? {
+        if let pill, let id = cardSessionID[pill], let s = tracker.sessions[id] { return s }
+        return latest(for: pill)
+    }
 
     /// The user saw (or answered) this session: once it is done it leaves the list.
     func markSeen(_ id: String) {
@@ -124,7 +145,7 @@ final class LiveSessions: ObservableObject {
     /// The terminal (or VS Code) this exact session runs in, as `openSessionApp` does for a pill.
     func openTerminal(_ s: SessionTracker.Session) {
         markSeen(s.id)
-        TerminalFocus.open(s) {
+        TerminalFocus.open(s, from: "sessions") {
             if !(s.pill == "integration_claude" && ClaudeHost.activate(s.hostApp)),
                !TerminalTarget.activate(sessionBundleId: s.bundleId) {
                 TerminalFocus.openDefaultTerminal()

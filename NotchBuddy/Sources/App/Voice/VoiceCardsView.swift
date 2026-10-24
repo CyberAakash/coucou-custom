@@ -87,7 +87,7 @@ struct VoiceCardsView: View {
                 Text(verbatim: Self.statusLabel(session?.status)).font(.system(size: 11.5)).foregroundColor(Self.muted)
                 Spacer(minLength: 4)
                 Button("Open terminal") {
-                    TerminalFocus.open(session) { TerminalFocus.openDefaultTerminal() }
+                    TerminalFocus.open(session, from: "voice card") { TerminalFocus.openDefaultTerminal() }
                 }.buttonStyle(CardButton(primary: false))
             }
             if let step = session?.currentStep, !step.isEmpty, session?.status == .working {
