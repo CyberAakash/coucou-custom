@@ -115,6 +115,16 @@ struct HubBuddyPage: View {
                         .disabled(!settings.reactToAgents)
                 }
                 HubDivider()
+                BriefSettingRow(title: "Bubble style",
+                       detail: "Glass: dark, types its words. Comic: a white speech bubble that wobbles in. Sticker: a bold tag slapped on.") {
+                    HStack(spacing: 10) {
+                        BriefSegmented(options: BuddyBubbleStyle.allCases.map { BriefSegmentedOption(value: $0, title: $0.label) },
+                                       selection: $settings.bubbleStyle, tint: HubBuddyPage.tint)
+                        Button("Try") { BuddyController.shared.wave() }
+                            .buttonStyle(HubButtonStyle())
+                    }
+                }
+                HubDivider()
                 HubRow(title: "Eyes follow the cursor") {
                     BriefSwitch(isOn: $settings.followCursor, tint: HubBuddyPage.tint)
                 }
