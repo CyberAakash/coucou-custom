@@ -65,7 +65,7 @@ final class RunnerSettings: ObservableObject {
         interval = Self.intervals.contains(stored) ? stored : 5
         menuBarMetrics = Set((defaults.stringArray(forKey: "runnerMenuBarMetrics") ?? []).compactMap(SystemMetricKind.init))
         coucouMetrics = Set((defaults.stringArray(forKey: "runnerCoucouMetrics") ?? []).compactMap(RunnerCoucouMetric.init))
-        panelSections = defaults.stringArray(forKey: "menuBarPanelSections").map { $0.compactMap(MenuBarPanelSection.init(rawValue:)) }
+        panelSections = defaults.stringArray(forKey: "menuBarPanelSections").map(MenuBarPanelSection.decode)
             ?? MenuBarPanelSection.allCases
         panelMacTiles = defaults.stringArray(forKey: "menuBarPanelMacTiles").map { Set($0.compactMap(SystemMetricKind.init)) }
             ?? [.cpu, .memory, .storage, .battery]
@@ -92,11 +92,6 @@ final class RunnerSettings: ObservableObject {
     func toggle(_ section: MenuBarPanelSection, _ on: Bool) {
         if on, !panelSections.contains(section) { panelSections.append(section) }
         if !on { panelSections.removeAll { $0 == section } }
-    }
-
-    func move(_ section: MenuBarPanelSection, by delta: Int) {
-        guard let i = panelSections.firstIndex(of: section), panelSections.indices.contains(i + delta) else { return }
-        panelSections.swapAt(i, i + delta)
     }
 
     func toggle(_ metric: RunnerCoucouMetric, _ on: Bool) {

@@ -266,6 +266,23 @@ enum WeeklyBriefPeriod: String, CaseIterable, Identifiable {
     }
 }
 
+/// Settings → Briefs → Cards: Shuffle turns the order round by one, a drag moves one card.
+enum BriefOrder {
+    static func rotate<T>(_ items: [T]) -> [T] {
+        guard let first = items.first else { return items }
+        return Array(items.dropFirst()) + [first]
+    }
+
+    /// `item` moved to where `target` is.
+    static func move<T: Equatable>(_ item: T, to target: T, in items: [T]) -> [T] {
+        guard item != target, let from = items.firstIndex(of: item), let to = items.firstIndex(of: target) else { return items }
+        var out = items
+        out.remove(at: from)
+        out.insert(item, at: to)
+        return out
+    }
+}
+
 // MARK: - When it comes up
 
 enum DailyBriefTrigger: String, CaseIterable, Identifiable {
@@ -310,6 +327,79 @@ enum DailyBriefSchedule {
     }
 }
 
+/// When the Weekly recap comes by itself: on its day (1 Monday … 7 Sunday), at or after its time,
+/// once a week. Upstream's rule was Monday from 8:00, which stays the default.
+enum WeeklyBriefSchedule {
+    static let weekdayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+    /// 1 Monday … 7 Sunday, whatever the calendar's first day.
+    static func weekday(_ date: Date, calendar: Calendar = .current) -> Int {
+        (calendar.component(.weekday, from: date) + 5) % 7 + 1
+    }
+
+    /// The ISO week, as upstream keeps it under "recapLastShownWeek".
+    static func weekKey(_ date: Date) -> Int {
+        let iso = Calendar(identifier: .iso8601)
+        return iso.component(.yearForWeekOfYear, from: date) * 100 + iso.component(.weekOfYear, from: date)
+    }
+
+    static func shouldShow(trigger: DailyBriefTrigger, weekday: Int, minuteOfDay: Int, now: Date,
+                           lastShownWeek: Int, calendar: Calendar = .current) -> Bool {
+        guard trigger != .manual, weekKey(now) != lastShownWeek, Self.weekday(now, calendar: calendar) == weekday else { return false }
+        let c = calendar.dateComponents([.hour, .minute], from: now)
+        let minute = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        guard minute >= minuteOfDay else { return false }
+        return trigger == .firstUse || minute < minuteOfDay + 15
+    }
+
+    /// The next time it is due, for a timer.
+    static func nextDue(weekday: Int, minuteOfDay: Int, after now: Date, calendar: Calendar = .current) -> Date {
+        let today = calendar.startOfDay(for: now)
+        let ahead = (weekday - Self.weekday(now, calendar: calendar) + 7) % 7
+        let day = calendar.date(byAdding: .day, value: ahead, to: today) ?? today
+        let due = calendar.date(byAdding: .minute, value: minuteOfDay, to: day) ?? day
+        return due > now ? due : (calendar.date(byAdding: .day, value: 7, to: due) ?? due)
+    }
+}
+
+/// What you type in Settings → Briefs' time picker and combobox.
+enum BriefInput {
+    /// "8:30", "08.30", "830", "8", "8:30 pm", "12 am" → minutes after midnight.
+    static func minuteOfDay(from text: String) -> Int? {
+        var t = text.lowercased().trimmingCharacters(in: .whitespaces)
+        var offset: Int?
+        for (suffix, add) in [("pm", 12), ("p", 12), ("am", 0), ("a", 0)] where t.hasSuffix(suffix) {
+            offset = add
+            t = String(t.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+            break
+        }
+        let parts = t.split(whereSeparator: { $0 == ":" || $0 == "." || $0 == "h" || $0 == " " }).map(String.init)
+        var h: Int?, m = 0
+        if parts.count == 2 {
+            h = Int(parts[0]); m = Int(parts[1]) ?? -1
+        } else if parts.count == 1, let n = Int(parts[0]) {
+            if parts[0].count <= 2 { h = n } else { h = n / 100; m = n % 100 }
+        }
+        guard var hour = h, (0..<60).contains(m) else { return nil }
+        if let offset {
+            guard (1...12).contains(hour) else { return nil }
+            hour = hour % 12 + offset
+        }
+        guard (0..<24).contains(hour) else { return nil }
+        return hour * 60 + m
+    }
+
+    /// "25", "25 s", "25s", "1 min" → seconds, 1 to 600.
+    static func seconds(from text: String) -> Int? {
+        let t = text.lowercased().replacingOccurrences(of: " ", with: "")
+        let digits = t.prefix { $0.isNumber }
+        guard let n = Int(digits), n > 0 else { return nil }
+        let unit = t.dropFirst(digits.count)
+        let value = unit.hasPrefix("m") ? n * 60 : (unit.isEmpty || unit.hasPrefix("s") ? n : -1)
+        return (1...600).contains(value) ? value : nil
+    }
+}
+
 // MARK: - Words
 
 enum DailyBriefText {
@@ -337,6 +427,20 @@ enum DailyBriefText {
         if w.filesChanged > 0 { line += ", \(w.filesChanged) file\(w.filesChanged == 1 ? "" : "s") changed" }
         if let p = w.topProject { line += ", mostly on \(p)" }
         return line + "."
+    }
+
+    /// The notch card's second line, its number picked out: "Yesterday you spent | 5h 12m | with your agents."
+    static func notchLine(work: DayWork?, isToday: Bool) -> (lead: String, value: String, tail: String) {
+        guard let w = work, !w.isEmpty else {
+            return (isToday ? "A quiet day so far." : "Yesterday was a quiet one.", "", "")
+        }
+        return (isToday ? "Today you've spent " : "Yesterday you spent ", duration(minutes: w.minutes), " with your agents.")
+    }
+
+    static func weekNotchLine(_ w: WeekWork, isThisWeek: Bool) -> (lead: String, value: String, tail: String) {
+        guard !w.total.isEmpty else { return (isThisWeek ? "A quiet week so far." : "A quiet week for your agents.", "", "") }
+        let days = " over \(w.activeDays) day\(w.activeDays == 1 ? "" : "s")."
+        return (isThisWeek ? "This week so far: " : "Last week: ", duration(minutes: w.total.minutes), days)
     }
 
     /// "+12%", "−30%", "same".

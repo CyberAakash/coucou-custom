@@ -59,18 +59,8 @@ struct IslandViewContent: View {
             #else
             EmptyView()
             #endif
-        case .dailyBrief:   // coucou-custom fork
-            #if !APPSTORE
-            DailyBriefNotchCard(state: state)
-            #else
+        case .dailyBrief, .weeklyBrief:   // coucou-custom fork: drawn by BriefNotchStage instead
             EmptyView()
-            #endif
-        case .weeklyBrief:  // coucou-custom fork
-            #if !APPSTORE
-            WeeklyBriefNotchCard(state: state)
-            #else
-            EmptyView()
-            #endif
         }
     }
 }

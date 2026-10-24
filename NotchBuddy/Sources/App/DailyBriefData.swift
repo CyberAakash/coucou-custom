@@ -94,10 +94,8 @@ final class DailyBriefSettings: ObservableObject {
         // Calendar access is asked when you turn its card on, never when a brief comes by itself.
         if on, s == .ahead { Task { _ = await DailyBriefCalendar.requestAccess() } }
         if on, !sections.contains(s) {
-            // Back in its own place among the others.
-            let order = DailyBriefSection.allCases
+            // At the end: the order is yours (Settings → Briefs → Cards).
             sections.append(s)
-            sections.sort { order.firstIndex(of: $0)! < order.firstIndex(of: $1)! }
         } else if !on {
             sections.removeAll { $0 == s }
         }

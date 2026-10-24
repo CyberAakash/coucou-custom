@@ -356,8 +356,12 @@ final class RunnerStatusItem: NSObject {
         }
         BriefNotchModel.shared.daily = brief
         BriefNotchModel.shared.weekly = week
-        debugWrite(DailyBriefNotchCard(state: AppState.shared).frame(width: 640).background(Color.black), "notch-daily.png")
-        debugWrite(WeeklyBriefNotchCard(state: AppState.shared).frame(width: 640).background(Color.black), "notch-weekly.png")
+        let h = BriefLayout.cardHeight(nh: AppState.shared.notchHeight)
+        for (view, name) in [(IslandView.dailyBrief, "daily"), (.weeklyBrief, "weekly")] {
+            debugWrite(BriefNotchStage(state: AppState.shared, view: view, width: BriefLayout.cardWidth, height: h, still: .card).background(Color.black), "notch-\(name).png")
+            debugWrite(BriefNotchStage(state: AppState.shared, view: view, width: AppState.shared.notchWidth + BriefLayout.pillWing * 2,
+                                       height: AppState.shared.notchHeight, still: .pill).background(Color.black), "notch-\(name)-pill.png")
+        }
         let alert = BuddyAlert(kind: .water, title: "Time for some water", detail: "500 ml of 3 L today")
         debugWrite(RoutineMomentView(moment: RoutineMoment(kind: .water, alert: alert), perform: { _ in })
             .frame(width: 900, height: 600).background(Color.black), "moment.png")
@@ -367,6 +371,14 @@ final class RunnerStatusItem: NSObject {
                      "readStreak=\(brief.readStreak) week=\(brief.weekRead)"]
             + BuddyOutfit.allCases.map { "headroom \($0.rawValue)=\(String(format: "%.3f", BuddyHeadroom.top($0)))" }
         debugWrite(BuddyFullScreenCard().frame(width: 760).padding(20).background(Color(hex: "#0E0F11")), "fullscreen-card.png")
+        debugWrite(MenuBarPanelView(close: {}, resize: {}).content.frame(width: MenuBarPanelView.width).background(Color(hex: "#1C1D21"))
+            .environment(\.colorScheme, .dark), "panel-render.png")
+        debugWrite(HubDailyBriefPage().frame(width: 820, height: 1900).background(Color(hex: "#0E0F11")), "briefs-settings.png")
+        debugWrite(BriefShareCard.daily(brief, hidePrivate: true), "share-daily.png")
+        debugWrite(BriefTimePanel(minuteOfDay: .constant(8 * 60 + 30), tint: BriefsTab.daily.tint, done: {}).background(Color(hex: "#1C1D21")), "time-picker.png")
+        debugWrite(BriefComboList(options: HubDailyBriefPage.triggers(includingManual: true), selection: .constant(DailyBriefTrigger.firstUse),
+                                  tint: BriefsTab.daily.tint, custom: nil, customTitle: nil, placeholder: "Search", done: {})
+            .background(Color(hex: "#1C1D21")), "combo.png")
         try? lines.joined(separator: "\n").write(to: debugDir.appendingPathComponent("brief.txt"), atomically: true, encoding: .utf8)
     }
 

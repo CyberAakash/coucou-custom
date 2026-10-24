@@ -21,6 +21,11 @@ final class FullScreenOverlay {
 
     var isShowing: Bool { window != nil }
 
+    /// The screen it opens on: the one under the pointer.
+    static var targetScreen: NSScreen {
+        NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
     /// `owner` names who shows it ("brief", "moment"), so one never closes the other's.
     /// The keyboard is taken only when Coucou already has it (it never steals your typing);
     /// otherwise a click on the overlay gives it.
@@ -34,7 +39,7 @@ final class FullScreenOverlay {
             return
         }
         close(animated: false, showNext: false)
-        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
+        let screen = Self.targetScreen
         let w = FullScreenOverlayWindow(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                         backing: .buffered, defer: false)
         w.isOpaque = false
@@ -238,7 +243,9 @@ final class RoutineMoments {
 
     private func show(_ moment: RoutineMoment) {
         autoClose?.cancel()
-        let view = RoutineMomentView(moment: moment, perform: { [weak self] action in self?.perform(action) })
+        // The Buddy walks to the middle of that screen and stands in the ring, as for breathing.
+        let radius = BuddyController.shared.visitCenter(of: FullScreenOverlay.targetScreen)
+        let view = RoutineMomentView(moment: moment, buddyRadius: radius, perform: { [weak self] action in self?.perform(action) })
         FullScreenOverlay.shared.present(view, owner: "moment", dim: RoutineMomentSettings.shared.dim) { [weak self] event in
             self?.key(event, moment) ?? false
         }
@@ -262,6 +269,7 @@ final class RoutineMoments {
         }
         shownAlert = nil
         FullScreenOverlay.shared.close(owner: "moment")
+        BuddyController.shared.leaveCenter()
         showNextQueued()
     }
 
@@ -366,84 +374,116 @@ struct RoutineMoment {
     }
 }
 
+/// As Claude Design drew the routine alerts: a glow in the moment's colour, a ring (water drunk
+/// today, or full for a done moment) with Mochi in it, the title, its line, the buttons and their
+/// keys. The ring sits in the screen's middle: the desktop Buddy comes to stand in it, as it does
+/// for full-screen breathing (`buddyRadius`); without the Buddy, the design's Mochi is drawn there.
 struct RoutineMomentView: View {
     let moment: RoutineMoment
+    /// The ring's radius around the Buddy standing in the middle; nil: the ring holds its own Mochi.
+    var buddyRadius: CGFloat? = nil
     let perform: (RoutineMoment.Action) -> Void
     @State private var appeared = false
 
+    private var radius: CGFloat { buddyRadius ?? 116 }
+
+    private var mochiMode: DesignMochi.Mode {
+        switch moment.kind {
+        case .water, .timerDone: .hop
+        case .focusDone: .joy
+        case .focusStart, .timerStart: .calm
+        case .reminder, .breakDone: .idle
+        }
+    }
+
     var body: some View {
-        ZStack {
-            RadialGradient(colors: [moment.tint.opacity(0.22), .clear], center: .center, startRadius: 0, endRadius: 420)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            VStack(spacing: 22) {
-                ZStack {
-                    Circle().stroke(Color.white.opacity(0.08), lineWidth: 6)
-                    if let p = moment.progress {
-                        Circle().trim(from: 0, to: appeared ? CGFloat(max(0.02, min(1, p))) : 0)
-                            .stroke(moment.tint, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                            .animation(.spring(response: 1.1, dampingFraction: 0.85).delay(0.2), value: appeared)
-                    }
-                    HubLiveMochi(color: "#F5F6F8", size: 92, state: moment.mochiState)
-                        .frame(width: 120, height: 100)
-                }
-                .frame(width: 196, height: 196)
-                .scaleEffect(appeared ? 1 : 0.6)
-                .opacity(appeared ? 1 : 0)
-
-                VStack(spacing: 8) {
-                    Text(moment.title)
-                        .font(.system(size: 34, weight: .bold))
-                        .multilineTextAlignment(.center)
-                    if !moment.detail.isEmpty {
-                        Text(moment.detail).font(.system(size: 16)).foregroundColor(HubTheme.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-                .frame(maxWidth: 560)
-                .offset(y: appeared ? 0 : 14)
-                .opacity(appeared ? 1 : 0)
-
-                if moment.alert != nil {
-                    HStack(spacing: 10) {
-                        ForEach(Array(moment.actions.enumerated()), id: \.offset) { i, action in
-                            let main = i == moment.actions.count - 1
-                            Button {
-                                perform(action)
-                            } label: {
-                                Text(action.title)
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(main ? Color(hex: "#06131A") : HubTheme.text)
-                                    .padding(.horizontal, 22).frame(height: 44)
-                                    .background(Capsule().fill(main ? moment.tint : Color.white.opacity(0.1)))
-                                    .contentShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .opacity(appeared ? 1 : 0)
-                    HStack(spacing: 14) {
-                        if let p = moment.primary { keyHint("Return", p.title) }
-                        if let s = moment.secondary, moment.actions.count > 1 { keyHint("Esc", s.title) }
-                        else if moment.secondary == nil { keyHint("Esc", "Close") }
-                    }
-                    .opacity(appeared ? 0.9 : 0)
-                }
+        GeometryReader { g in
+            let center = CGPoint(x: g.size.width / 2, y: g.size.height / 2)
+            ZStack {
+                RadialGradient(colors: [moment.tint.opacity(0.18), .clear], center: .center, startRadius: 0, endRadius: 450)
+                    .frame(width: 900, height: 900)
+                    .position(center)
+                    .allowsHitTesting(false)
+                ring.position(center)
+                info.frame(width: min(760, g.size.width - 80))
+                    .padding(.top, center.y + radius + 28)
+                    .frame(width: g.size.width, height: g.size.height, alignment: .top)
             }
         }
+        .ignoresSafeArea()
         .foregroundColor(HubTheme.text)
         .onAppear {
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.72)) { appeared = true }
+            withAnimation(BriefLayout.spring) { appeared = true }
+        }
+    }
+
+    private var ring: some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.08), lineWidth: 8)
+            Circle().trim(from: 0, to: appeared ? CGFloat(max(0.02, min(1, moment.progress ?? 0))) : 0)
+                .stroke(moment.tint, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .opacity(moment.progress == nil ? 0 : 1)
+                .animation(BriefLayout.spring.delay(0.3), value: appeared)
+            if buddyRadius == nil {
+                DesignMochi(size: 132, mode: mochiMode).padding(.top, 16)
+            }
+        }
+        .frame(width: radius * 2, height: radius * 2)
+        .scaleEffect(appeared ? 1 : 0.92)
+        .opacity(appeared ? 1 : 0)
+    }
+
+    private var info: some View {
+        VStack(spacing: 28) {
+            VStack(spacing: 8) {
+                Text(moment.title)
+                    .font(.system(size: 38, weight: .bold)).tracking(-0.76)
+                    .multilineTextAlignment(.center)
+                if !moment.detail.isEmpty {
+                    Text(moment.detail).font(.system(size: 17).monospacedDigit()).foregroundColor(Color(hex: "#8E939C"))
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 14)
+            .animation(BriefLayout.spring.delay(0.12), value: appeared)
+
+            if moment.alert != nil {
+                HStack(spacing: 12) {
+                    ForEach(Array(moment.actions.enumerated()), id: \.offset) { i, action in
+                        let main = i == moment.actions.count - 1
+                        Button { perform(action) } label: {
+                            Text(action.title)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundColor(main ? Color(hex: "#06131A") : Color(hex: "#F5F6F8"))
+                                .padding(.horizontal, 30).frame(height: 52)
+                                .background(Capsule().fill(main ? moment.tint : Color.white.opacity(0.1)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(BriefPress())
+                    }
+                }
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 20)
+                .animation(BriefLayout.spring.delay(0.2), value: appeared)
+                HStack(spacing: 24) {
+                    if let p = moment.primary { keyHint("Return", p.title) }
+                    if let s = moment.secondary, moment.actions.count > 1 { keyHint("Esc", s.title) }
+                    else if moment.secondary == nil { keyHint("Esc", "Close") }
+                }
+                .opacity(appeared ? 1 : 0)
+                .animation(.easeOut(duration: 0.4).delay(0.3), value: appeared)
+            }
         }
     }
 
     private func keyHint(_ key: String, _ what: String) -> some View {
-        HStack(spacing: 6) {
-            Text(key).font(.system(size: 10.5, weight: .bold))
-                .padding(.horizontal, 6).frame(height: 18)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
-            Text(what).font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
+        HStack(spacing: 8) {
+            Text(key).font(.system(size: 13, weight: .semibold)).foregroundColor(Color(hex: "#E1E3E6"))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
+            Text(what).font(.system(size: 13)).foregroundColor(Color(hex: "#8E939C"))
         }
     }
 }

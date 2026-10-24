@@ -1,9 +1,10 @@
 #if !APPSTORE
 import SwiftUI
 
-// coucou-custom fork: the full-screen frame the Daily brief and the Weekly recap share — progress
-// ticks, a title and a date, one card at a time (click, ←/→, Space or Return to move, Esc to close),
-// optional auto-advance.
+// coucou-custom fork: the full-screen frame the Daily brief and the Weekly recap share, as Claude
+// Design drew it — an 800 × 600 card over the blurred screen, progress ticks, a title and a date,
+// one card at a time (a click on its left third goes back, elsewhere on; ←/→, Space or Return;
+// Esc or a click beside it closes), optional auto-advance.
 
 @MainActor
 final class BriefStory: ObservableObject {
@@ -66,78 +67,101 @@ struct BriefStoryFrame<Card: View>: View {
     let title: String
     let date: String
     let close: () -> Void
+    var share: (() -> Void)? = nil
     @ViewBuilder let card: (Int) -> Card
+    @State private var shown = false
 
-    static var size: CGSize { CGSize(width: 720, height: 560) }
+    static var size: CGSize { CGSize(width: 800, height: 600) }
 
     var body: some View {
         ZStack {
-            BriefAurora(palette: BriefPalette.now())
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            frame
+            // A click beside the card closes it, as in the design.
+            Color.clear.contentShape(Rectangle()).onTapGesture(perform: close)
+            VStack(spacing: 18) {
+                frame
+                HStack(spacing: 14) {
+                    hint(["←", "→"], "Move")
+                    hint(["Esc"], "Close")
+                }
+                .opacity(shown ? 1 : 0)
+            }
+            .scaleEffect(shown ? 1 : 0.94)
+            .opacity(shown ? 1 : 0)
         }
+        .onAppear { withAnimation(BriefLayout.spring) { shown = true } }
     }
 
     private var frame: some View {
-        VStack(spacing: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                ticks
-                HStack {
-                    Text(title).font(.system(size: 12.5, weight: .bold))
-                    Text(date).font(.system(size: 12.5)).foregroundColor(HubTheme.muted)
-                    Spacer()
-                    Text("\(story.index + 1) of \(story.count)").font(.system(size: 12).monospacedDigit()).foregroundColor(HubTheme.muted)
-                    Button(action: close) {
-                        Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundColor(HubTheme.secondary)
-                            .frame(width: 22, height: 22).background(Circle().fill(Color.white.opacity(0.07)))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 6)
-                }
-                ZStack {
-                    ForEach(0..<story.count, id: \.self) { i in
-                        if i == story.index {
-                            card(i)
-                                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: 30)),
-                                                        removal: .opacity.combined(with: .offset(x: -30))))
-                        }
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Color(hex: "#0E0F11"))
+            // The design's click zones: the left third goes back, the rest goes on.
+            HStack(spacing: 0) {
+                Color.clear.contentShape(Rectangle()).frame(width: Self.size.width * 0.32)
+                    .onTapGesture { story.previous() }
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { if !story.next() { close() } }
+            }
+            .padding(.top, 60)
+            ZStack {
+                ForEach(0..<story.count, id: \.self) { i in
+                    if i == story.index {
+                        card(i)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .offset(x: 48)).combined(with: .scale(scale: 0.97)),
+                                removal: .opacity.combined(with: .offset(x: -48)).combined(with: .scale(scale: 0.97))))
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .contentShape(Rectangle())
-                .onTapGesture { if !story.next() { close() } }
             }
-            .padding(22)
-            .frame(width: Self.size.width, height: Self.size.height)
-            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(hex: "#0E0F11").opacity(0.96)))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
-            .shadow(color: .black.opacity(0.5), radius: 40, y: 20)
-
-            HStack(spacing: 14) {
-                hint(["←", "→"], "Move")
-                hint(["Esc"], "Close")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(EdgeInsets(top: 76, leading: 40, bottom: 36, trailing: 40))
+            ticks.padding(.horizontal, 28).padding(.top, 18)
+            header.padding(.horizontal, 28).padding(.top, 32)
         }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(Color.white.opacity(0.07)))
+        .shadow(color: .black.opacity(0.6), radius: 50, y: 40)
         .foregroundColor(HubTheme.text)
     }
 
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(title).font(.system(size: 12.5, weight: .bold)).foregroundColor(Color(hex: "#F5F6F8"))
+            Text(date).font(.system(size: 12.5)).foregroundColor(Color(hex: "#6B7079"))
+            Spacer()
+            Text("\(story.index + 1) of \(story.count)").font(.system(size: 12).monospacedDigit()).foregroundColor(Color(hex: "#6B7079"))
+            if let share { headerButton("square.and.arrow.up", help: "Share as an image", action: share) }
+            headerButton("xmark", help: "Close", action: close)
+        }
+        .frame(height: 28)
+    }
+
+    private func headerButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundColor(HubTheme.secondary)
+                .frame(width: 24, height: 24).background(Circle().fill(Color.white.opacity(0.07)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
     private var ticks: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ForEach(0..<story.count, id: \.self) { i in
                 GeometryReader { g in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.12))
+                        Capsule().fill(Color.white.opacity(0.14))
                         if i < story.index {
-                            Capsule().fill(Color.white.opacity(0.85))
+                            Capsule().fill(Color(hex: "#F5F6F8"))
                         } else if i == story.index {
                             if story.autoAdvance > 0 {
                                 TimelineView(.animation) { ctx in
                                     let k = min(1, ctx.date.timeIntervalSince(story.cardStart) / Double(story.autoAdvance))
-                                    Capsule().fill(Color.white.opacity(0.85)).frame(width: g.size.width * k)
+                                    Capsule().fill(Color(hex: "#F5F6F8")).frame(width: g.size.width * k)
                                 }
                             } else {
-                                Capsule().fill(Color.white.opacity(0.85))
+                                Capsule().fill(Color(hex: "#F5F6F8"))
                             }
                         }
                     }
@@ -155,7 +179,34 @@ struct BriefStoryFrame<Card: View>: View {
             }
             Text(what).font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
         }
+        .foregroundColor(HubTheme.text)
     }
+}
+
+/// A number that counts up from zero when its card comes, as the design's do (1.1 s, ease-out cubic).
+struct BriefCountUp: View {
+    let value: Int
+    var format: (Int) -> String = { $0.formatted() }
+    @State private var shown = 0.0
+
+    var body: some View {
+        CountingText(value: shown, format: format)
+            .onAppear {
+                withAnimation(.timingCurve(0.33, 1, 0.68, 1, duration: 1.1)) { shown = Double(value) }
+            }
+    }
+}
+
+/// SwiftUI steps `value` frame by frame through the animation; nothing runs once it lands.
+private struct CountingText: View, Animatable {
+    var value: Double
+    let format: (Int) -> String
+    nonisolated var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    var body: some View { Text(format(Int(value.rounded()))) }
 }
 
 /// Where a brief shows.
@@ -177,28 +228,6 @@ struct BriefPalette {
         case 12..<17: BriefPalette(colors: ["#3B9EFF", "#22D3EE", "#34D399"].map { Color(hex: $0) }, accent: Color(hex: "#3B9EFF"))
         case 17..<21: BriefPalette(colors: ["#A78BFA", "#F472B6", "#FB923C"].map { Color(hex: $0) }, accent: Color(hex: "#A78BFA"))
         default: BriefPalette(colors: ["#6366F1", "#3B9EFF", "#A78BFA"].map { Color(hex: $0) }, accent: Color(hex: "#818CF8"))
-        }
-    }
-}
-
-/// Three soft blobs drifting slowly behind the brief.
-struct BriefAurora: View {
-    let palette: BriefPalette
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            Canvas { g, size in
-                for (i, c) in palette.colors.enumerated() {
-                    let k = Double(i)
-                    let x = size.width * (0.5 + 0.32 * cos(t * 0.07 + k * 2.1))
-                    let y = size.height * (0.5 + 0.28 * sin(t * 0.09 + k * 1.7))
-                    let r = min(size.width, size.height) * (0.42 + 0.06 * sin(t * 0.2 + k))
-                    g.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
-                           with: .radialGradient(Gradient(colors: [c.opacity(0.32), c.opacity(0)]),
-                                                 center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r))
-                }
-            }
         }
     }
 }
@@ -261,8 +290,8 @@ struct BriefIntroCard: View {
                 Text("Click or press → to begin").font(.system(size: 12)).foregroundColor(HubTheme.muted)
                     .briefAppear(1.5)
                 Spacer()
-                HubLiveMochi(color: "#F5F6F8", size: 78, state: .idle)
-                    .frame(width: 96, height: 78)
+                DesignMochi(size: 96, mode: hop ? .once : .idle)
+                    .frame(width: 104, height: 90)
                     .offset(y: hop ? 0 : 120)
                     .rotationEffect(.degrees(hop ? 0 : -12))
             }

@@ -15,7 +15,7 @@ struct QuestionContentHeightKey: PreferenceKey {
 extension Notification.Name {
     /// QuestionLayout.height changed: the island animates to it.
     static let islandQuestionFit = Notification.Name("coucou.islandQuestionFit")
-    /// BriefLayout changed: the island animates to it (coucou-custom fork, GitHub build).
+    /// A brief changed phase (BriefLayout): the island animates to it (coucou-custom fork, GitHub build).
     static let islandBriefFit = Notification.Name("coucou.islandBriefFit")
 }
 

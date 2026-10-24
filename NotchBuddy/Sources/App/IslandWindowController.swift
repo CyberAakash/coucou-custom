@@ -2066,10 +2066,8 @@ func islandSize(mode: IslandMode, view: IslandView,
             return (IslandConst.expandedWidth, h)
         }
         #if !APPSTORE
-        // coucou-custom fork: the briefs are as tall as their content (BriefFit).
-        if view == .dailyBrief || view == .weeklyBrief, let h = BriefLayout.height(for: view) {
-            return (IslandConst.expandedWidth, h)
-        }
+        // coucou-custom fork: the briefs open as a pill, then as their card (BriefLayout).
+        if let size = BriefLayout.size(for: view, nw: nw, nh: nh) { return size }
         #endif
         // coucou-custom fork: the chat is wider and as tall as its conversation (ChatFit).
         if view == .prompt { return (ChatLayout.width, ChatLayout.height) }

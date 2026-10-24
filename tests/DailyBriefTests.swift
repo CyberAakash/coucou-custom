@@ -27,6 +27,8 @@ enum DailyBriefTests {
         workTests()
         scheduleTests()
         textTests()
+        weeklyScheduleTests()
+        inputTests()
         weatherTests()
         weekTests()
         planTests()
@@ -116,6 +118,35 @@ enum DailyBriefTests {
         check("auto period: evening is today", DailyBriefPeriod.auto.day(now: at(23, 19), calendar: cal) == at(23, 0))
     }
 
+    static func weeklyScheduleTests() {
+        // at(day, hour): 23 October 2026 is a Friday.
+        let friday = at(23, 9)
+        check("weekday: Friday is 5", WeeklyBriefSchedule.weekday(friday, calendar: cal) == 5)
+        check("weekday: Monday is 1", WeeklyBriefSchedule.weekday(at(26, 9), calendar: cal) == 1)
+        check("its day, after its time", WeeklyBriefSchedule.shouldShow(trigger: .firstUse, weekday: 5, minuteOfDay: 8 * 60, now: friday, lastShownWeek: 0, calendar: cal))
+        check("not another day", !WeeklyBriefSchedule.shouldShow(trigger: .firstUse, weekday: 1, minuteOfDay: 8 * 60, now: friday, lastShownWeek: 0, calendar: cal))
+        check("not before its time", !WeeklyBriefSchedule.shouldShow(trigger: .firstUse, weekday: 5, minuteOfDay: 10 * 60, now: friday, lastShownWeek: 0, calendar: cal))
+        check("once a week", !WeeklyBriefSchedule.shouldShow(trigger: .firstUse, weekday: 5, minuteOfDay: 8 * 60, now: friday,
+                                                             lastShownWeek: WeeklyBriefSchedule.weekKey(friday), calendar: cal))
+        check("at a time: only its 15 minutes", !WeeklyBriefSchedule.shouldShow(trigger: .atTime, weekday: 5, minuteOfDay: 8 * 60, now: friday, lastShownWeek: 0, calendar: cal)
+              && WeeklyBriefSchedule.shouldShow(trigger: .atTime, weekday: 5, minuteOfDay: 8 * 60 + 50, now: friday, lastShownWeek: 0, calendar: cal))
+        check("next due: Monday 8:00 after a Friday", WeeklyBriefSchedule.nextDue(weekday: 1, minuteOfDay: 8 * 60, after: friday, calendar: cal) == at(26, 8))
+        check("next due: later today", WeeklyBriefSchedule.nextDue(weekday: 5, minuteOfDay: 18 * 60, after: friday, calendar: cal) == at(23, 18))
+        check("next due: a week on when past", WeeklyBriefSchedule.nextDue(weekday: 5, minuteOfDay: 8 * 60, after: friday, calendar: cal) == at(30, 8))
+    }
+
+    static func inputTests() {
+        check("time 8:30", BriefInput.minuteOfDay(from: "8:30") == 510)
+        check("time 0830", BriefInput.minuteOfDay(from: "0830") == 510)
+        check("time 8", BriefInput.minuteOfDay(from: "8") == 480)
+        check("time 8:30 pm", BriefInput.minuteOfDay(from: "8:30 pm") == 20 * 60 + 30)
+        check("time 12 am is midnight", BriefInput.minuteOfDay(from: "12 am") == 0)
+        check("time 18.05", BriefInput.minuteOfDay(from: "18.05") == 18 * 60 + 5)
+        check("time nonsense", BriefInput.minuteOfDay(from: "25:00") == nil && BriefInput.minuteOfDay(from: "8:75") == nil && BriefInput.minuteOfDay(from: "soon") == nil)
+        check("seconds", BriefInput.seconds(from: "25") == 25 && BriefInput.seconds(from: "25 s") == 25 && BriefInput.seconds(from: "1 min") == 60)
+        check("seconds out of range", BriefInput.seconds(from: "0") == nil && BriefInput.seconds(from: "20 min") == nil && BriefInput.seconds(from: "x") == nil)
+    }
+
     static func textTests() {
         check("greeting morning", DailyBriefText.greeting(at: at(23, 8), name: "Aakash", calendar: cal) == "Good morning, Aakash")
         check("greeting evening no name", DailyBriefText.greeting(at: at(23, 20), name: " ", calendar: cal) == "Good evening")
@@ -124,6 +155,13 @@ enum DailyBriefTests {
         w.sessions = 6; w.minutes = 312; w.filesChanged = 31; w.topProject = "coucou"
         check("headline", DailyBriefText.headline(work: w, isToday: false) == "Yesterday: 6 agent sessions, 5h 12m of work, 31 files changed, mostly on coucou.")
         check("quiet headline", DailyBriefText.headline(work: DayWork(), isToday: true).hasPrefix("A quiet day"))
+        let line = DailyBriefText.notchLine(work: w, isToday: false)
+        check("notch line", line.lead + line.value + line.tail == "Yesterday you spent 5h 12m with your agents." && line.value == "5h 12m")
+        check("quiet notch line has no number", DailyBriefText.notchLine(work: DayWork(), isToday: true).value.isEmpty)
+        check("shuffle turns the order round", BriefOrder.rotate([1, 2, 3]) == [2, 3, 1] && BriefOrder.rotate([Int]()).isEmpty)
+        check("drag down", BriefOrder.move(1, to: 3, in: [1, 2, 3, 4]) == [2, 3, 1, 4])
+        check("drag up", BriefOrder.move(4, to: 2, in: [1, 2, 3, 4]) == [1, 4, 2, 3])
+        check("drag onto itself", BriefOrder.move(2, to: 2, in: [1, 2, 3]) == [1, 2, 3])
         check("water", DailyBriefText.water(1500) == "1.5 L" && DailyBriefText.water(3000) == "3 L" && DailyBriefText.water(750) == "750 ml")
     }
 

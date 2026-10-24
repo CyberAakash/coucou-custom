@@ -16,6 +16,15 @@ enum HubPage: String, CaseIterable, Identifiable {
     static let flowPages: [HubPage] = [.dictation, .notes, .insights, .dictionary, .snippets, .styles, .settings]
     static let notchPages: [HubPage] = [.general, .pills, .agents, .chat, .integrations, .voice, .shortcuts, .buddy, .runner, .brief]
 
+    /// coucou-custom fork: the sidebar's groups, in their order — the notch first, then what lives
+    /// on the desktop and in the menu bar, what Coucou connects to, then Flow.
+    static let sidebarGroups: [(title: String, pages: [HubPage])] = [
+        (String(localized: "hub.section.notch"), [.general, .agents, .chat, .voice, .shortcuts]),
+        ("Desktop", [.buddy, .runner, .brief]),
+        ("Connections", [.pills, .integrations]),
+        ("Flow", [.dictation, .notes, .dictionary, .snippets, .styles, .insights, .settings]),
+    ]
+
     /// The section of Settings this page shows, for the notch's pages.
     var settingsSection: String? {
         switch self {
@@ -283,20 +292,19 @@ private struct HubSidebar: View {
                     .font(.system(size: 18, weight: .bold))
             }
             .padding(.horizontal, 8)
-            // Halfway between the window's buttons and "FLOW".
+            // Halfway between the window's buttons and the first group.
             .padding(.top, 25)
             .padding(.bottom, 31)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    HubSidebarHeader(text: "Flow")
-                    ForEach(HubPage.flowPages) { page in
-                        HubSidebarItem(page: page, selected: router.page == page) { router.page = page }
-                    }
-                    HubSidebarHeader(text: String(localized: "hub.section.notch"))
-                        .padding(.top, 14)
-                    ForEach(HubPage.notchPages) { page in
-                        HubSidebarItem(page: page, selected: router.page == page) { router.page = page }
+                    // coucou-custom fork: regrouped (HubPage.sidebarGroups).
+                    ForEach(Array(HubPage.sidebarGroups.enumerated()), id: \.offset) { i, group in
+                        HubSidebarHeader(text: group.title)
+                            .padding(.top, i == 0 ? 0 : 14)
+                        ForEach(group.pages) { page in
+                            HubSidebarItem(page: page, selected: router.page == page) { router.page = page }
+                        }
                     }
                 }
             }

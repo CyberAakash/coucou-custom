@@ -15,14 +15,14 @@ struct HubRunnerPage: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            HubPageScaffold(title: String(localized: "Menu bar"), subtitle: String(localized: "hub.notch.menubar")) {
+            // The page's one banner: its title and its switches.
+            HubPageScaffold(title: String(localized: "Menu bar"), subtitle: String(localized: "hub.notch.menubar"),
+                            trailing: { RunnerBanner(settings: settings) }) {
+                HubLabel("Preview")
                 RunnerHeroCard(settings: settings, sampler: sampler)
 
                 HubLabel("Icon")
                 RunnerPickerCard(settings: settings, library: library)
-
-                HubLabel("Make a runner")
-                RunnerEditorCard(toast: $toast)
 
                 HubLabel("Runner Gallery")
                 RunnerGalleryCard(library: library, toast: $toast)
@@ -129,7 +129,22 @@ struct RunnerMenuBarStrip<Content: View>: View {
     }
 }
 
-// MARK: - Hero
+// MARK: - The banner's switches, and the preview
+
+private struct RunnerBanner: View {
+    @ObservedObject var settings: RunnerSettings
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HubBannerSwitch(title: "One menu-bar item", tint: HubTheme.accent, isOn: $settings.unified)
+            if !settings.unified {
+                HubBannerSwitch(title: "Runner as a second item", tint: HubTheme.accent, isOn: $settings.enabled)
+                    .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
+            }
+        }
+        .animation(BriefLayout.spring, value: settings.unified)
+    }
+}
 
 private struct RunnerHeroCard: View {
     @ObservedObject var settings: RunnerSettings
@@ -148,7 +163,7 @@ private struct RunnerHeroCard: View {
         let frames = RunnerStatusItem.frames(for: settings.runnerID)
         let speed = RunnerSpeed.speed(load: load, slowerUnderLoad: settings.slowerUnderLoad)
         let shows = settings.unified || settings.enabled
-        HubGlowCard(color: HubTheme.accent, padding: 22) {
+        HubCard(padding: 20) {
             HStack(alignment: .center, spacing: 22) {
                 VStack(spacing: 12) {
                     RunnerPreview(frames: frames.images, isTemplate: frames.isTemplate,
@@ -180,10 +195,7 @@ private struct RunnerHeroCard: View {
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(HubTheme.green)
                     }
-                    Text("Coucou in your menu bar")
-                        .font(.system(size: 21, weight: .bold))
-                        .foregroundColor(HubTheme.text)
-                    Text("One icon of your choice — still, or running faster as your Mac works harder, after RunCat. Click it for your agents, the Claude plan, the Mac, your routines and your metrics; right-click it for Coucou's menu.")
+                    Text("Click it for your agents, the Claude plan, the Mac, your routines and your metrics; right-click it for Coucou's menu.")
                         .font(.system(size: 13))
                         .foregroundColor(HubTheme.body)
                         .fixedSize(horizontal: false, vertical: true)
@@ -191,16 +203,6 @@ private struct RunnerHeroCard: View {
                         Text(speedLine(speed))
                             .font(.system(size: 12).monospacedDigit())
                             .foregroundColor(HubTheme.secondary)
-                    }
-                    Toggle(isOn: $settings.unified) {
-                        Text("One menu-bar item for Coucou").font(.system(size: 13, weight: .semibold))
-                    }
-                    .toggleStyle(.switch)
-                    if !settings.unified {
-                        Toggle(isOn: $settings.enabled) {
-                            Text("Also show the runner as a second item").font(.system(size: 13, weight: .semibold))
-                        }
-                        .toggleStyle(.switch)
                     }
                     HubNote(text: "A still icon with no numbers beside it reads nothing. A running one, or numbers, read the Mac every \(settings.interval) s; the animation itself runs in Core Animation.")
                 }
@@ -226,53 +228,53 @@ private struct MenuBarPanelSettingsCard: View {
 
     var body: some View {
         HubCard {
-            Text("What a click on the icon shows, top to bottom. Coucou's actions (Open Coucou, Daily brief, Weekly recap, Coucou window, Settings, Quit) always close it.")
+            Text("What a click on the icon shows, top to bottom: drag a section to move it. The gear at its top opens these settings; the bar at its bottom keeps the Daily brief, the Weekly brief and Quit.")
                 .font(.system(size: 12.5)).foregroundColor(HubTheme.body).fixedSize(horizontal: false, vertical: true)
-            let order = settings.panelSections + MenuBarPanelSection.allCases.filter { !settings.panelSections.contains($0) }
-            ForEach(Array(order.enumerated()), id: \.element) { i, section in
-                if i > 0 { HubDivider() }
-                let on = settings.panelSections.contains(section)
-                HStack(spacing: 12) {
-                    Image(systemName: section.symbol).font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(on ? HubTheme.accent : HubTheme.muted)
-                        .frame(width: 28, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill((on ? HubTheme.accent : HubTheme.muted).opacity(0.14)))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(section.title).font(.system(size: 13.5, weight: .medium))
-                        Text(section.detail).font(.system(size: 12)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    if on {
-                        HubIconButton(symbol: "chevron.up", help: "Move up") { settings.move(section, by: -1) }
-                            .disabled(settings.panelSections.first == section)
-                            .opacity(settings.panelSections.first == section ? 0.35 : 1)
-                        HubIconButton(symbol: "chevron.down", help: "Move down") { settings.move(section, by: 1) }
-                            .disabled(settings.panelSections.last == section)
-                            .opacity(settings.panelSections.last == section ? 0.35 : 1)
-                    }
-                    Toggle("", isOn: Binding(get: { on }, set: { settings.toggle(section, $0) }))
-                        .toggleStyle(.switch).labelsHidden()
+            HubReorderList(items: $settings.panelSections,
+                           fixed: MenuBarPanelSection.allCases.filter { !settings.panelSections.contains($0) }) { section in
+                sectionRow(section)
+            }
+        }
+    }
+
+    private func sectionRow(_ section: MenuBarPanelSection) -> some View {
+        let on = settings.panelSections.contains(section)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: section.symbol).font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(on ? HubTheme.accent : HubTheme.muted)
+                    .frame(width: 28, height: 28)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill((on ? HubTheme.accent : HubTheme.muted).opacity(0.14)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section.title).font(.system(size: 13.5, weight: .medium))
+                    Text(section.detail).font(.system(size: 12)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                if section == .mac, on {
-                    HStack(spacing: 6) {
-                        Text("Tiles").font(.system(size: 12)).foregroundColor(HubTheme.secondary).padding(.leading, 40)
-                        ForEach(SystemMetricKind.allCases) { kind in
-                            let has = settings.panelMacTiles.contains(kind)
-                            Button {
-                                if has { settings.panelMacTiles.remove(kind) } else { settings.panelMacTiles.insert(kind) }
-                            } label: {
-                                Text(kind.rawValue.capitalized)
-                                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                                    .foregroundColor(has ? HubTheme.onAccent : HubTheme.body)
-                                    .padding(.horizontal, 8).frame(height: 24)
-                                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(has ? HubTheme.accent : Color.white.opacity(0.05)))
-                            }
-                            .buttonStyle(.plain)
+                Spacer(minLength: 8)
+                BriefSwitch(isOn: Binding(get: { on }, set: { v in withAnimation(BriefLayout.spring) { settings.toggle(section, v) } }),
+                            tint: HubTheme.accent)
+            }
+            if section == .mac, on {
+                HStack(spacing: 6) {
+                    Text("Tiles").font(.system(size: 12)).foregroundColor(HubTheme.secondary).padding(.leading, 40)
+                    ForEach(SystemMetricKind.allCases) { kind in
+                        let has = settings.panelMacTiles.contains(kind)
+                        Button {
+                            if has { settings.panelMacTiles.remove(kind) } else { settings.panelMacTiles.insert(kind) }
+                        } label: {
+                            Text(kind.rawValue.capitalized)
+                                .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                                .foregroundColor(has ? HubTheme.onAccent : HubTheme.body)
+                                .padding(.horizontal, 8).frame(height: 24)
+                                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(has ? HubTheme.accent : Color.white.opacity(0.05)))
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.03)))
+        .opacity(on ? 1 : 0.6)
     }
 }
 
@@ -428,212 +430,6 @@ private struct RunnerEditSheet: View {
             detected = RunnerPlayback.detect(order: runner.frameOrder, count: runner.frameCount)
             playback = detected
         }
-    }
-}
-
-// MARK: - Making a runner
-
-@MainActor
-private final class RunnerEditorModel: ObservableObject {
-    struct Frame: Identifiable {
-        let id = UUID()
-        let name: String
-        let data: Data
-        let image: CGImage
-    }
-
-    @Published var frames: [Frame] = []
-    @Published var name = ""
-    @Published var isTemplate = true
-    @Published var playback: RunnerPlayback = .loop
-    @Published var speed: Double = 2
-    @Published var problem: String?
-
-    var canAdd: Bool { !frames.isEmpty && !name.trimmingCharacters(in: .whitespaces).isEmpty }
-
-    var ordered: [CGImage] {
-        playback.order(count: frames.count).map { frames[$0].image }
-    }
-
-    /// PNG files, or a Runner Gallery `<name>-frames.zip`, in file-name order.
-    func add(_ urls: [URL]) {
-        problem = nil
-        var incoming: [(name: String, data: Data)] = []
-        for url in urls.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
-            let ext = url.pathExtension.lowercased()
-            if ext == "zip" {
-                do {
-                    guard let data = try? Data(contentsOf: url) else { problem = "\(url.lastPathComponent) can’t be read."; return }
-                    let entries = try RunnerZip.pngEntries(data)
-                    incoming += entries.map { ($0.name, $0.data) }
-                    if name.isEmpty { name = Self.title(fromArchive: url.deletingPathExtension().lastPathComponent) }
-                } catch {
-                    problem = "\(url.lastPathComponent) is not a frames archive (\(error))."
-                    return
-                }
-            } else if ext == "png", let data = try? Data(contentsOf: url) {
-                incoming.append((url.lastPathComponent, data))
-            } else {
-                problem = "\(url.lastPathComponent): " + RunnerFrameRules.message(.notImage)
-                return
-            }
-        }
-        if frames.count + incoming.count > RunnerFrameRules.maxFrames {
-            problem = RunnerFrameRules.message(.tooMany)
-            return
-        }
-        if let message = RunnerImages.validate(incoming) {
-            problem = message
-            return
-        }
-        frames += incoming.compactMap { f in RunnerImages.image(from: f.data).map { Frame(name: f.name, data: f.data, image: $0) } }
-    }
-
-    /// "border-collie-frames" → "Border Collie".
-    static func title(fromArchive base: String) -> String {
-        var b = base
-        if b.hasSuffix("-frames") { b.removeLast("-frames".count) }
-        return b.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
-    }
-
-    func reset() {
-        frames = []
-        name = ""
-        isTemplate = true
-        playback = .loop
-        problem = nil
-    }
-}
-
-private struct RunnerEditorCard: View {
-    @Binding var toast: String
-    @StateObject private var model = RunnerEditorModel()
-    @State private var dropping = false
-
-    var body: some View {
-        HubCard {
-            HStack(alignment: .top, spacing: 18) {
-                VStack(spacing: 10) {
-                    RunnerPreview(frames: model.ordered, isTemplate: model.isTemplate, speed: model.speed, scale: 2.5)
-                        .frame(width: 170, height: 70)
-                    RunnerMenuBarStrip {
-                        RunnerPreview(frames: model.ordered, isTemplate: model.isTemplate, speed: model.speed)
-                    }
-                    .foregroundColor(HubTheme.text)
-                    VStack(spacing: 2) {
-                        Slider(value: $model.speed, in: 1...20).frame(width: 150)
-                        Text("Preview speed \(String(format: "%.0f", model.speed))× (CPU \(Int(model.speed * 5))%)")
-                            .font(.system(size: 10.5).monospacedDigit()).foregroundColor(HubTheme.muted)
-                    }
-                }
-                .frame(width: 190)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.25)))
-
-                VStack(alignment: .leading, spacing: 12) {
-                    dropZone
-                    if !model.frames.isEmpty {
-                        ScrollView(.horizontal) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(model.frames.enumerated()), id: \.element.id) { i, frame in
-                                    RunnerFrameCell(index: i, frame: frame.image, isTemplate: model.isTemplate) {
-                                        model.frames.removeAll { $0.id == frame.id }
-                                    }
-                                }
-                            }
-                        }
-                        .scrollIndicators(.never)
-                    }
-                    HubRow(title: "Name") { HubField(placeholder: "My runner", text: $model.name).frame(width: 200) }
-                    HubRow(title: "Colour", detail: "Monochrome takes the menu bar’s colour from the frames’ shape; Colour keeps their own.") {
-                        RunnerChips(values: [true, false], label: { $0 ? "Monochrome" : "Colour" }, selection: $model.isTemplate)
-                    }
-                    HubRow(title: "Plays", detail: "Back and forth plays the frames, then back again.") {
-                        RunnerChips(values: RunnerPlayback.allCases, label: { $0 == .loop ? "Loop" : "Back and forth" }, selection: $model.playback)
-                    }
-                    if let problem = model.problem { HubNote(text: problem, warning: true) }
-                    HStack {
-                        Text("\(model.frames.count) of \(RunnerFrameRules.maxFrames) frames")
-                            .font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
-                        Spacer()
-                        Button("Clear") { model.reset() }.buttonStyle(HubButtonStyle()).disabled(model.frames.isEmpty)
-                        Button("Add runner") { save() }.buttonStyle(HubButtonStyle(primary: true)).disabled(!model.canAdd)
-                    }
-                }
-            }
-        }
-    }
-
-    private var dropZone: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 18)).foregroundColor(HubTheme.accent)
-            Text("Drop PNG frames or a gallery “-frames.zip” here")
-                .font(.system(size: 12.5, weight: .semibold))
-            Text("PNG, exactly 36 px high, 10 to 100 px wide, up to 30 frames. Files play in name order.")
-                .font(.system(size: 11.5)).foregroundColor(HubTheme.secondary)
-                .multilineTextAlignment(.center)
-            Button("Choose files…") { choose() }.buttonStyle(HubButtonStyle()).padding(.top, 2)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(dropping ? HubTheme.accent.opacity(0.12) : Color.white.opacity(0.03)))
-        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-            .strokeBorder(dropping ? HubTheme.accent : Color.white.opacity(0.12), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4])))
-        .dropDestination(for: URL.self) { urls, _ in
-            model.add(urls)
-            return true
-        } isTargeted: { dropping = $0 }
-    }
-
-    private func choose() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.png, .zip]
-        panel.message = "Choose the frames of your runner, or a Runner Gallery frames archive."
-        guard panel.runModal() == .OK else { return }
-        model.add(panel.urls)
-    }
-
-    private func save() {
-        do {
-            let runner = try RunnerLibrary.shared.add(name: model.name, isTemplate: model.isTemplate,
-                                                      frames: model.frames.map(\.data), playback: model.playback)
-            RunnerSettings.shared.runnerID = runner.id
-            toast = "“\(runner.name)” added and chosen."
-            model.reset()
-        } catch {
-            toast = "❌ The runner could not be saved: \(error.localizedDescription)"
-        }
-    }
-}
-
-private struct RunnerFrameCell: View {
-    let index: Int
-    let frame: CGImage
-    let isTemplate: Bool
-    let remove: () -> Void
-    @State private var hover = false
-
-    var body: some View {
-        VStack(spacing: 3) {
-            RunnerPreview(frames: [frame], isTemplate: isTemplate, animate: false)
-                .frame(height: 22)
-            Text("\(index)").font(.system(size: 9.5).monospacedDigit()).foregroundColor(HubTheme.muted)
-        }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.05)))
-        .overlay(alignment: .topTrailing) {
-            if hover {
-                Button(action: remove) {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundColor(HubTheme.secondary)
-                }
-                .buttonStyle(.plain)
-                .offset(x: 4, y: -4)
-                .accessibilityLabel("Remove frame \(index)")
-            }
-        }
-        .onHover { hover = $0 }
     }
 }
 
@@ -862,14 +658,11 @@ private struct RunnerMetricsSourcesCard: View {
             if settings.sources.isEmpty {
                 HubNote(text: "No file yet. Add one, or make a sample to see how it looks.")
             }
-            ForEach(settings.sources) { source in
+            HubReorderList(items: $settings.sources) { source in
                 RunnerSourceRow(source: source, state: center.states[source.id],
-                                isFirst: settings.sources.first?.id == source.id,
-                                isLast: settings.sources.last?.id == source.id,
                                 showsInMenuBar: Binding(get: { source.showsInMenuBar }, set: { on in
                                     if let i = settings.sources.firstIndex(where: { $0.id == source.id }) { settings.sources[i].showsInMenuBar = on }
                                 }),
-                                move: { delta in move(source, by: delta) },
                                 remove: { settings.sources.removeAll { $0.id == source.id } })
             }
 
@@ -892,13 +685,6 @@ private struct RunnerMetricsSourcesCard: View {
             }
             if showFormat { RunnerFormatPanel() }
         }
-    }
-
-    private func move(_ source: MetricsSourceConfig, by delta: Int) {
-        guard let i = settings.sources.firstIndex(where: { $0.id == source.id }) else { return }
-        let j = i + delta
-        guard settings.sources.indices.contains(j) else { return }
-        settings.sources.swapAt(i, j)
     }
 
     private func add(path: String, requireValid: Bool) {
@@ -970,10 +756,7 @@ private struct RunnerMetricsSourcesCard: View {
 private struct RunnerSourceRow: View {
     let source: MetricsSourceConfig
     let state: MetricsSourceState?
-    let isFirst: Bool
-    let isLast: Bool
     @Binding var showsInMenuBar: Bool
-    let move: (Int) -> Void
     let remove: () -> Void
 
     var body: some View {
@@ -1010,8 +793,6 @@ private struct RunnerSourceRow: View {
                     Toggle("", isOn: $showsInMenuBar).toggleStyle(.switch).labelsHidden().controlSize(.small)
                 }
                 HStack(spacing: 4) {
-                    HubIconButton(symbol: "chevron.up", help: "Move up") { move(-1) }.disabled(isFirst).opacity(isFirst ? 0.4 : 1)
-                    HubIconButton(symbol: "chevron.down", help: "Move down") { move(1) }.disabled(isLast).opacity(isLast ? 0.4 : 1)
                     HubIconButton(symbol: "folder", help: "Show in Finder") {
                         let url = URL(fileURLWithPath: source.path)
                         if FileManager.default.fileExists(atPath: url.path) {

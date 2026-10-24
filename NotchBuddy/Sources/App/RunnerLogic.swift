@@ -428,6 +428,22 @@ enum SystemMetricKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// The panel's tiles as a bento: two by two, and with an odd count one tile across the whole width
+/// at the bottom — the one that reads best as a strip (network), else the last.
+enum PanelBento {
+    static func rows<T: Equatable>(_ tiles: [T], preferWide: T? = nil) -> [[T]] {
+        var rest = tiles
+        var wide: T?
+        if rest.count % 2 == 1 {
+            let i = preferWide.flatMap { p in rest.firstIndex(of: p) } ?? rest.count - 1
+            wide = rest.remove(at: i)
+        }
+        var rows = stride(from: 0, to: rest.count, by: 2).map { Array(rest[$0..<min($0 + 2, rest.count)]) }
+        if let wide { rows.append([wide]) }
+        return rows
+    }
+}
+
 /// What Coucou already knows, shown the same way without any script: the Claude plan's windows
 /// (from Coucou's status-line relay) and the agents at work.
 enum RunnerCoucouMetric: String, CaseIterable, Identifiable {

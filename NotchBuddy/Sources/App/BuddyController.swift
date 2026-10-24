@@ -217,9 +217,13 @@ final class BuddyController {
         say(line)
     }
 
-    /// The Buddy waves (Settings → Buddy → Say hi), and its companions wave back.
+    /// The Buddy says hi (Settings → Buddy → Say hi, a click): a hop, happy eyes and a blush, a
+    /// "Hi!" in its bubble, and its companions wave back. The happy emote alone was too faint to see.
     func wave() {
-        engine?.triggerEmote(.happy, duration: 1.2, silent: false)
+        guard let engine else { return }
+        jump()
+        engine.triggerEmote(.happy, duration: 1.4, silent: false)
+        say(["Hi!", "Hello!", "Coucou!"].randomElement() ?? "Hi!")
         companions?.greet()
     }
 
@@ -1168,6 +1172,31 @@ final class BuddyController {
         centered = false
         if let p = panel, let home = breathHome { teleport(p, foot: home) }
         breathHome = nil
+    }
+
+    /// A full-screen routine moment's trip to the middle (RoutineMoments).
+    private var visiting = false
+
+    /// A routine moment full screen: the Buddy walks to the middle of `screen` and stands in its
+    /// ring, as for full-screen breathing. Returns the ring's radius around it; nil when the Buddy
+    /// is off or busy in the middle already, and the moment draws its own Mochi.
+    func visitCenter(of screen: NSScreen) -> CGFloat? {
+        guard settings.enabled, let p = panel, !centered, calmFull == nil, hop == nil, !dragging else { return nil }
+        centered = true
+        visiting = true
+        breathHome = foot(p)
+        hideBubble()
+        teleport(p, foot: CGPoint(x: screen.frame.midX, y: screen.frame.midY - side / 2)) { [weak self] in
+            self?.panel?.orderFrontRegardless()   // over the dim
+        }
+        return max(116, side * 0.95)
+    }
+
+    /// The moment closed: back home, as after breathing.
+    func leaveCenter() {
+        guard visiting else { return }
+        visiting = false
+        walkHome()
     }
 
     /// A trip in progress: shrinking where it is, then growing where it goes (tick moves it).

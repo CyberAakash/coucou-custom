@@ -51,8 +51,13 @@ final class WeeklyBriefSettings: ObservableObject {
     static let shared = WeeklyBriefSettings()
     private let defaults = UserDefaults.standard
 
-    /// Coucou's own Monday-morning recap (from 8:00, once a week, when there was work).
+    /// Coucou's own recap by itself, once a week, when there was work (upstream's Monday 8:00 by default).
     @Published var autoShow: Bool { didSet { defaults.set(autoShow, forKey: "weeklyRecapAutoShow") } }
+    /// The first time at the Mac on its day after its time, or at its time (never `.manual`: that is autoShow off).
+    @Published var trigger: DailyBriefTrigger { didSet { defaults.set(trigger.rawValue, forKey: "weeklyRecapTrigger") } }
+    /// 1 Monday … 7 Sunday.
+    @Published var weekday: Int { didSet { defaults.set(weekday, forKey: "weeklyRecapWeekday") } }
+    @Published var minuteOfDay: Int { didSet { defaults.set(minuteOfDay, forKey: "weeklyRecapMinute") } }
     /// The notch by default: where the recap has always shown.
     @Published var place: BriefPlace { didSet { defaults.set(place.rawValue, forKey: "weeklyRecapPlace") } }
     @Published var period: WeeklyBriefPeriod { didSet { defaults.set(period.rawValue, forKey: "weeklyRecapPeriod") } }
@@ -64,6 +69,10 @@ final class WeeklyBriefSettings: ObservableObject {
 
     private init() {
         autoShow = defaults.object(forKey: "weeklyRecapAutoShow") as? Bool ?? true
+        let t = DailyBriefTrigger(rawValue: defaults.string(forKey: "weeklyRecapTrigger") ?? "") ?? .firstUse
+        trigger = t == .manual ? .firstUse : t
+        weekday = min(7, max(1, defaults.object(forKey: "weeklyRecapWeekday") as? Int ?? 1))
+        minuteOfDay = defaults.object(forKey: "weeklyRecapMinute") as? Int ?? 8 * 60
         place = BriefPlace(rawValue: defaults.string(forKey: "weeklyRecapPlace") ?? "") ?? .notch
         period = WeeklyBriefPeriod(rawValue: defaults.string(forKey: "weeklyRecapPeriod") ?? "") ?? .lastWeek
         let stored = (defaults.stringArray(forKey: "weeklyRecapSections") ?? []).compactMap(WeeklyBriefSection.init(rawValue:))
@@ -74,9 +83,8 @@ final class WeeklyBriefSettings: ObservableObject {
 
     func toggle(_ s: WeeklyBriefSection, _ on: Bool) {
         if on, !sections.contains(s) {
-            let order = WeeklyBriefSection.allCases
+            // At the end: the order is yours (Settings → Briefs → Cards).
             sections.append(s)
-            sections.sort { order.firstIndex(of: $0)! < order.firstIndex(of: $1)! }
         } else if !on {
             sections.removeAll { $0 == s }
         }
@@ -143,8 +151,35 @@ enum WeeklyBriefBuilder {
 @MainActor
 final class WeeklyBriefController {
     static let shared = WeeklyBriefController()
+    private var timer: Timer?
+    private var subscription: AnyCancellable?
 
-    /// `place` and `period` nil: as Settings → Briefs says (Monday's recap asks for last week).
+    /// A timer for its next day and time; the check itself is AppDelegate.checkMondayRecap, as upstream's.
+    func start() {
+        subscription = WeeklyBriefSettings.shared.objectWillChange
+            .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
+            .sink { _ in MainActor.assumeIsolated { WeeklyBriefController.shared.schedule() } }
+        schedule()
+    }
+
+    private func schedule() {
+        timer?.invalidate()
+        timer = nil
+        let s = WeeklyBriefSettings.shared
+        guard s.autoShow else { return }
+        let due = WeeklyBriefSchedule.nextDue(weekday: s.weekday, minuteOfDay: s.minuteOfDay, after: Date())
+        let t = Timer(fire: due.addingTimeInterval(5), interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                NotificationCenter.default.post(name: .checkMondayRecap, object: nil)
+                WeeklyBriefController.shared.schedule()
+            }
+        }
+        t.tolerance = 30
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// `place` and `period` nil: as Settings → Briefs says.
     func show(place: BriefPlace? = nil, period: WeeklyBriefPeriod? = nil) {
         Task { @MainActor in
             let brief = await WeeklyBriefBuilder.build(period: period)
@@ -166,13 +201,11 @@ final class WeeklyBriefController {
         let close = { FullScreenOverlay.shared.close(owner: "weekly") }
         FullScreenOverlay.shared.present(
             WeeklyBriefFullView(brief: brief, cards: cards, story: story, close: close),
-            owner: "weekly", dim: 0.5, takeKeyboard: takeKeyboard) { event in story.handle(event, close: close) }
+            owner: "weekly", dim: 0.56, takeKeyboard: takeKeyboard) { event in story.handle(event, close: close) }
     }
 
-    /// The weekly summary RecapStore makes for sharing, for the brief's week.
     func share(_ brief: WeeklyBrief) {
-        guard let summary = RecapStore.shared.weeklySummary(for: brief.weekStart) else { return }
-        RecapSharePanel.show(summary: summary, hideProjects: AppState.shared.recapHideProjects)
+        BriefSharePanel.show(name: "Weekly recap \(brief.rangeLabel)") { BriefShareCard.weekly(brief, hidePrivate: $0) }
     }
 }
 
@@ -205,7 +238,8 @@ struct WeeklyBriefFullView: View {
     let close: () -> Void
 
     var body: some View {
-        BriefStoryFrame(story: story, title: "Weekly recap", date: brief.rangeLabel, close: close) { i in
+        BriefStoryFrame(story: story, title: "Weekly recap", date: brief.rangeLabel, close: close,
+                        share: { WeeklyBriefController.shared.share(brief) }) { i in
             switch cards[i] {
             case .intro: WeekIntro(brief: brief)
             case .summary: WeekSummaryCard(brief: brief)
@@ -271,9 +305,9 @@ private struct WeekSummaryCard: View {
                 .frame(height: 84)
                 Grid(horizontalSpacing: 10, verticalSpacing: 10) {
                     GridRow {
-                        Stat(value: "\(w.total.sessions)", label: w.total.sessions == 1 ? "agent session" : "agent sessions")
+                        Stat(value: "", label: w.total.sessions == 1 ? "agent session" : "agent sessions", count: w.total.sessions)
                         Stat(value: "\(w.activeDays) of 7", label: "days with work")
-                        Stat(value: "\(w.total.filesChanged)", label: "files changed")
+                        Stat(value: "", label: "files changed", count: w.total.filesChanged)
                     }
                     GridRow {
                         Tile {
@@ -285,7 +319,7 @@ private struct WeekSummaryCard: View {
                             .font(.system(size: 26, weight: .bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
                             Text("lines added / removed").font(.system(size: 12.5)).foregroundColor(HubTheme.secondary)
                         }
-                        Stat(value: "\(w.total.commands)", label: "commands run")
+                        Stat(value: "", label: "commands run", count: w.total.commands)
                         Stat(value: "\(w.total.questions) · \(w.total.approvals)", label: "questions · approvals")
                     }
                 }
@@ -437,8 +471,8 @@ private struct WeekRoutinesCard: View {
                 .frame(height: 150)
             }
             HStack(spacing: 10) {
-                Stat(value: "\(r.focusSessions)", label: "focus sessions · \(DailyBriefText.duration(minutes: r.focusMinutes))")
-                Stat(value: "\(r.remindersDone)", label: "reminders done")
+                Stat(value: "", label: "focus sessions · \(DailyBriefText.duration(minutes: r.focusMinutes))", count: r.focusSessions)
+                Stat(value: "", label: "reminders done", count: r.remindersDone)
                 Stat(value: "\(r.timersDone)", label: "timers done")
                 Stat(value: "\(r.breathingSessions)", label: "breathing sessions")
             }
@@ -519,14 +553,12 @@ private struct WeekMacCard: View {
 private struct WeekClosingCard: View {
     let brief: WeeklyBrief
     let close: () -> Void
-    @State private var cheer = false
 
     var body: some View {
         VStack(spacing: 16) {
             Spacer()
-            HubLiveMochi(color: "#F5F6F8", size: 100, state: .finished)
+            DesignMochi(size: 104, mode: .joy)
                 .frame(width: 124, height: 100)
-                .scaleEffect(cheer ? 1.06 : 0.94)
             Text(brief.work.total.isEmpty ? "Here's to the next one" : "That was your week")
                 .font(.system(size: 26, weight: .bold))
             Text(brief.headline).font(.system(size: 13.5)).foregroundColor(HubTheme.secondary)
@@ -552,7 +584,6 @@ private struct WeekClosingCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
             .fill(RadialGradient(colors: [Color(hex: "#818CF8").opacity(0.2), HubTheme.card], center: .top, startRadius: 0, endRadius: 320)))
-        .onAppear { withAnimation(.easeInOut(duration: 0.6).repeatCount(5, autoreverses: true)) { cheer = true } }
     }
 }
 

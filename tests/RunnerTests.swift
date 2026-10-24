@@ -24,6 +24,7 @@ enum RunnerTests {
         try zipTests()
         metricsTests()
         formatTests()
+        bentoTests()
         if failures > 0 {
             print("\(failures) failure(s)")
             exit(1)
@@ -240,5 +241,17 @@ enum RunnerTests {
         var h = MetricsHistory(length: 3)
         [1, 2, 3, 4].forEach { h.append($0) }
         check("history keeps the last ones", h.values == [2, 3, 4])
+    }
+
+    // MARK: - The panel's bento
+
+    static func bentoTests() {
+        let all: [SystemMetricKind] = [.cpu, .memory, .storage, .battery, .network]
+        check("five tiles: two pairs and the network across", PanelBento.rows(all, preferWide: .network) == [[.cpu, .memory], [.storage, .battery], [.network]])
+        check("four tiles: two pairs", PanelBento.rows([SystemMetricKind.cpu, .memory, .storage, .battery], preferWide: .network) == [[.cpu, .memory], [.storage, .battery]])
+        check("three without network: the last goes across", PanelBento.rows([SystemMetricKind.cpu, .memory, .storage], preferWide: .network) == [[.cpu, .memory], [.storage]])
+        check("network in the middle still goes across", PanelBento.rows([SystemMetricKind.cpu, .network, .battery], preferWide: .network) == [[.cpu, .battery], [.network]])
+        check("one tile is a strip", PanelBento.rows([SystemMetricKind.cpu], preferWide: .network) == [[.cpu]])
+        check("none", PanelBento.rows([SystemMetricKind](), preferWide: .network).isEmpty)
     }
 }

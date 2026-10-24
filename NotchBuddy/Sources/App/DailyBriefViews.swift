@@ -3,7 +3,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-// coucou-custom fork: the Daily brief — a card in the notch (DailyBriefNotchCard) or the full-screen
+// coucou-custom fork: the Daily brief — a card in the notch (BriefNotchStage) or the full-screen
 // story of cards (greeting and weather, what you did, your routines, the Mac's day, the Claude
 // plan, today ahead), as Settings → Briefs says. It comes up by itself once a day or when opened
 // from the menu-bar panel or Settings, in either place.
@@ -119,6 +119,10 @@ final class DailyBriefController {
         NotificationCenter.default.post(name: .hookExpand, object: IslandView.dailyBrief)
     }
 
+    func share(_ brief: DailyBrief) {
+        BriefSharePanel.show(name: "Daily brief \(MacDay.dayKey(brief.date))") { BriefShareCard.daily(brief, hidePrivate: $0) }
+    }
+
     // MARK: Full screen
 
     func showFull(_ brief: DailyBrief, takeKeyboard: Bool) {
@@ -133,7 +137,7 @@ final class DailyBriefController {
         let close = { FullScreenOverlay.shared.close(owner: "brief") }
         FullScreenOverlay.shared.present(
             DailyBriefFullView(brief: b, cards: cards, story: story, close: close),
-            owner: "brief", dim: 0.5, takeKeyboard: takeKeyboard) { event in story.handle(event, close: close) }
+            owner: "brief", dim: 0.56, takeKeyboard: takeKeyboard) { event in story.handle(event, close: close) }
     }
 }
 
@@ -177,7 +181,8 @@ struct DailyBriefFullView: View {
 
     var body: some View {
         BriefStoryFrame(story: story, title: "Daily brief",
-                        date: brief.date.formatted(.dateTime.weekday(.wide).day().month(.wide)), close: close) { i in
+                        date: brief.date.formatted(.dateTime.weekday(.wide).day().month(.wide)), close: close,
+                        share: { DailyBriefController.shared.share(brief) }) { i in
             DailyBriefCardView(card: cards[i], brief: brief, close: close)
         }
     }
@@ -267,10 +272,16 @@ struct Stat: View {
     let value: String
     let label: String
     var color: Color = HubTheme.text
+    /// Counted up from zero when set, written by `format`.
+    var count: Int? = nil
+    var format: (Int) -> String = { $0.formatted() }
 
     var body: some View {
         Tile {
-            Text(value).font(.system(size: 28, weight: .bold).monospacedDigit()).foregroundColor(color).lineLimit(1).minimumScaleFactor(0.6)
+            Group {
+                if let count { BriefCountUp(value: count, format: format) } else { Text(value) }
+            }
+            .font(.system(size: 30, weight: .bold).monospacedDigit()).foregroundColor(color).lineLimit(1).minimumScaleFactor(0.6)
             Text(label).font(.system(size: 12.5)).foregroundColor(HubTheme.secondary)
         }
     }
@@ -347,22 +358,22 @@ private struct WorkCard: View {
             } else {
                 Grid(horizontalSpacing: 10, verticalSpacing: 10) {
                     GridRow {
-                        Stat(value: "\(w.sessions)", label: w.sessions == 1 ? "agent session" : "agent sessions")
-                        Stat(value: DailyBriefText.duration(minutes: w.minutes), label: "with agents")
-                        Stat(value: "\(w.filesChanged)", label: w.filesChanged == 1 ? "file changed" : "files changed")
+                        Stat(value: "", label: w.sessions == 1 ? "agent session" : "agent sessions", count: w.sessions)
+                        Stat(value: "", label: "with agents", count: w.minutes, format: DailyBriefText.duration(minutes:))
+                        Stat(value: "", label: w.filesChanged == 1 ? "file changed" : "files changed", count: w.filesChanged)
                     }
                     GridRow {
                         Tile {
                             HStack(spacing: 4) {
-                                Text("+\(w.linesAdded)").foregroundColor(HubTheme.green)
+                                BriefCountUp(value: w.linesAdded) { "+\($0.formatted())" }.foregroundColor(HubTheme.green)
                                 Text("/").foregroundColor(HubTheme.muted)
-                                Text("−\(w.linesRemoved)").foregroundColor(HubTheme.red)
+                                BriefCountUp(value: w.linesRemoved) { "−\($0.formatted())" }.foregroundColor(HubTheme.red)
                             }
-                            .font(.system(size: 28, weight: .bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
+                            .font(.system(size: 30, weight: .bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
                             Text("lines added / removed").font(.system(size: 12.5)).foregroundColor(HubTheme.secondary)
                         }
-                        Stat(value: "\(w.commands)", label: "commands run")
-                        Stat(value: "\(w.questions)", label: w.questions == 1 ? "question answered" : "questions answered")
+                        Stat(value: "", label: "commands run", count: w.commands)
+                        Stat(value: "", label: w.questions == 1 ? "question answered" : "questions answered", count: w.questions)
                     }
                 }
                 .frame(height: 210)
@@ -744,14 +755,12 @@ private struct ClosingCard: View {
 private struct StreakPanel: View {
     let brief: DailyBrief
     let close: () -> Void
-    @State private var cheer = false
 
     var body: some View {
         VStack(spacing: 14) {
             Spacer(minLength: 0)
-            HubLiveMochi(color: "#F5F6F8", size: 96, state: .finished)
+            DesignMochi(size: 104, mode: .joy)
                 .frame(width: 120, height: 96)
-                .scaleEffect(cheer ? 1.06 : 0.94)
             VStack(spacing: 4) {
                 Text(brief.readStreak > 1 ? "\(brief.readStreak)-day streak" : "Have a good one")
                     .font(.system(size: 24, weight: .bold))
@@ -779,7 +788,6 @@ private struct StreakPanel: View {
         .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
             .fill(RadialGradient(colors: [HubTheme.accent.opacity(0.18), HubTheme.card], center: .top, startRadius: 0, endRadius: 260)))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
-        .onAppear { withAnimation(.easeInOut(duration: 0.6).repeatCount(5, autoreverses: true)) { cheer = true } }
     }
 }
 
