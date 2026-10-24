@@ -96,6 +96,11 @@ final class MochiVoice: ObservableObject {
             let m = KokoroAneManager(variant: .english, defaultVoice: MochiCharacter.current.base,
                                      directory: Parakeet.modelsRoot, version: .v3)
             try await m.initialize(preloadVoices: [MochiCharacter.current.base])
+            // Core ML compiles each length bucket on its first use (measured 2.5–5 s), so a
+            // short and a long phrase are spoken silently now rather than on the first answer.
+            for warm in ["Hi.", "Hi, I'm Mochi! I found three things for you today, want me to open the first one?"] {
+                _ = try? await m.synthesize(text: warm, voice: MochiCharacter.current.base)
+            }
             return m
         }
         loading = task
@@ -190,7 +195,9 @@ enum CharacterChain {
         player.scheduleBuffer(source, completionCallbackType: .dataRendered) { _ in finished = true }
         player.play()
 
-        let expected = Int(Double(samples.count) / body / Double(pitch.rate)) + Int(sampleRate * (c.echo > 0 ? 0.6 : 0.15))
+        // Time-pitch keeps a little audio buffered after the player reports done.
+        let tailSeconds = c.echo > 0 ? 0.6 : 0.3
+        let expected = Int(Double(samples.count) / body / Double(pitch.rate)) + Int(sampleRate * tailSeconds)
         guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096) else { return samples }
         var rendered: [Float] = []
         rendered.reserveCapacity(expected)
@@ -199,7 +206,7 @@ enum CharacterChain {
             let status = try engine.renderOffline(4096, to: out)
             guard status == .success, out.frameLength > 0 else { break }
             rendered.append(contentsOf: UnsafeBufferPointer(start: out.floatChannelData![0], count: Int(out.frameLength)))
-            if finished { tail += Int(out.frameLength); if tail > Int(sampleRate * (c.echo > 0 ? 0.6 : 0.15)) { break } }
+            if finished { tail += Int(out.frameLength); if tail > Int(sampleRate * tailSeconds) { break } }
         }
         engine.stop()
         // Trim trailing silence and normalise to the same loudness as the source.
