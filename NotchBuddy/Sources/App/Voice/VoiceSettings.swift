@@ -50,6 +50,18 @@ enum VoiceSettings {
         return d.object(forKey: followUpSecondsKey) == nil ? 8 : d.double(forKey: followUpSecondsKey)
     }
 
+    /// Which recognizer gives the final text of a command (fork): "parakeet" (default; Apple's
+    /// recognizer still spots the wake word and shows live words) or "apple".
+    static let commandRecognizerKey = "voiceCommandRecognizer"
+    static var commandRecognizer: String {
+        UserDefaults.standard.string(forKey: commandRecognizerKey) ?? "parakeet"
+    }
+    /// Words the recognizer should get right (fork): brands, names, places; see HearingCorrection.
+    static let personalWordsKey = "voicePersonalWords"
+    static var personalWords: [String] {
+        HearingCorrection.personalWords(from: UserDefaults.standard.string(forKey: personalWordsKey) ?? "")
+    }
+
     /// Language Coucou ANSWERS in: "en" (default) or "fr".
     static var language: String {
         get { UserDefaults.standard.string(forKey: "voiceLanguage") ?? "en" }
