@@ -41,9 +41,11 @@ enum TerminalFocus {
     }
 
     /// Brings `session`'s own tab forward; if that is not possible, runs `fallback`.
-    static func open(_ session: SessionTracker.Session?, fallback: @escaping @MainActor () -> Void) {
+    /// `from`: which button asked (for the log; two buttons resolving sessions differently
+    /// looked identical there).
+    static func open(_ session: SessionTracker.Session?, from: String = "?", fallback: @escaping @MainActor () -> Void) {
         guard let session, let plan = plan(for: session) else {
-            appendAppLog("nb.log", "[Terminal] no tab known for \(session?.projectName ?? "this pill"): app only")
+            appendAppLog("nb.log", "[Terminal] (\(from)) no tab known for \(session?.projectName ?? "this pill"): app only")
             fallback(); return
         }
         let app = session.hostApp ?? session.bundleId
@@ -53,7 +55,7 @@ enum TerminalFocus {
             DispatchQueue.main.async {
                 // "asked": a link or script was handed to the terminal; whether it reached the tab
                 // is only known to the terminal. The front check below says if it came forward.
-                appendAppLog("nb.log", "[Terminal] \(name): \(done ? "asked \(app ?? "?") for its tab" : "tab not found, app only") (front was \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"))")
+                appendAppLog("nb.log", "[Terminal] (\(from)) \(name) \(session.id.prefix(8)): \(done ? "asked \(app ?? "?") for its tab" : "tab not found, app only") (front was \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"))")
                 if done {
                     if let app { activate(app) }
                 } else {

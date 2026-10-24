@@ -45,17 +45,20 @@ enum AppActivation {
 
     #if DEBUG && !APPSTORE
     /// `fr.louisraille.NotchBuddy.debug.openTerminal` (object: a session id, or empty for the
-    /// Claude pill's latest, as the finished card uses): runs what the card's "Open terminal"
-    /// runs, so the whole path can be checked from a terminal.
+    /// Claude pill's card session, as the Finished card's button uses): runs what the card's
+    /// "Open terminal" runs, so the whole path can be checked from a terminal.
     static func installDebugHook() {
         DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("fr.louisraille.NotchBuddy.debug.openTerminal"), object: nil, queue: .main
         ) { note in
+            // "click": what the Finished card's button does (open the card's session, then mark it seen).
             let id = note.object as? String ?? ""
             MainActor.assumeIsolated {
-                let s = id.isEmpty ? LiveSessions.shared.latest(for: "integration_claude") : LiveSessions.shared.session(id)
+                let pill = "integration_claude"
+                let s = id.isEmpty || id == "click" ? LiveSessions.shared.cardSession(for: pill) : LiveSessions.shared.session(id)
                 appendAppLog("nb.log", "[Terminal] debug open: \(s?.projectName ?? "no session")")
-                TerminalFocus.open(s) { TerminalFocus.openDefaultTerminal() }
+                TerminalFocus.open(s, from: id == "click" ? "debug click" : "debug") { TerminalFocus.openDefaultTerminal() }
+                if id == "click" { LiveSessions.shared.markShownSeen(pill: pill) }
             }
         }
     }
