@@ -35,6 +35,9 @@ final class WakeSpotter: @unchecked Sendable {
     /// `wasError` is true for real errors; false for clean finals, no-speech
     /// timeout (1110) and cancellations — those do not count as backoff failures.
     var onWakeWindowEnded: ((Bool) -> Void)?
+    /// Every wake-phase partial with whether it matched (coucou-custom fork): feeds the Settings
+    /// wake-phrase test. Stays in memory; the words are never logged (docs/VOICE.md).
+    var onWakeTranscript: ((String, Bool) -> Void)?
 
     /// Extra strings to add to the recognizer's contextual hints (e.g. pill names).
     /// Set before calling `beginWindow`. Thread-safe (read under `lock`).
@@ -173,6 +176,7 @@ final class WakeSpotter: @unchecked Sendable {
                                error: Error?,
                                expectedGen: Int) {
         var logMsg: String? = nil
+        var probe: (String, Bool)? = nil
 
         let action: RecogAction? = lock.withLock { () -> RecogAction? in
             guard active else { return nil }
@@ -189,10 +193,13 @@ final class WakeSpotter: @unchecked Sendable {
                 case .wake:
                     let words = WakePhrase.normalise(transcript).split(separator: " ")
                     maxWords = max(maxWords, words.count)
-                    if words.contains(where: { w in
-                        ["cou", "kou", "kuku", "cuck", "koukou", "coco"].contains { w.contains($0) }
-                    }) { nearWake = true }
+                    let near = wakePhrase.isEmpty
+                        ? words.contains(where: { w in
+                            ["cou", "kou", "kuku", "cuck", "koukou", "coco"].contains { w.contains($0) } })
+                        : WakePhrase.resembles(transcript, customPhrase: wakePhrase)
+                    if near { nearWake = true }
                     let r = WakePhrase.split(transcript, customPhrase: wakePhrase)
+                    probe = (transcript, r.matched)
                     if r.matched {
                         phase = .command
                         return .woke(transcript)
@@ -225,6 +232,9 @@ final class WakeSpotter: @unchecked Sendable {
         }
 
         if let msg = logMsg { appendAppLog("nb.log", msg) }
+        if let probe, let onWakeTranscript {
+            DispatchQueue.main.async { onWakeTranscript(probe.0, probe.1) }
+        }
         guard let action else { return }
 
         switch action {
