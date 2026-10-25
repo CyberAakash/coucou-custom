@@ -738,7 +738,8 @@ final class HookServer: @unchecked Sendable {
             // of the session's work: no "finished" card, just a pulse; the pill keeps working.
             let trackedStatus = LiveSessions.shared.session(sessionId)?.status
             guard NotchAlertRules.sessionDone(trackedStatus) else {
-                nbLog("[Notch] Stop \(sessionId.prefix(8)): agents still running, no open")
+                let tracked = LiveSessions.shared.session(sessionId)
+                nbLog("[Notch] Stop \(sessionId.prefix(8)): agents still running (\(tracked?.runningSubagents ?? 0) agents, \(tracked?.otherBackgroundTasks ?? 0) other tasks), no open")
                 state.updateTask(id: agentId, state: .working)
                 NotchPulse.shared.signal(.agentsRunning, quiet: terminalInFront)
                 break
@@ -930,6 +931,8 @@ final class HookServer: @unchecked Sendable {
                 state.view = view
             } else if isAlert && state.pendingApproval == nil {
                 state.view = view
+            } else if isAlert {
+                nbLog("[Notch] \(view) card not shown: a permission is waiting in the notch")
             }
         } else if isAlert {
             // Alerts always force-expand

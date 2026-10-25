@@ -47,8 +47,13 @@ final class LiveSessions: ObservableObject {
         } else if event == "UserPromptSubmit", let id, !userPickedRecently {
             selectedID = id                           // follow the session you just typed in
         }
-        // A new prompt in the card's session: that card is over.
-        if event == "UserPromptSubmit", let id, cardSessionID[pill] == id { cardSessionID[pill] = nil }
+        // A new prompt in the card's session: that card is over. A background agent's notice
+        // comes back as a synthetic "<task-notification>" prompt: not you.
+        let realPrompt = !((payload["prompt"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<task-notification>"))
+        if event == "UserPromptSubmit", realPrompt, let id, cardSessionID[pill] == id {
+            cardSessionID[pill] = nil
+            NotificationCenter.default.post(name: .islandCardSessionPrompted, object: pill)
+        }
     }
 
     var selected: SessionTracker.Session? {
