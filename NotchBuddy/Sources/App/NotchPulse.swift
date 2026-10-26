@@ -197,7 +197,12 @@ struct NotchHalo: View {
 
     var body: some View {
         let active = preview != nil || pulse.pulse != nil || pulse.breathing
-        TimelineView(.animation(minimumInterval: 1.0 / 40, paused: !active)) { context in
+        // The calm breath alone (no pulse, no preview) is slow: at 15 frames a second it steps
+        // by under half a percent of opacity. Measured with agents running in the background (the
+        // aura breathes for up to 15 minutes): 40 frames a second cost +26 points of CPU, with the
+        // drawingGroup below +5, with both +2.
+        let calm = preview == nil && pulse.pulse == nil
+        TimelineView(.animation(minimumInterval: calm ? 1.0 / 15 : 1.0 / 40, paused: !active)) { context in
             let now = context.date
             let oneShot: (NotchPulse.Pulse, Double)? = if let preview {
                 // The motion, then a short rest, again and again.
@@ -263,6 +268,12 @@ struct NotchHalo: View {
         .frame(width: w, height: h)
         .mask(Ellipse().frame(width: w, height: h).blur(radius: depth * 0.25 * soft))
         .blur(radius: 10 * soft)
+        // Without it CoreGraphics painted the 1100 × 560 px gradient on the CPU on every frame. The
+        // group clips at its frame, so it gets a margin of three blur radii (the blur's reach) and
+        // gives it back: without the margin a bright pulse showed a faint line where it ends.
+        .padding(30 * soft)
+        .drawingGroup()
+        .padding(-30 * soft)
         .opacity(level)
         // Centre on the notch's top edge: only the lower half is on screen.
         .position(x: width / 2, y: 0)

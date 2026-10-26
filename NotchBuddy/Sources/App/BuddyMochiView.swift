@@ -27,6 +27,9 @@ final class BuddyViewState: ObservableObject {
     /// Held by the cursor: it swings from where it is held (radians) and stretches with speed.
     var swing: CGFloat = 0
     var stretch: CGFloat = 0
+    /// The refresh rate of the display the Buddy is on, set by its owner; 0 (the Settings
+    /// preview) takes the island screen's. Published: the canvas is paced for it (MochiFrameClock).
+    @Published var displayFPS: Double = 0
 }
 
 /// Mochi drawn as the desktop Mochi is (DesktopBotView), but in a square inside a bigger canvas so
@@ -42,10 +45,12 @@ struct BuddyMochiView: View {
     var companions: BuddyCompanions? = nil
 
     var body: some View {
-        TimelineView(.animation(paused: viewState.paused)) { timeline in
+        let pace = MochiFrameClock.pacing(cap: MochiFrameClock.mainFPS,
+                                          display: viewState.displayFPS > 0 ? viewState.displayFPS : MochiFrameClock.displayFPS)
+        TimelineView(.animation(minimumInterval: pace.interval, paused: viewState.paused)) { timeline in
             Canvas { base, _ in
                 _ = timeline.date   // redraw every tick (see BotCanvasView)
-                MochiFrameClock.advance(engine)
+                MochiFrameClock.advance(engine, steps: pace.steps)
                 guard viewState.appear > 0.001 else { return }
                 var ctx = base
                 if viewState.appear != 1 {
@@ -55,13 +60,13 @@ struct BuddyMochiView: View {
                     ctx.translateBy(x: -inner.midX, y: -inner.midY)
                 }
                 if let companions {
-                    companions.step()
+                    companions.step(steps: pace.steps)
                     companions.draw(ctx, canvas: canvas, square: inner, shadow: viewState.shadow)
                 }
                 BuddyMochiView.drawShadow(engine, in: ctx, square: inner, opacity: viewState.shadow)
                 // Hover: 1.07 about the square's centre, eased (as DesktopBotView's spring, roughly).
                 let target: CGFloat = viewState.isHovered ? 1 : 0
-                viewState.hoverLevel += (target - viewState.hoverLevel) * 0.3
+                viewState.hoverLevel += (target - viewState.hoverLevel) * (1 - pow(0.7, CGFloat(pace.steps)))
                 let k = 1 + 0.07 * viewState.hoverLevel
                 var c = ctx
                 c.translateBy(x: inner.midX, y: inner.midY)

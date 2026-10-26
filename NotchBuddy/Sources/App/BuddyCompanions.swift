@@ -206,12 +206,12 @@ final class BuddyCompanions {
 
     // MARK: - Per frame
 
-    func step() {
+    func step(steps: Int = 1) {
         let now = CACurrentMediaTime()
         let dt = CGFloat(min(0.05, max(0, now - last)))
         last = now
         for m in minis {
-            MochiFrameClock.advance(m.engine)
+            MochiFrameClock.advance(m.engine, steps: steps)
             if napping || held || m.pouch(now: now) > 0 { continue }
             // Off the display (the Buddy moved by an edge): back into sight.
             if !range.contains(m.x), !range.contains(m.target) {

@@ -246,6 +246,7 @@ struct FlowHubView: View {
         .preferredColorScheme(.dark)
         .tint(HubTheme.accent)
         .environment(\.hubVisible, windowState.visible)
+        .environment(\.hubDisplayFPS, windowState.displayFPS)
         .environment(\.hubPage, router.page)
     }
 

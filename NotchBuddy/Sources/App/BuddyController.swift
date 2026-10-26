@@ -439,6 +439,11 @@ final class BuddyController {
         let over = local.x >= 0 && local.y >= 0 && local.x < side && local.y < side
             && DesktopMochiLogic.isOverBody(localPoint: local, panelSize: side)
         let overCompanion = !over && companion(at: mouse, in: p) != nil
+        if let screen = p.screen, let vs = viewState {
+            // Its engine runs the steps of the display frames the canvas skips (MochiFrameClock).
+            let fps = Double(min(120, max(30, screen.maximumFramesPerSecond)))
+            if vs.displayFPS != fps { vs.displayFPS = fps }
+        }
         if let companions, let screen = screenOfSquare(p)?.frame {
             let v = (screen.minX - p.frame.minX)...(screen.maxX - p.frame.minX)
             if companions.visible != v { companions.visible = v }
