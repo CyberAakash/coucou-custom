@@ -737,7 +737,7 @@ struct ErrorView: View {
                             // Open first: marking the card seen forgets which session it is about.
                             openSessionApp(task)
                             if let pill = task?.id { LiveSessions.shared.markShownSeen(pill: pill) }
-                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                            NotificationCenter.default.post(name: .islandCollapse, object: "Open terminal" as NSString)
                         }
                         #endif
                     }
@@ -749,7 +749,7 @@ struct ErrorView: View {
                     }
                     SecondaryButton("OK") {
                         if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
-                        NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                        NotificationCenter.default.post(name: .islandCollapse, object: "OK" as NSString)
                     }
                 }
             }
@@ -815,7 +815,7 @@ struct FinishedView: View {
                             // Open first: marking the card seen forgets which session it is about.
                             openSessionApp(state.focusTask)
                             if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
-                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                            NotificationCenter.default.post(name: .islandCollapse, object: "Open terminal" as NSString)
                         }
                         #endif
                     }
@@ -827,7 +827,7 @@ struct FinishedView: View {
                     }
                     SecondaryButton("OK") {
                         if let pill = state.focusTask?.id { LiveSessions.shared.markShownSeen(pill: pill) }
-                        NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                        NotificationCenter.default.post(name: .islandCollapse, object: "OK" as NSString)
                     }
                 }
             }

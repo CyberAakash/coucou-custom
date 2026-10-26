@@ -622,7 +622,7 @@ struct IslandHeader: View {
                     // Fold back to the compact island now, without waiting for the timer.
                     if !heldOpen {
                         Button(action: {
-                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                            NotificationCenter.default.post(name: .islandCollapse, object: "× in the header" as NSString)
                         }) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 14))

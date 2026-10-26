@@ -203,6 +203,12 @@ final class IslandWindowController: NSWindowController {
                 if newView == .prompt || newView == .sessions {
                     self.islandPanel.makeKey()
                 }
+                // coucou-custom fork: a Finished/Error card that another view took over.
+                let prev = self.lastLoggedView
+                self.lastLoggedView = newView
+                if self.state.mode == .expanded, Self.isAlertCard(prev), newView != prev {
+                    appendAppLog("nb.log", "[Notch] card replaced: \(prev) → \(newView)")
+                }
             }
 
         // Screen choice changed in Settings: move right away (explicit user action).
@@ -281,6 +287,9 @@ final class IslandWindowController: NSWindowController {
                 self.setMode(.hidden)
 
             case .petit:
+                if from == .home, !self.collapsing, self.alertCardShowing {
+                    appendAppLog("nb.log", "[Notch] card closed: auto-close after the pointer left")
+                }
                 if from == .coucou {
                     // Fire interrupt first so canvas collapse starts before mode change
                     NotificationCenter.default.post(name: .greetingInterrupt, object: nil)
@@ -628,6 +637,17 @@ final class IslandWindowController: NSWindowController {
         state.lastActivity = .now
     }
 
+    // MARK: - Finished / Error cards (coucou-custom fork)
+
+    /// A Finished or Error card is on screen. It opens on its own while you work elsewhere, so a
+    /// click or an Escape in another app must not fold it before you saw it: it closes with its
+    /// buttons, 5 s after the pointer leaves it, or when you prompt that session again.
+    var alertCardShowing: Bool { state.mode == .expanded && Self.isAlertCard(state.view) }
+    nonisolated static func isAlertCard(_ v: IslandView?) -> Bool { v == .finished || v == .error }
+    private var lastLoggedView: IslandView?
+    /// True inside `collapse`, so the state machine's own fold is not logged twice.
+    private var collapsing = false
+
     /// A spoken answer in progress, or a task card waiting for the user's click, is not folded by
     /// a click elsewhere (a click would also cut the speech); Escape or the notch still close it.
     private var voiceHoldsOpen: Bool {
@@ -638,8 +658,11 @@ final class IslandWindowController: NSWindowController {
         #endif
     }
 
-    func collapse(allowPendingApproval: Bool = false) {
+    func collapse(allowPendingApproval: Bool = false, reason: String = "other") {
         let keepsApprovalPending = allowPendingApproval && state.pendingApproval != nil
+        if alertCardShowing { appendAppLog("nb.log", "[Notch] card closed: \(reason)") }
+        collapsing = true
+        defer { collapsing = false }
         #if !APPSTORE
         if state.voiceActive { appendAppLog("nb.log", "[Voice] collapse while voice active (fsm \(fsm.state))") }
         #endif
@@ -678,7 +701,7 @@ final class IslandWindowController: NSWindowController {
         switch action {
         case .toggleIsland:
             if state.mode == .expanded {
-                collapse(allowPendingApproval: true)
+                collapse(allowPendingApproval: true, reason: "shortcut")
             } else {
                 islandPanel.makeKey()
                 fsm.openedExternally()
@@ -815,7 +838,7 @@ final class IslandWindowController: NSWindowController {
             let consumed = NSApp.sendAction(Selector(("cancelOperation:")), to: nil, from: nil)
             let canCollapse = !state.isPinned || state.pendingApproval != nil
             if !consumed && state.mode == .expanded && canCollapse {
-                collapse(allowPendingApproval: true)
+                collapse(allowPendingApproval: true, reason: "Escape in the notch")
             }
             return true
         }
@@ -869,7 +892,7 @@ final class IslandWindowController: NSWindowController {
         TerminalFocus.open(target, from: onCard ? "hotkey on card" : "hotkey") {
             if !TerminalTarget.activate(sessionBundleId: bundle) { TerminalFocus.openDefaultTerminal() }
         }
-        collapse(allowPendingApproval: true)
+        collapse(allowPendingApproval: true, reason: "open terminal shortcut")
     }
 
     private func performAttachFrontWindow() {
@@ -897,8 +920,13 @@ final class IslandWindowController: NSWindowController {
                 guard let self = self else { return }
                 // Escape typed in another app (Claude Code's own interrupt, an editor…)
                 // never folds a pending approval away: only Escape in the notch does.
+                // coucou-custom fork: nor a Finished/Error card you may not have seen yet.
+                if self.alertCardShowing {
+                    appendAppLog("nb.log", "[Notch] card kept: Escape in another app")
+                    return
+                }
                 if self.state.mode == .expanded && !self.state.isPinned {
-                    self.collapse()
+                    self.collapse(reason: "Escape in another app")
                 }
             }
         }
@@ -906,6 +934,7 @@ final class IslandWindowController: NSWindowController {
         // Hook server expand requests (alerts only)
         NotificationCenter.default.addObserver(forName: .hookExpand, object: nil, queue: .main) { [weak self] note in
             guard let self, let view = note.object as? IslandView else { return }
+            if Self.isAlertCard(view) { appendAppLog("nb.log", "[Notch] card shown: \(view) (was \(self.state.mode))") }
             self.fsm.openedExternally()
             self.expand(to: view)
         }
@@ -932,8 +961,17 @@ final class IslandWindowController: NSWindowController {
         }
 
         // Collapse requests from views (OK button, etc.)
-        NotificationCenter.default.addObserver(forName: .islandCollapse, object: nil, queue: .main) { [weak self] _ in
-            self?.collapse()
+        NotificationCenter.default.addObserver(forName: .islandCollapse, object: nil, queue: .main) { [weak self] note in
+            let who = (note.object as? String).map { "\($0) clicked" } ?? "closed by the app"
+            MainActor.assumeIsolated { self?.collapse(reason: who) }
+        }
+        // coucou-custom fork: you prompted the card's session again: you are back on it.
+        NotificationCenter.default.addObserver(forName: .islandCardSessionPrompted, object: nil, queue: .main) { [weak self] note in
+            let pill = note.object as? String
+            MainActor.assumeIsolated {
+                guard let self, self.alertCardShowing, self.state.focusTask?.id == pill else { return }
+                self.collapse(reason: "new prompt in its session")
+            }
         }
 
         // coucou-custom fork: a click elsewhere folds the open notch (Settings → General → Close on a
@@ -944,7 +982,11 @@ final class IslandWindowController: NSWindowController {
                   self.state.pendingApproval == nil, self.state.pendingQuestion == nil,
                   !self.voiceHoldsOpen,
                   self.window?.frame.contains(NSEvent.mouseLocation) == false else { return }
-            self.collapse()
+            if self.alertCardShowing {
+                appendAppLog("nb.log", "[Notch] card kept: click elsewhere")
+                return
+            }
+            self.collapse(reason: "click outside")
         }
         NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
             MainActor.assumeIsolated { clickedOutside() }
@@ -2104,6 +2146,8 @@ extension IslandWindowController {
 // MARK: - Notification names
 
 extension Notification.Name {
+    /// coucou-custom fork: a real prompt in the session a Finished/Error card is about (object: pill id).
+    static let islandCardSessionPrompted = Notification.Name("coucou.islandCardSessionPrompted")
     static let triggerEmote     = Notification.Name("notchBuddy.triggerEmote")
     static let triggerSlap      = Notification.Name("notchBuddy.triggerSlap")
     static let botDizzy         = Notification.Name("notchBuddy.botDizzy")
