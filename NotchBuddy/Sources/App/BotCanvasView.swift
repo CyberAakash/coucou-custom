@@ -16,9 +16,10 @@ struct BotCanvasView: View {
     @StateObject private var engine = BotEngine()
 
     var body: some View {
-        // Display refresh rate — every frame on a 60 Hz screen, every frame on ProMotion.
-        // MochiFrameClock.advance accumulates the step debt so Mochi's speed never changes.
-        TimelineView(.animation(paused: state.mode == .hidden || paused)) { timeline in
+        // At most 60 frames a second (every frame on a 60 Hz screen, one in two on ProMotion);
+        // the engine runs the steps of the frames it skips, so Mochi's speed never changes.
+        let pace = MochiFrameClock.pacing(cap: MochiFrameClock.mainFPS)
+        TimelineView(.animation(minimumInterval: pace.interval, paused: state.mode == .hidden || paused)) { timeline in
             // The Canvas must capture the frame's date: a closure that doesn't change from
             // one tick to the next is not redrawn, and Mochi froze.
             let frame = timeline.date
@@ -105,7 +106,7 @@ struct BotCanvasView: View {
                 else if engine.voiceSubState != .none { engine.voiceSubState = .none }
                 #endif
 
-                MochiFrameClock.advance(engine)
+                MochiFrameClock.advance(engine, steps: pace.steps)
                 var ctx = context
                 engine.applyDance(&ctx, size: size)
                 // Rigid-roll: when Mochi wears an outfit (presence > 0.05) and is rolling,
@@ -254,13 +255,15 @@ struct MiniBotCanvasView: View {
 
 
     var body: some View {
-        // Display refresh rate. Paused in island views that are not shown.
-        TimelineView(.animation(paused: !viewActive)) { timeline in
+        // Paused in island views that are not shown. A mini Mochi is a few points wide: 30
+        // frames a second, 60 while it dances.
+        let pace = MochiFrameClock.pacing(cap: isDancing ? MochiFrameClock.mainFPS : MochiFrameClock.miniFPS)
+        TimelineView(.animation(minimumInterval: pace.interval, paused: !viewActive)) { timeline in
             let frame = timeline.date   // see BotCanvasView: redraw on every tick
             Canvas { context, size in
                 _ = frame
                 engine.setDancing(isDancing)
-                MochiFrameClock.advance(engine)
+                MochiFrameClock.advance(engine, steps: pace.steps)
                 var ctx = context
                 engine.applyDance(&ctx, size: size)
                 engine.draw(context: ctx, size: size)
@@ -307,18 +310,24 @@ enum MochiFrameClock {
         return fpsCache.value
     }
 
-    /// minimumInterval for a target rate, 10 % short: display frames come every 16.6 ms
-    /// with jitter, and an interval of exactly 1/60 s skipped every other one (30 fps on a
-    /// 60 Hz screen). 60 on a 60 Hz screen draws every frame; on ProMotion, one in two.
-    static func interval(fps: Double) -> TimeInterval { 0.9 / fps }
+    /// What a canvas draws per second at most. The engine's steps per second stay what the
+    /// display's rate makes them (`pacing`), so Mochi moves as fast as ever: only the drawing
+    /// is spread out. A drawn frame costs ~50 times a step (measured), and drawing every
+    /// display frame, 120 a second on ProMotion, per Mochi was most of Coucou's CPU.
+    static let mainFPS = 60.0
+    static let miniFPS = 30.0
 
-    /// One engine step per drawn frame, exactly as before the frame clock (9 October): a
+    static func pacing(cap: Double, display: Double = displayFPS) -> MochiPacing {
+        MochiPacing(cap: cap, display: display)
+    }
+
+    /// One engine step per display frame, exactly as before the frame clock (9 October): a
     /// perfectly regular rhythm. The step-debt version measured the time between renders,
     /// and its jitter made frames with 0 steps (Mochi froze) and frames with 2 or more
     /// (Mochi jumped), several times a second: the stutter when the island opens and when
-    /// Mochi follows the pointer. Mochi draws at the display rate, so one step per frame
-    /// is one step per display frame, which is what his motion is tuned to.
-    static func advance(_ engine: BotEngine) {
-        engine.update(dt: 0.05)
+    /// Mochi follows the pointer. A canvas drawn every display frame runs one step; one
+    /// capped below the display rate runs the same whole number every time.
+    static func advance(_ engine: BotEngine, steps: Int = 1) {
+        for _ in 0..<steps { engine.update(dt: 0.05) }
     }
 }

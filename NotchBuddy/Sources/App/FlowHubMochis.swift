@@ -8,6 +8,10 @@ private struct HubVisibleKey: EnvironmentKey {
     static let defaultValue = true
 }
 
+private struct HubDisplayFPSKey: EnvironmentKey {
+    static let defaultValue = 0.0
+}
+
 extension EnvironmentValues {
     /// Whether the Coucou window is on screen: the Mochis rest (no frame drawn) while it is hidden,
     /// minimized or covered.
@@ -15,12 +19,31 @@ extension EnvironmentValues {
         get { self[HubVisibleKey.self] }
         set { self[HubVisibleKey.self] = newValue }
     }
+
+    /// The refresh rate of the display the Coucou window is on; 0 until it is known.
+    var hubDisplayFPS: Double {
+        get { self[HubDisplayFPSKey.self] }
+        set { self[HubDisplayFPSKey.self] = newValue }
+    }
+}
+
+extension MochiFrameClock {
+    /// What the window's decoration draws per second at most: a few small Mochis and drifting
+    /// particles, behind the pages' content.
+    static let hubFPS = 30.0
+
+    /// The Coucou window's pacing, for the display it is on (the island screen's until known).
+    static func hubPacing(display: Double) -> MochiPacing {
+        pacing(cap: hubFPS, display: display > 0 ? display : displayFPS)
+    }
 }
 
 /// Follows the Coucou window's occlusion, for `hubVisible`.
 @MainActor
 final class HubWindowState: ObservableObject {
     @Published private(set) var visible = true
+    /// The refresh rate of the window's display (0 until it has one), for the pacing of its Mochis.
+    @Published private(set) var displayFPS = 0.0
     private var observers: [NSObjectProtocol] = []
 
     func watch(_ window: NSWindow) {
@@ -36,9 +59,20 @@ final class HubWindowState: ObservableObject {
                     guard let self else { return }
                     let on = !closing && window.occlusionState.contains(.visible) && !window.isMiniaturized
                     if on != self.visible { self.visible = on }
+                    self.readDisplay(of: window)
                 }
             }
         }
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.readDisplay(of: window) }
+        })
+        readDisplay(of: window)
+    }
+
+    private func readDisplay(of window: NSWindow) {
+        guard let screen = window.screen else { return }
+        let fps = Double(min(120, max(30, screen.maximumFramesPerSecond)))
+        if fps != displayFPS { displayFPS = fps }
     }
 }
 
@@ -94,12 +128,12 @@ final class HubMochiTroupe: ObservableObject {
     }
 
     /// One frame: the walkers move, and stop now and then to do a little something.
-    func step() {
+    func step(steps: Int = 1) {
         let now = CACurrentMediaTime()
         let dt = CGFloat(min(0.05, max(0, now - last)))
         last = now
         for actor in walkers {
-            MochiFrameClock.advance(actor.engine)
+            MochiFrameClock.advance(actor.engine, steps: steps)
             guard actor.spec.roams else { continue }
             if now < actor.restUntil {
                 actor.hop = max(0, actor.hop - dt * 4)
@@ -180,6 +214,7 @@ final class HubMochiTroupe: ObservableObject {
 struct HubMochiScene: View {
     @StateObject private var troupe: HubMochiTroupe
     @Environment(\.hubVisible) private var visible
+    @Environment(\.hubDisplayFPS) private var display
 
     init(cast: [HubMochiSpec], range: ClosedRange<CGFloat> = 0.05...0.95) {
         _troupe = StateObject(wrappedValue: {
@@ -190,12 +225,13 @@ struct HubMochiScene: View {
     }
 
     var body: some View {
+        let pace = MochiFrameClock.hubPacing(display: display)
         GeometryReader { geo in
-            TimelineView(.animation(paused: !visible)) { timeline in
+            TimelineView(.animation(minimumInterval: pace.interval, paused: !visible)) { timeline in
                 let frame = timeline.date
                 Canvas { context, size in
                     _ = frame
-                    troupe.step()
+                    troupe.step(steps: pace.steps)
                     troupe.draw(&context, size: size)
                 }
             }
@@ -425,9 +461,11 @@ struct HubHeroBackdrop: View {
     let light: HubHeroLight
     var cornerRadius: CGFloat = 18
     @Environment(\.hubVisible) private var visible
+    @Environment(\.hubDisplayFPS) private var display
 
     var body: some View {
-        TimelineView(.animation(paused: !visible)) { timeline in
+        // The particles move by the time between frames, so fewer frames only make it coarser.
+        TimelineView(.animation(minimumInterval: MochiFrameClock.hubPacing(display: display).interval, paused: !visible)) { timeline in
             let frame = timeline.date
             Canvas { context, size in
                 _ = frame
