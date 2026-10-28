@@ -126,14 +126,16 @@ enum AgentTaskRunner {
         let sessionID: String
         var args: [String]
         let cwd: String
+        // Always with Claude in Chrome: a task started by voice often has to look something up
+        // or act in the browser, and the headless session has no other way to reach it.
         switch action {
         case .startTask(let folder, let instruction):
             sessionID = UUID().uuidString.lowercased()
-            args = ["-p", instruction, "--session-id", sessionID]
+            args = ["-p", instruction, "--session-id", sessionID, "--chrome"]
             cwd = folder
         case .tellSession(let id, let text):
             sessionID = id
-            args = ["-p", text, "--resume", id]
+            args = ["-p", text, "--resume", id, "--chrome"]
             cwd = LiveSessions.shared.session(id)?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
         }
         let process = Process()
