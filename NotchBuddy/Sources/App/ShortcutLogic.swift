@@ -63,7 +63,7 @@ enum ShortcutAction: String, CaseIterable, Sendable {
 
     /// Whether the shortcut is enabled by default.
     /// `toggleIsland` and `talkToCoucou` are off by default; all others are on.
-    var enabledByDefault: Bool { self != .toggleIsland && self != .talkToCoucou }
+    var enabledByDefault: Bool { self != .toggleIsland && self != .talkToCoucou && self != .closeIsland }
 }
 
 // MARK: - Shortcut Spec

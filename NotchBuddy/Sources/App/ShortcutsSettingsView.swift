@@ -12,8 +12,9 @@ struct ShortcutsSettingsView: View {
 
     // Per-action state (enabled flag + current spec)
     @State private var enabled:  [ShortcutAction: Bool]          = [:]
-    @State private var escTwice = IslandCloseChord.enabled          // coucou-custom fork
-    @State private var escInterval = IslandCloseChord.interval
+    @State private var closeTap = IslandCloseChord.enabled          // coucou-custom fork
+    @State private var closeKey = IslandCloseChord.key
+    @State private var closeInterval = IslandCloseChord.interval
     @State private var specs:    [ShortcutAction: ShortcutSpec]  = [:]
     /// coucou-custom fork: drawn as a page of the Coucou window (HubCard rows, keycaps).
     var hubStyle = false
@@ -239,24 +240,34 @@ extension ShortcutsSettingsView {
         // coucou-custom fork: close the open notch from the keyboard while busy elsewhere.
         HubLabel(String(localized: "hub.shortcuts.close", defaultValue: "Close the notch"))
         HubCard {
-            hubRow(.closeIsland)
-            HubDivider()
-            HubRow(title: String(localized: "hub.shortcuts.esc-twice", defaultValue: "Escape twice"),
-                   detail: String(localized: "hub.shortcuts.esc-twice-detail",
-                                  defaultValue: "Two quick taps of ⎋ in any app also fold the open notch, a finished card included. Off by default: Claude Code uses Esc Esc in its own window to rewind, and the double tap would fire there too. A single ⎋ elsewhere never folds a finished card. Permissions and questions stay.")) {
-                Toggle("", isOn: Binding(get: { escTwice }, set: { escTwice = $0; IslandCloseChord.enabled = $0 }))
-                    .toggleStyle(.switch).labelsHidden()
+            HubRow(title: String(localized: "hub.shortcuts.close-tap", defaultValue: "Tap a key twice"),
+                   detail: String(localized: "hub.shortcuts.close-tap-detail",
+                                  defaultValue: "Two quick taps of this key, in any app, fold the open notch, a finished card included. A tap counts only when the key goes down and up on its own, so ⌃C is not one. Permissions and questions stay.")) {
+                HStack(spacing: 10) {
+                    Picker("", selection: Binding(get: { closeKey }, set: { closeKey = $0; IslandCloseChord.key = $0 })) {
+                        ForEach(IslandCloseChord.Key.allCases) { Text(verbatim: $0.label).tag($0) }
+                    }
+                    .labelsHidden().frame(width: 170)
+                    .disabled(!closeTap)
+                    Toggle("", isOn: Binding(get: { closeTap }, set: { closeTap = $0; IslandCloseChord.enabled = $0 }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
+            }
+            if let note = closeKey.note, closeTap {
+                HubNote(text: note, warning: true)
             }
             HubDivider()
-            HubRow(title: String(localized: "hub.shortcuts.esc-twice-speed", defaultValue: "How quick"),
-                   detail: String(format: String(localized: "hub.shortcuts.esc-twice-speed-detail", defaultValue: "Within %.2f s of each other."), escInterval)) {
-                Picker("", selection: Binding(get: { IslandCloseChord.Speed(rawValue: escInterval) ?? .normal },
-                                              set: { escInterval = $0.interval; IslandCloseChord.interval = $0.interval })) {
+            HubRow(title: String(localized: "hub.shortcuts.close-speed", defaultValue: "How quick"),
+                   detail: String(format: String(localized: "hub.shortcuts.close-speed-detail", defaultValue: "Within %.2f s of each other."), closeInterval)) {
+                Picker("", selection: Binding(get: { IslandCloseChord.Speed(rawValue: closeInterval) ?? .normal },
+                                              set: { closeInterval = $0.interval; IslandCloseChord.interval = $0.interval })) {
                     ForEach(IslandCloseChord.Speed.allCases) { Text(verbatim: $0.label).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
-                .disabled(!escTwice)
+                .disabled(!closeTap)
             }
+            HubDivider()
+            hubRow(.closeIsland)
         }
 
         HubLabel(String(localized: "hub.shortcuts.global", defaultValue: "Everywhere"))
