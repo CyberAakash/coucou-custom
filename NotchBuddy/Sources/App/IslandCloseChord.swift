@@ -2,17 +2,18 @@ import Foundation
 
 // MARK: - IslandCloseChord (coucou-custom fork)
 //
-// Close the open notch from the keyboard while busy elsewhere: Escape twice in quick succession
-// (settable), from any app, on top of the recorded "Close the notch" shortcut. A single Escape
-// typed in another app keeps folding ordinary views as upstream does, but never a Finished or
-// Error card you may not have seen; the double tap is the deliberate "I saw it, go away".
+// Close the open notch from the keyboard while busy elsewhere. The main way is the recorded
+// "Close the notch" shortcut (⌃⌥X by default). Escape twice is an option, off by default:
+// Claude Code reads Esc Esc in its own window as "rewind", so a global double tap would fire
+// there too. A single Escape typed in another app keeps folding ordinary views as upstream
+// does, but never a Finished or Error card you may not have seen.
 
 enum IslandCloseChord {
     static let enabledKey  = "islandCloseDoubleEscape"
     static let intervalKey = "islandCloseDoubleEscapeInterval"
 
     static var enabled: Bool {
-        get { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
+        get { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
     }
 

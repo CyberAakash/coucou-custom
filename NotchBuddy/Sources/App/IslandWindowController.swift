@@ -775,7 +775,7 @@ final class IslandWindowController: NSWindowController {
         }
     }
 
-    /// The deliberate keyboard close (⌃⌥⎋ or Escape twice): folds any open view, a Finished or
+    /// The deliberate keyboard close (⌃⌥X, or Escape twice when turned on): folds any open view, a Finished or
     /// Error card included; a permission or a question stays, as everywhere.
     private func closeFromKeyboard(reason: String) {
         guard state.mode == .expanded else { return }

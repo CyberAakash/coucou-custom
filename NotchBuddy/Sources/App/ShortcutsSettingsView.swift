@@ -239,9 +239,11 @@ extension ShortcutsSettingsView {
         // coucou-custom fork: close the open notch from the keyboard while busy elsewhere.
         HubLabel(String(localized: "hub.shortcuts.close", defaultValue: "Close the notch"))
         HubCard {
+            hubRow(.closeIsland)
+            HubDivider()
             HubRow(title: String(localized: "hub.shortcuts.esc-twice", defaultValue: "Escape twice"),
                    detail: String(localized: "hub.shortcuts.esc-twice-detail",
-                                  defaultValue: "Two quick taps of ⎋ in any app fold the open notch, a finished card included. A single ⎋ elsewhere never folds a finished card. Permissions and questions stay.")) {
+                                  defaultValue: "Two quick taps of ⎋ in any app also fold the open notch, a finished card included. Off by default: Claude Code uses Esc Esc in its own window to rewind, and the double tap would fire there too. A single ⎋ elsewhere never folds a finished card. Permissions and questions stay.")) {
                 Toggle("", isOn: Binding(get: { escTwice }, set: { escTwice = $0; IslandCloseChord.enabled = $0 }))
                     .toggleStyle(.switch).labelsHidden()
             }
@@ -255,8 +257,6 @@ extension ShortcutsSettingsView {
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .disabled(!escTwice)
             }
-            HubDivider()
-            hubRow(.closeIsland)
         }
 
         HubLabel(String(localized: "hub.shortcuts.global", defaultValue: "Everywhere"))

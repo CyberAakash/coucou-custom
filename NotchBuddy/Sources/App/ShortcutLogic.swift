@@ -20,7 +20,7 @@ enum ShortcutAction: String, CaseIterable, Sendable {
     case wardrobeToggle    = "wardrobeToggle"     // ⌃⌥G — open / close wardrobe
     case talkToCoucou      = "talkToCoucou"       // (unset) — start listening without wake phrase (non-AppStore)
     case captureScreen     = "captureScreen"      // ⌘⇧S — capture a part of the screen for Claude (non-AppStore)
-    case closeIsland       = "closeIsland"        // ⌃⌥⎋ — close the open notch (coucou-custom fork)
+    case closeIsland       = "closeIsland"        // ⌃⌥X — close the open notch (coucou-custom fork)
 
     // MARK: UserDefaults keys
 
@@ -112,7 +112,7 @@ enum ShortcutLogic {
         .wardrobeToggle:    ShortcutSpec(keyCode: 5,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥G
         .talkToCoucou:      ShortcutSpec(keyCode: 9,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥V (disabled by default)
         .captureScreen:     ShortcutSpec(keyCode: 1,  nsFlags: ShortcutSpec.cmdShift), // ⌘⇧S
-        .closeIsland:       ShortcutSpec(keyCode: 53, nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥⎋ (fork)
+        .closeIsland:       ShortcutSpec(keyCode: 7,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥X (fork; Esc-based chords clash with Claude Code)
     ]
 
     // MARK: - Load / save (UserDefaults)
