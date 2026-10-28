@@ -21,7 +21,8 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Coucou Custom.app"
 DEST="/Applications/$APP_NAME"
-BUILD="$ROOT/NotchBuddy/build"
+# ".noindex": Spotlight skips the folder, else every build product shows up as another "Coucou".
+BUILD="$ROOT/NotchBuddy/build.noindex"
 
 command -v xcodegen >/dev/null || { echo "xcodegen missing: brew install xcodegen" >&2; exit 1; }
 
