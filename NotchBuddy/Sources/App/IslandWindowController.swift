@@ -801,15 +801,14 @@ final class IslandWindowController: NSWindowController {
             let key = IslandCloseChord.key
             guard key.isModifier, event.keyCode == key.keyCode, IslandCloseChord.enabled else { return }
             let raw = event.modifierFlags.rawValue
-            let down = raw & key.deviceBit != 0
+            let down = raw & key.flagBit != 0
             // The first few, for setting up: which bits the key carries on this keyboard.
             if Self.closeKeyEventsLogged < 6 {
                 Self.closeKeyEventsLogged += 1
                 appendAppLog("nb.log", "[Keys] close key \(down ? "down" : "up") (flags 0x\(String(raw, radix: 16)))")
             }
-            // Other modifiers held: the device bits of every modifier but ours.
-            let allDevice: UInt = 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0020 | 0x0040 | 0x2000
-            let others = (raw & allDevice & ~key.deviceBit) != 0
+            // Other modifiers held along with ours.
+            let others = (raw & IslandCloseChord.Key.allModifierBits & ~key.flagBit) != 0
             let at = event.timestamp
             Task { @MainActor in
                 guard let self else { return }

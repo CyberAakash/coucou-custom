@@ -56,15 +56,18 @@ enum IslandCloseChord {
 
         var isModifier: Bool { self != .escape }
 
-        /// Device-dependent modifier bit that says this very key (left, not right) is down.
-        var deviceBit: UInt {
+        /// The modifier's flag bit (NSEvent.ModifierFlags raw value): set while the key is down.
+        /// Left and right are told apart by the event's key code, not by flag bits: the
+        /// device-specific bits are not on every event (a posted event has none).
+        var flagBit: UInt {
             switch self {
-            case .leftControl: return 0x0001   // NX_DEVICELCTLKEYMASK
-            case .leftOption:  return 0x0020   // NX_DEVICELALTKEYMASK
-            case .leftCommand: return 0x0008   // NX_DEVICELCMDKEYMASK
+            case .leftControl: return 1 << 18   // .control
+            case .leftOption:  return 1 << 19   // .option
+            case .leftCommand: return 1 << 20   // .command
             case .escape:      return 0
             }
         }
+        static let allModifierBits: UInt = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
 
         var note: String? {
             switch self {

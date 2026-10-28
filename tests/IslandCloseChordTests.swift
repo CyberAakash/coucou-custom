@@ -23,7 +23,9 @@ enum IslandCloseChordTests {
         m.keyDown(at: 3.0, otherModifiersHeld: true); check("held with another modifier is not a tap", m.keyUp() == false)
         check("up without down is nothing", m.keyUp() == false)
         m.otherKeyDown(); m.keyDown(at: 4.0, otherModifiersHeld: false); check("a key typed before the down does not spoil", m.keyUp() == true)
-        check("default key is the left Control", IslandCloseChord.Key.leftControl.keyCode == 59 && IslandCloseChord.Key.leftControl.deviceBit == 0x0001)
+        check("default key is the left Control", IslandCloseChord.Key.leftControl.keyCode == 59 && IslandCloseChord.Key.leftControl.flagBit == 0x40000)
+        check("a posted Control event (0x40000) reads as down", 0x40000 & IslandCloseChord.Key.leftControl.flagBit != 0)
+        check("Control held with Shift counts as another modifier", (0x60000 & IslandCloseChord.Key.allModifierBits & ~IslandCloseChord.Key.leftControl.flagBit) != 0)
         check("right-hand keys are not offered (Flow dictation uses them)", !IslandCloseChord.Key.allCases.contains { $0.keyCode == 54 || $0.keyCode == 61 || $0.keyCode == 62 || $0.keyCode == 63 })
         check("speeds keep their order", IslandCloseChord.Speed.quick.interval < IslandCloseChord.Speed.normal.interval
               && IslandCloseChord.Speed.normal.interval < IslandCloseChord.Speed.relaxed.interval)
