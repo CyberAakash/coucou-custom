@@ -124,6 +124,9 @@ targets:
           - "Phone/**"
           - "Widgets/**"
           - "NotificationContent/**"
+          # coucou-custom fork: a tooling hook drops a cache folder here; it is not a resource.
+          - "**/.gstack/**"
+          - ".gstack/**"
       - path: Assets.xcassets
         buildPhase: resources
       - path: Resources/sounds
@@ -220,6 +223,9 @@ targets:
           - "Phone/**"
           - "Widgets/**"
           - "NotificationContent/**"
+          # coucou-custom fork: a tooling hook drops a cache folder here; it is not a resource.
+          - "**/.gstack/**"
+          - ".gstack/**"
       - path: Assets.xcassets
         buildPhase: resources
       - path: Resources/sounds

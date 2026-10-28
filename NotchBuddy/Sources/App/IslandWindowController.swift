@@ -770,8 +770,19 @@ final class IslandWindowController: NSWindowController {
             appendAppLog("nb.log", "[Capture] shortcut pressed")
             ScreenCapture.shared.begin()
             #endif
+        case .closeIsland:
+            closeFromKeyboard(reason: "close shortcut")
         }
     }
+
+    /// The deliberate keyboard close (⌃⌥⎋ or Escape twice): folds any open view, a Finished or
+    /// Error card included; a permission or a question stays, as everywhere.
+    private func closeFromKeyboard(reason: String) {
+        guard state.mode == .expanded else { return }
+        collapse(allowPendingApproval: true, reason: reason)
+    }
+
+    private var escapeTaps = DoubleTapDetector(interval: IslandCloseChord.interval)
 
     // MARK: - Island-local shortcuts
 
@@ -916,8 +927,18 @@ final class IslandWindowController: NSWindowController {
         keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             // Every key typed anywhere lands here: only Escape goes further (no Task per key).
             guard event.keyCode == 53 else { return }
+            let bare = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+            let at = event.timestamp
             Task { @MainActor in
                 guard let self = self else { return }
+                // coucou-custom fork: Escape twice closes anything open, the cards too.
+                if bare, IslandCloseChord.enabled {
+                    self.escapeTaps.interval = IslandCloseChord.interval
+                    if self.escapeTaps.tap(at: at) {
+                        self.closeFromKeyboard(reason: "Escape twice")
+                        return
+                    }
+                }
                 // Escape typed in another app (Claude Code's own interrupt, an editor…)
                 // never folds a pending approval away: only Escape in the notch does.
                 // coucou-custom fork: nor a Finished/Error card you may not have seen yet.

@@ -12,6 +12,8 @@ struct ShortcutsSettingsView: View {
 
     // Per-action state (enabled flag + current spec)
     @State private var enabled:  [ShortcutAction: Bool]          = [:]
+    @State private var escTwice = IslandCloseChord.enabled          // coucou-custom fork
+    @State private var escInterval = IslandCloseChord.interval
     @State private var specs:    [ShortcutAction: ShortcutSpec]  = [:]
     /// coucou-custom fork: drawn as a page of the Coucou window (HubCard rows, keycaps).
     var hubStyle = false
@@ -234,9 +236,32 @@ extension ShortcutsSettingsView {
             }
         }
 
+        // coucou-custom fork: close the open notch from the keyboard while busy elsewhere.
+        HubLabel(String(localized: "hub.shortcuts.close", defaultValue: "Close the notch"))
+        HubCard {
+            HubRow(title: String(localized: "hub.shortcuts.esc-twice", defaultValue: "Escape twice"),
+                   detail: String(localized: "hub.shortcuts.esc-twice-detail",
+                                  defaultValue: "Two quick taps of ⎋ in any app fold the open notch, a finished card included. A single ⎋ elsewhere never folds a finished card. Permissions and questions stay.")) {
+                Toggle("", isOn: Binding(get: { escTwice }, set: { escTwice = $0; IslandCloseChord.enabled = $0 }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: String(localized: "hub.shortcuts.esc-twice-speed", defaultValue: "How quick"),
+                   detail: String(format: String(localized: "hub.shortcuts.esc-twice-speed-detail", defaultValue: "Within %.2f s of each other."), escInterval)) {
+                Picker("", selection: Binding(get: { IslandCloseChord.Speed(rawValue: escInterval) ?? .normal },
+                                              set: { escInterval = $0.interval; IslandCloseChord.interval = $0.interval })) {
+                    ForEach(IslandCloseChord.Speed.allCases) { Text(verbatim: $0.label).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .disabled(!escTwice)
+            }
+            HubDivider()
+            hubRow(.closeIsland)
+        }
+
         HubLabel(String(localized: "hub.shortcuts.global", defaultValue: "Everywhere"))
         HubCard {
-            ForEach(globalActions, id: \.self) { action in
+            ForEach(globalActions.filter { $0 != .closeIsland }, id: \.self) { action in
                 hubRow(action)
                 if action != globalActions.last { HubDivider() }
             }
