@@ -44,6 +44,51 @@ enum AppActivation {
     }
 
     #if DEBUG && !APPSTORE
+    /// `fr.louisraille.NotchBuddy.debug.tapKey` (object: "keyCode[,flags]" e.g. "59" or "45,cmdshift"):
+    /// the app, which is trusted for Accessibility, presses and releases that key like a finger
+    /// would, so the global key monitors can be exercised from a terminal that cannot post events.
+    static func installKeyTapHook() {
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("fr.louisraille.NotchBuddy.debug.tapKey"), object: nil, queue: .main
+        ) { note in
+            let parts = (note.object as? String ?? "59").split(separator: ",").map(String.init)
+            guard let code = UInt16(parts[0]) else { return }
+            var flags: CGEventFlags = []
+            let mods = parts.count > 1 ? parts[1] : ""
+            if mods.contains("cmd") { flags.insert(.maskCommand) }
+            if mods.contains("shift") { flags.insert(.maskShift) }
+            if mods.contains("ctrl") { flags.insert(.maskControl) }
+            if mods.contains("opt") { flags.insert(.maskAlternate) }
+            let src = CGEventSource(stateID: .hidSystemState)
+            let modifierKey = [54, 55, 56, 58, 59, 60, 61, 62].contains(Int(code))
+            if let down = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(code), keyDown: true) {
+                down.flags = modifierKey ? (code == 59 || code == 62 ? .maskControl : code == 58 || code == 61 ? .maskAlternate : .maskCommand) : flags
+                down.post(tap: .cghidEventTap)
+            }
+            usleep(50_000)
+            if let up = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(code), keyDown: false) {
+                up.flags = modifierKey ? [] : flags
+                up.post(tap: .cghidEventTap)
+            }
+            appendAppLog("nb.log", "[Keys] debug tap: key \(code) \(mods)")
+        }
+    }
+
+    /// `fr.louisraille.NotchBuddy.debug.expand` (object: "overview", "finished", "error"…): opens the
+    /// island on that view, as a hook alert would, so closing paths can be tested.
+    static func installExpandHook() {
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("fr.louisraille.NotchBuddy.debug.expand"), object: nil, queue: .main
+        ) { note in
+            let name = note.object as? String ?? "overview"
+            MainActor.assumeIsolated {
+                let view: IslandView = name == "finished" ? .finished : name == "error" ? .error : .overview
+                NotificationCenter.default.post(name: .hookExpand, object: view)
+                appendAppLog("nb.log", "[Notch] debug expand: \(view)")
+            }
+        }
+    }
+
     /// `fr.louisraille.NotchBuddy.debug.openTerminal` (object: a session id, or empty for the
     /// Claude pill's card session, as the Finished card's button uses): runs what the card's
     /// "Open terminal" runs, so the whole path can be checked from a terminal.

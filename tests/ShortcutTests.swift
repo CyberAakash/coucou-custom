@@ -186,7 +186,8 @@ enum ShortcutTests {
                      "talkToCoucou must be disabled by default")
 
         // All other global shortcuts are ON by default
-        let offByDefault: Set<ShortcutAction> = [.toggleIsland, .talkToCoucou]
+        // closeIsland too (coucou-custom fork): the double tap of a key is the default way to close.
+        let offByDefault: Set<ShortcutAction> = [.toggleIsland, .talkToCoucou, .closeIsland]
         for action in ShortcutAction.allCases where !offByDefault.contains(action) {
             precondition(action.enabledByDefault,
                          "\(action.rawValue) must be enabled by default")

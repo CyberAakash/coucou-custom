@@ -770,8 +770,58 @@ final class IslandWindowController: NSWindowController {
             appendAppLog("nb.log", "[Capture] shortcut pressed")
             ScreenCapture.shared.begin()
             #endif
+        case .closeIsland:
+            closeFromKeyboard(reason: "close shortcut")
         }
     }
+
+    /// The deliberate keyboard close (the close key twice, or the recorded shortcut): folds any open view, a Finished or
+    /// Error card included; a permission or a question stays, as everywhere.
+    private func closeFromKeyboard(reason: String) {
+        guard state.mode == .expanded else { return }
+        collapse(allowPendingApproval: true, reason: reason)
+    }
+
+    private var closeTaps = DoubleTapDetector(interval: IslandCloseChord.interval)
+    private var closeKeyTaps = ModifierTapTracker()
+
+    /// One clean tap of the close key: two within the gap fold the notch.
+    private func closeKeyTapped(at time: TimeInterval) {
+        closeTaps.interval = IslandCloseChord.interval
+        if closeTaps.tap(at: time) { closeFromKeyboard(reason: "\(IslandCloseChord.key.label)") }
+    }
+
+    /// The close key is a modifier: its taps come as flagsChanged events (never swallowed).
+    private func startCloseKeyMonitor() {
+        // Global monitors only deliver other apps' keys to a process trusted for Accessibility
+        // (or Input Monitoring); without it they stay silent. Logged once so a dead close key
+        // can be told from a wrong one.
+        appendAppLog("nb.log", "[Keys] global key monitors: accessibility trusted = \(AXIsProcessTrusted()), close key = \(IslandCloseChord.key.label), on = \(IslandCloseChord.enabled)")
+        closeKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            let key = IslandCloseChord.key
+            guard key.isModifier, event.keyCode == key.keyCode, IslandCloseChord.enabled else { return }
+            let raw = event.modifierFlags.rawValue
+            let down = raw & key.flagBit != 0
+            // The first few, for setting up: which bits the key carries on this keyboard.
+            if Self.closeKeyEventsLogged < 6 {
+                Self.closeKeyEventsLogged += 1
+                appendAppLog("nb.log", "[Keys] close key \(down ? "down" : "up") (flags 0x\(String(raw, radix: 16)))")
+            }
+            // Other modifiers held along with ours.
+            let others = (raw & IslandCloseChord.Key.allModifierBits & ~key.flagBit) != 0
+            let at = event.timestamp
+            Task { @MainActor in
+                guard let self else { return }
+                if down {
+                    self.closeKeyTaps.keyDown(at: at, otherModifiersHeld: others)
+                } else if self.closeKeyTaps.keyUp() {
+                    self.closeKeyTapped(at: at)
+                }
+            }
+        }
+    }
+    private var closeKeyMonitor: Any?
+    nonisolated(unsafe) private static var closeKeyEventsLogged = 0
 
     // MARK: - Island-local shortcuts
 
@@ -913,11 +963,26 @@ final class IslandWindowController: NSWindowController {
     // MARK: - Keyboard (Escape closes)
 
     private func startKeyMonitor() {
+        startCloseKeyMonitor()   // coucou-custom fork
         keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             // Every key typed anywhere lands here: only Escape goes further (no Task per key).
+            // coucou-custom fork: a key typed while the close key is held spoils its tap (⌃C).
+            if IslandCloseChord.key.isModifier {
+                Task { @MainActor in self?.closeKeyTaps.otherKeyDown() }
+            }
             guard event.keyCode == 53 else { return }
+            let bare = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+            let at = event.timestamp
             Task { @MainActor in
                 guard let self = self else { return }
+                // coucou-custom fork: Escape as the close key, when chosen: twice closes anything open.
+                if bare, IslandCloseChord.enabled, IslandCloseChord.key == .escape {
+                    self.closeTaps.interval = IslandCloseChord.interval
+                    if self.closeTaps.tap(at: at) {
+                        self.closeFromKeyboard(reason: "Escape twice")
+                        return
+                    }
+                }
                 // Escape typed in another app (Claude Code's own interrupt, an editor…)
                 // never folds a pending approval away: only Escape in the notch does.
                 // coucou-custom fork: nor a Finished/Error card you may not have seen yet.

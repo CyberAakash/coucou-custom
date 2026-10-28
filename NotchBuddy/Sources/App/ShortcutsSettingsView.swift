@@ -12,6 +12,9 @@ struct ShortcutsSettingsView: View {
 
     // Per-action state (enabled flag + current spec)
     @State private var enabled:  [ShortcutAction: Bool]          = [:]
+    @State private var closeTap = IslandCloseChord.enabled          // coucou-custom fork
+    @State private var closeKey = IslandCloseChord.key
+    @State private var closeInterval = IslandCloseChord.interval
     @State private var specs:    [ShortcutAction: ShortcutSpec]  = [:]
     /// coucou-custom fork: drawn as a page of the Coucou window (HubCard rows, keycaps).
     var hubStyle = false
@@ -234,9 +237,42 @@ extension ShortcutsSettingsView {
             }
         }
 
+        // coucou-custom fork: close the open notch from the keyboard while busy elsewhere.
+        HubLabel(String(localized: "hub.shortcuts.close", defaultValue: "Close the notch"))
+        HubCard {
+            HubRow(title: String(localized: "hub.shortcuts.close-tap", defaultValue: "Tap a key twice"),
+                   detail: String(localized: "hub.shortcuts.close-tap-detail",
+                                  defaultValue: "Two quick taps of this key, in any app, fold the open notch, a finished card included. A tap counts only when the key goes down and up on its own, so ⌃C is not one. Permissions and questions stay.")) {
+                HStack(spacing: 10) {
+                    Picker("", selection: Binding(get: { closeKey }, set: { closeKey = $0; IslandCloseChord.key = $0 })) {
+                        ForEach(IslandCloseChord.Key.allCases) { Text(verbatim: $0.label).tag($0) }
+                    }
+                    .labelsHidden().frame(width: 170)
+                    .disabled(!closeTap)
+                    Toggle("", isOn: Binding(get: { closeTap }, set: { closeTap = $0; IslandCloseChord.enabled = $0 }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
+            }
+            if let note = closeKey.note, closeTap {
+                HubNote(text: note, warning: true)
+            }
+            HubDivider()
+            HubRow(title: String(localized: "hub.shortcuts.close-speed", defaultValue: "How quick"),
+                   detail: String(format: String(localized: "hub.shortcuts.close-speed-detail", defaultValue: "Within %.2f s of each other."), closeInterval)) {
+                Picker("", selection: Binding(get: { IslandCloseChord.Speed(rawValue: closeInterval) ?? .normal },
+                                              set: { closeInterval = $0.interval; IslandCloseChord.interval = $0.interval })) {
+                    ForEach(IslandCloseChord.Speed.allCases) { Text(verbatim: $0.label).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .disabled(!closeTap)
+            }
+            HubDivider()
+            hubRow(.closeIsland)
+        }
+
         HubLabel(String(localized: "hub.shortcuts.global", defaultValue: "Everywhere"))
         HubCard {
-            ForEach(globalActions, id: \.self) { action in
+            ForEach(globalActions.filter { $0 != .closeIsland }, id: \.self) { action in
                 hubRow(action)
                 if action != globalActions.last { HubDivider() }
             }

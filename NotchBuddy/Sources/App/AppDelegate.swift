@@ -44,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG && !APPSTORE
         HubSnapshot.install()   // coucou-custom fork: off-screen page snapshots for layout checks
         AppActivation.installDebugHook()
+        AppActivation.installKeyTapHook()
+        AppActivation.installExpandHook()
         #endif
         #if !APPSTORE
         // Before anything writes its settings: did Coucou just update itself? (What's new, once.)
