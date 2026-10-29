@@ -50,7 +50,19 @@ final class BuddyRoutineController: ObservableObject {
 
     private var tickTimer: Timer?
     private var dueTimer: Timer?
-    private var nextWater: Date?
+    /// Kept across launches (BuddyWater.nextNudgeKey) so a restart never resets the cadence.
+    private var nextWater: Date? {
+        didSet {
+            guard nextWater != oldValue else { return }
+            if let d = nextWater { UserDefaults.standard.set(d.timeIntervalSince1970, forKey: BuddyWater.nextNudgeKey) }
+            else { UserDefaults.standard.removeObject(forKey: BuddyWater.nextNudgeKey) }
+            objectWillChange.send()
+        }
+    }
+    private static func storedNextWater() -> Date? {
+        let t = UserDefaults.standard.double(forKey: BuddyWater.nextNudgeKey)
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
     private var started = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -69,7 +81,7 @@ final class BuddyRoutineController: ObservableObject {
         settings.$waterPlan.dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.resetWater() } }
             .store(in: &cancellables)
-        resetWater()
+        resetWater(onLaunch: true)
         // Reminders that came due while Coucou was closed: missed, shown now.
         fireDue()
         if settings.launchGreeting {
@@ -215,11 +227,23 @@ final class BuddyRoutineController: ObservableObject {
 
     // MARK: - Water
 
-    private func resetWater() {
-        nextWater = settings.waterEnabled ? BuddyWater.next(after: .now, plan: settings.waterPlan) : nil
-        if !settings.waterEnabled { dropAlerts { $0 == .water } }
+    private func resetWater(onLaunch: Bool = false) {
+        let plan = settings.waterPlan
+        if !settings.waterEnabled {
+            nextWater = nil
+            dropAlerts { $0 == .water }
+        } else if onLaunch {
+            let stored = Self.storedNextWater()
+            nextWater = BuddyWater.nextOnLaunch(stored: stored, now: .now, plan: plan)
+            appendAppLog("buddy.log", "water: launch, stored \(stored.map { Self.clock($0) } ?? "none") → next \(nextWater.map { Self.clock($0) } ?? "none")")
+        } else {
+            nextWater = BuddyWater.next(after: .now, plan: plan)
+            appendAppLog("buddy.log", "water: plan changed → next \(nextWater.map { Self.clock($0) } ?? "none")")
+        }
         scheduleDue()
     }
+
+    private static func clock(_ d: Date) -> String { d.formatted(date: .abbreviated, time: .shortened) }
 
     var nextWaterNudge: Date? { nextWater }
 
@@ -497,16 +521,22 @@ final class BuddyRoutineController: ObservableObject {
         if let due = nextWater, now >= due {
             let plan = settings.waterPlan
             let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput)
-            if !BuddyWater.isActive(plan, at: now) || (plan.stopAtGoal && waterToday >= plan.goal) {
+            if !BuddyWater.isActive(plan, at: now) {
                 nextWater = BuddyWater.next(after: now, plan: plan)
+                appendAppLog("buddy.log", "water: outside the hours → next \(nextWater.map { Self.clock($0) } ?? "none")")
+            } else if plan.stopAtGoal && waterToday >= plan.goal {
+                nextWater = BuddyWater.next(after: now, plan: plan)
+                appendAppLog("buddy.log", "water: goal reached → next \(nextWater.map { Self.clock($0) } ?? "none")")
             } else if BuddyWater.shouldNudge(due: due, now: now, userIdle: idle) {
                 raise(BuddyAlert(kind: .water, title: "Time for some water",
                                  detail: "\(BuddyWater.amount(waterToday)) of \(BuddyWater.amount(plan.goal)) today",
                                  autoDismiss: 120),
                       sound: "gulp")
                 nextWater = BuddyWater.next(after: now, plan: plan)
+                appendAppLog("buddy.log", "water: nudged (\(waterToday) of \(plan.goal) ml) → next \(nextWater.map { Self.clock($0) } ?? "none")")
             } else {
                 nextWater = now.addingTimeInterval(60)   // away: ask again when you are back
+                if Int(idle) % 600 < 60 { appendAppLog("buddy.log", "water: due, away \(Int(idle)) s, waiting") }
             }
         }
         scheduleDue()

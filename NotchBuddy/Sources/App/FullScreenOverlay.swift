@@ -244,8 +244,15 @@ final class RoutineMoments {
     /// An alert that waits for you, full screen when chosen for its kind.
     func present(_ alert: BuddyAlert) {
         guard let kind = RoutineMomentKind.of(alert.kind), RoutineMomentSettings.shared.wants(kind) else { return }
+        // A shown id whose alert is gone (coucou-custom fork): nothing is on screen for it, and
+        // every later moment would queue behind it for good.
+        if let id = shownAlert, !BuddyRoutineController.shared.alerts.contains(where: { $0.id == id }) {
+            appendAppLog("buddy.log", "moment: stale shown alert cleared")
+            shownAlert = nil
+        }
         if shownAlert != nil {
             if !queue.contains(alert.id) { queue.append(alert.id) }
+            appendAppLog("buddy.log", "moment: \(kind) queued behind the one on screen")
             return
         }
         shownAlert = alert.id

@@ -291,6 +291,45 @@ enum BuddyWater {
         return nil
     }
 
+    /// Where the next nudge is kept between launches (coucou-custom fork).
+    static let nextNudgeKey = "buddyWaterNextNudge"
+
+    /// The next nudge after a launch (coucou-custom fork). Recomputing it from "now" at every
+    /// launch pushed the nudge a whole interval away each time Coucou restarted, so a day with a
+    /// few restarts had none. The stored one is kept when it is still ahead and no further than
+    /// a fresh one; one that came due while Coucou was closed is due now (fireDue then defers it
+    /// outside the hours or while you are away).
+    static func nextOnLaunch(stored: Date?, now: Date, plan: BuddyWaterPlan, calendar: Calendar = .current) -> Date? {
+        guard !plan.days.isEmpty else { return nil }
+        let fresh = next(after: now, plan: plan, calendar: calendar)
+        guard let stored else { return fresh }
+        if stored <= now { return now }
+        if let fresh, stored <= fresh { return stored }
+        return fresh
+    }
+
+    /// What the countdown says (coucou-custom fork): the time left, or why it waits.
+    static func nextNudgeText(next: Date?, now: Date, enabled: Bool, plan: BuddyWaterPlan, today: Int,
+                              calendar: Calendar = .current) -> String {
+        guard enabled else { return "Reminders are off." }
+        guard let next else { return "No day picked." }
+        if plan.stopAtGoal, today >= plan.goal { return "Done for today: goal reached." }
+        if next <= now { return "Due now; waits until you are back at the Mac." }
+        let clock = next.formatted(date: .omitted, time: .shortened)
+        if !isActive(plan, at: now, calendar: calendar) {
+            let sameDay = calendar.isDate(next, inSameDayAs: now)
+            let day = sameDay ? "" : calendar.isDateInTomorrow(next) ? " tomorrow" : " " + next.formatted(.dateTime.weekday(.wide))
+            return "Quiet until \(clock)\(day)."
+        }
+        let secs = Int(next.timeIntervalSince(now).rounded(.up))
+        let mins = (secs + 59) / 60
+        let left: String
+        if secs < 60 { left = "under a minute" }
+        else if mins < 60 { left = "\(mins) min" }
+        else { left = "\(mins / 60) h \(String(format: "%02d", mins % 60)) min" }
+        return "Next nudge in \(left) (\(clock))."
+    }
+
     /// "2026-10-23", the day's key in the log.
     static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
