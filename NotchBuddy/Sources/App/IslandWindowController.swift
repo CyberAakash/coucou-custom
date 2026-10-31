@@ -2481,7 +2481,8 @@ func islandSize(mode: IslandMode, view: IslandView,
     switch mode {
     // In a corner, resting or compact: a square tile with Mochi alone.
     case .hidden:   return corner ? (IslandPlacement.tile, IslandPlacement.tile) : (nw, nh)
-    case .compact:  return corner ? (IslandPlacement.tile, IslandPlacement.tile) : (nw + 160, nh)
+    // coucou-custom fork: the wing width and the extra height come from Settings (IslandRestingStyle).
+    case .compact:  return corner ? (IslandPlacement.tile, IslandPlacement.tile) : IslandRestingStyle.compactSize(nw: nw, nh: nh)
     case .expanded:
         if corner && view == .overview {
             let s = MailLayout.detailHeight != nil ? IslandPlacement.homeReadingSize : IslandPlacement.homeSize
