@@ -106,8 +106,10 @@ struct IslandContainer: View {
         // coucou-custom fork: the briefs draw their own Mochi and no header (BriefNotchStage).
         #if !APPSTORE
         let briefActive = state.mode == .expanded && BriefLayout.isBrief(state.view)
+        let peekActive = state.mode == .expanded && state.view == .peek
         #else
         let briefActive = false
+        let peekActive = false
         #endif
 
         return ZStack(alignment: .topLeading) {
@@ -142,6 +144,13 @@ struct IslandContainer: View {
                         .clipShape(IslandShape(width: islandWidth, height: islandHeight,
                                               cornerRadius: cornerRadius, topRadius: islandTopRadius))
                         .transition(.opacity)
+                } else if peekActive {
+                    #if !APPSTORE
+                    PeekStage(width: islandWidth, height: islandHeight)
+                        .clipShape(IslandShape(width: islandWidth, height: islandHeight,
+                                              cornerRadius: cornerRadius, topRadius: islandTopRadius))
+                        .transition(.opacity)
+                    #endif
                 } else if briefActive {
                     #if !APPSTORE
                     BriefNotchStage(state: state, view: state.view, width: islandWidth, height: islandHeight)
@@ -203,8 +212,8 @@ struct IslandContainer: View {
                     Rectangle().frame(width: islandWidth,
                                       height: state.mode == .expanded ? 320 : islandHeight)
                 }
-                .opacity(uploadActive || greetingActive || briefActive ? 0 : 1)
-                .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive || briefActive)
+                .opacity(uploadActive || greetingActive || briefActive || peekActive ? 0 : 1)
+                .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive || briefActive || peekActive)
             }
 
             CountdownBar(state: state, islandW: islandWidth)
@@ -915,6 +924,7 @@ extension IslandContainer {
     func expandedCorner(for view: IslandView) -> CGFloat {
         #if !APPSTORE
         if let c = BriefLayout.corner(for: view) { return c }
+        if let c = PeekLayout.corner(for: view) { return c }
         if VoiceCardLayout.applies(to: view) { return VoiceCardLayout.corner }
         #endif
         return IslandConst.expandedCorner
