@@ -14,6 +14,38 @@ final class MusicController: ObservableObject {
     @Published var trackTitle: String?
     @Published var artist: String?
     @Published var album: String?
+    // coucou-custom fork: the length (playerInfo's Total Time) and a position clock read over
+    // AppleScript when the state changes, for the lyrics.
+    @Published private(set) var duration: Double = 0
+    @Published private(set) var positionAnchor: Double = 0
+    @Published private(set) var positionDate = Date()
+
+    /// Where playback is now, extrapolated from the last anchor.
+    func position(at date: Date) -> Double {
+        let elapsed = AppState.shared.musicPlaying ? date.timeIntervalSince(positionDate) : 0
+        let p = positionAnchor + max(0, elapsed)
+        return duration > 0 ? min(p, duration) : p
+    }
+
+    /// Re-reads the position (Music announces no seeks); the cards call it when they show.
+    func refreshPosition() {
+        guard isPillActive, trackTitle != nil,
+              UserDefaults.standard.bool(forKey: "coucou.musicAutomationGranted") else { return }
+        Task {
+            let result = await runAppleScript("""
+                tell application id "com.apple.Music"
+                    try
+                        return (player position as string)
+                    on error
+                        return "0"
+                    end try
+                end tell
+            """)
+            guard case .success(let values) = result, let p = values.first.flatMap({ Double($0.replacingOccurrences(of: ",", with: ".")) }) else { return }
+            positionAnchor = p
+            positionDate = .now
+        }
+    }
 
     private var notifTokens: [Any] = []
     private var cancellables = Set<AnyCancellable>()
@@ -36,8 +68,9 @@ final class MusicController: ObservableObject {
             let name        = info?["Name"]          as? String
             let artist      = info?["Artist"]        as? String
             let album       = info?["Album"]         as? String
+            let totalMs     = (info?["Total Time"]   as? NSNumber)?.doubleValue
             Task { @MainActor [weak self] in
-                self?.handlePlayerInfo(playerState: playerState, name: name, artist: artist, album: album)
+                self?.handlePlayerInfo(playerState: playerState, name: name, artist: artist, album: album, totalMs: totalMs)
             }
         }
         notifTokens.append(tok1)
@@ -132,7 +165,8 @@ final class MusicController: ObservableObject {
         return raw
     }
 
-    private func handlePlayerInfo(playerState: String?, name: String?, artist inputArtist: String?, album inputAlbum: String?) {
+    private func handlePlayerInfo(playerState: String?, name: String?, artist inputArtist: String?, album inputAlbum: String?,
+                                  totalMs: Double? = nil) {
         guard isPillActive else { return }
 
         let playing = playerState == "Playing"
@@ -141,9 +175,13 @@ final class MusicController: ObservableObject {
         trackTitle = name.map { Self.shortTitle($0) }.flatMap { $0.isEmpty ? nil : $0 }
         artist     = inputArtist.map { Self.shortArtist($0) }.flatMap { $0.isEmpty ? nil : $0 }
         album      = inputAlbum
+        if let totalMs { duration = totalMs / 1000 }
 
+        // Pausing freezes the clock where it is; any change re-reads the real position.
+        if playing != wasPlaying { positionAnchor = position(at: .now); positionDate = .now }
         AppState.shared.musicPlaying = playing
         syncTaskName()
+        refreshPosition()
 
         // Reveal only on transition from not-playing → playing
         if playing && !wasPlaying {
