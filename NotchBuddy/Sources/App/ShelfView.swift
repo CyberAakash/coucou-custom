@@ -4,10 +4,11 @@ import SwiftUI
 
 // MARK: - The shelf page in the notch (coucou-custom fork)
 //
-// The whole card is the shelf: a search field with the kind chips, then the files as cards in
-// a grid of four (the island grows to 330 pt) or a carousel grouped by time (240 pt). Click
-// selects, ⌘-click adds, double-click opens; ← → ↩ Space ⌫ work from the search field;
-// right-click brings the actions. A card drags out into any app.
+// The whole card is the shelf: a search field, a Filter button (the kinds as chips, as many as
+// there are), the layout toggle, then the files as cards in a grid of four (the island grows to
+// 330 pt) or a carousel grouped by time (240 pt). Click selects, ⌘-click adds, double-click
+// opens; ← → ↑ ↓ ↩ Space ⌫ work from the search field; right-click brings the actions. A card
+// drags out into any app. A drop that just landed is greeted with a word and Mochi's smile.
 
 struct ShelfView: View {
     @ObservedObject var state: AppState
@@ -15,31 +16,36 @@ struct ShelfView: View {
     @ObservedObject private var settings = ShelfSettings.shared
     @StateObject private var toast = KeepToastModel()
     @State private var query = ""
-    @State private var kind: KeepKind?
+    @State private var kinds: Set<KeepKind> = []
+    @State private var filterOpen = false
     @State private var preview: ShelfItem?
     @FocusState private var searching: Bool
     @Environment(\.islandViewActive) private var active
 
     private var visible: [ShelfItem] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return shelf.items.filter { (kind == nil || $0.kind == kind) && (q.isEmpty || $0.name.lowercased().contains(q)) }
+        return shelf.items.filter { (kinds.isEmpty || kinds.contains($0.kind)) && (q.isEmpty || $0.name.lowercased().contains(q)) }
     }
 
-    private var countLabel: String {
-        query.isEmpty ? "\(shelf.items.count) file\(shelf.items.count == 1 ? "" : "s")" : "\(visible.count) of \(shelf.items.count)"
+    private var counts: [KeepKind: Int] {
+        shelf.items.reduce(into: [:]) { $0[$1.kind, default: 0] += 1 }
     }
+
+    /// How tall the cards' area is: the filter panel, when open, takes a row from it.
+    /// The cards keep their height: the island grows by the filter row instead (KeepPanels).
+    private var cardsHeight: CGFloat { settings.layout == .grid ? 212 : 118 }
 
     var body: some View {
         ZStack {
             CardBackground(wash: nil)
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 5) {
-                    KeepSearchField(placeholder: "Search the shelf", text: $query, count: countLabel, focus: $searching, onKey: handleKey)
-                        .frame(minWidth: 150)
-                    ForEach(KeepKind.shelfChips) { k in
-                        KeepChip(label: k.label, on: kind == k) { withAnimation(.easeOut(duration: 0.15)) { kind = kind == k ? nil : k } }
-                    }
+                HStack(spacing: 6) {
+                    KeepSearchField(placeholder: "Search the shelf", text: $query, focus: $searching, onKey: handleKey)
+                    KeepFilterButton(kinds: $kinds, open: $filterOpen)
                     KeepLayoutToggle(layout: $settings.layout)
+                }
+                if filterOpen {
+                    KeepFilterPanel(kinds: $kinds, available: KeepKind.shelfKinds, counts: counts)
                 }
                 if visible.isEmpty {
                     emptyState
@@ -64,11 +70,20 @@ struct ShelfView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: preview != nil)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: filterOpen)
+        .onChange(of: filterOpen) { _, on in KeepPanels.setFilter(on, for: .shelf) }
         .onChange(of: active) { _, on in
             // The page opens with the search ready for typing; leaving it clears the search.
-            if on { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { searching = true } } else { query = ""; preview = nil }
+            if on { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { searching = true } } else { query = ""; preview = nil; filterOpen = false }
         }
-        .onAppear { if active { searching = true } }
+        .onAppear {
+            if active { searching = true }
+            if KeepDebug.filterOpen { filterOpen = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shelfLanded)) { note in
+            let n = note.object as? Int ?? 1
+            toast.say(n > 1 ? "\(n) files landed on the shelf" : "Landed on the shelf")
+        }
     }
 
     // MARK: Layouts
@@ -80,7 +95,7 @@ struct ShelfView: View {
             }
             .padding(.bottom, 2)
         }
-        .frame(height: 212)
+        .frame(height: cardsHeight)
     }
 
     private var carousel: some View {
@@ -88,14 +103,14 @@ struct ShelfView: View {
             HStack(alignment: .top, spacing: 7) {
                 ForEach(groups, id: \.label) { group in
                     KeepSectionLabel(text: group.label)
-                        .frame(height: 118)
-                    ForEach(group.items) { item in card(item, width: 118, height: 118, previewHeight: 56) }
+                        .frame(height: cardsHeight)
+                    ForEach(group.items) { item in card(item, width: 118, height: cardsHeight, previewHeight: 56) }
                 }
             }
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
-        .frame(height: 118)
+        .frame(height: cardsHeight)
     }
 
     private var groups: [(label: String, items: [ShelfItem])] {
@@ -109,14 +124,12 @@ struct ShelfView: View {
 
     private func card(_ item: ShelfItem, width: CGFloat?, height: CGFloat, previewHeight: CGFloat) -> some View {
         let selected = shelf.selected.contains(item.id)
-        return KeepCard(name: item.name, detail: detail(item), badge: badge(item), selected: selected, width: width, height: height) {
-            KeepFilePreview(url: item.url, size: CGSize(width: width.map { $0 - 16 } ?? 127, height: previewHeight), showsThumbnail: settings.previews)
-                .frame(height: previewHeight)
-                .background(Color.white.opacity(0.04))
+        return KeepCard(name: item.name, detail: detail(item), badge: badge(item), selected: selected, width: width, height: height,
+                        onTap: { shelf.select(item, adding: false) },
+                        onDoubleTap: { shelf.open(item) },
+                        onCommandTap: { shelf.select(item, adding: true) }) {
+            KeepFilePreview(url: item.url, size: CGSize(width: 140, height: previewHeight), showsThumbnail: settings.previews)
         }
-        .highPriorityGesture(TapGesture(count: 2).onEnded { shelf.open(item) })
-        .simultaneousGesture(TapGesture().modifiers(.command).onEnded { shelf.select(item, adding: true) })
-        .onTapGesture { shelf.select(item, adding: false) }
         .onDrag {
             shelf.beginDrag(item)
             return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
@@ -128,10 +141,10 @@ struct ShelfView: View {
     private var emptyState: some View {
         VStack(spacing: 6) {
             Spacer(minLength: 0)
-            Text(shelf.items.isEmpty ? "Nothing on the shelf" : "Nothing matches “\(query)”")
+            Text(shelf.items.isEmpty ? "Nothing on the shelf" : "Nothing matches")
                 .font(.system(size: 13, weight: .semibold))
             Text(shelf.items.isEmpty ? "Drop files on the notch: they wait here until you drag them out, open them or send them on."
-                                      : "Try another word, or clear the chips.")
+                                      : "Try another word, or clear the filter.")
                 .font(.system(size: 11.5))
                 .foregroundColor(Color(hex: "#8E939C"))
                 .multilineTextAlignment(.center)
@@ -139,14 +152,17 @@ struct ShelfView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: settings.layout == .grid ? 212 : 118)
+        .frame(height: cardsHeight)
     }
 
+    /// The count lives here, not in the search field.
     private var trailingHint: String {
         let sel = shelf.selectedItems
-        if sel.count > 1 { return "\(sel.count) selected" }
+        if sel.count > 1 { return "\(sel.count) of \(shelf.items.count) selected" }
         if let one = sel.first { return one.name + " · " + detail(one) }
-        return settings.layout == .grid ? "Grid · scroll down for more" : "Carousel · newest first"
+        let count = "\(shelf.items.count) file\(shelf.items.count == 1 ? "" : "s")"
+        if !query.isEmpty || !kinds.isEmpty { return "\(visible.count) of \(count)" }
+        return count
     }
 
     // MARK: Text
@@ -202,6 +218,7 @@ struct ShelfView: View {
             return .handled
         case .escape:
             if preview != nil { preview = nil; return .handled }
+            if filterOpen { filterOpen = false; return .handled }
             if !query.isEmpty { query = ""; return .handled }
             return .ignored
         default:
@@ -228,11 +245,8 @@ private struct ShelfContextMenu: View {
         Button("Open") { targets.forEach { shelf.open($0) } }
         Menu("Open with") {
             ForEach(shelf.apps(for: item), id: \.path) { app in
-                Button {
+                Button(appName(app) + (ShelfSettings.shared.defaultApp(for: item.ext)?.standardizedFileURL == app.standardizedFileURL ? "  · default" : "")) {
                     targets.forEach { shelf.open($0, with: app) }
-                } label: {
-                    Label(appName(app) + (ShelfSettings.shared.defaultApp(for: item.ext)?.standardizedFileURL == app.standardizedFileURL ? "  · default" : ""),
-                          image: "")
                 }
             }
             Divider()
@@ -269,21 +283,23 @@ private struct ShelfContextMenu: View {
 
 // MARK: - Quick Look, in the island
 
-/// A larger thumbnail over the card, the name and the details; click or Space closes it.
+/// A real Quick Look preview over the card, the name and the place; click or Space closes it.
 private struct ShelfPreviewOverlay: View {
     let item: ShelfItem
     let close: () -> Void
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.85)
-            VStack(spacing: 8) {
-                KeepFilePreview(url: item.url, size: CGSize(width: 300, height: 140))
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Color.black.opacity(0.88)
+            VStack(spacing: 6) {
+                KeepQuickLook(url: item.url)
+                    .frame(width: 440, height: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+                    .allowsHitTesting(false)
                 Text(item.name).font(.system(size: 12, weight: .semibold))
-                Text(item.path).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1).truncationMode(.middle)
+                Text(item.url.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1).truncationMode(.middle)
                     .frame(maxWidth: 480)
             }
         }

@@ -21,6 +21,7 @@ enum IslandPages {
         var pages: [IslandView] = [.overview, .prompt]
         #if !APPSTORE
         if FileShelf.enabled { pages.append(.shelf) }
+        if ClipboardSettings.shared.enabled { pages.append(.clipboard) }
         if !LiveSessions.shared.sessions.isEmpty { pages.append(.sessions) }
         #endif
         return pages
@@ -30,7 +31,7 @@ enum IslandPages {
     static func page(of view: IslandView) -> IslandView? {
         switch view {
         case .overview, .empty: return .overview
-        case .prompt, .shelf, .sessions: return view
+        case .prompt, .shelf, .clipboard, .sessions: return view
         default: return nil
         }
     }
@@ -92,8 +93,8 @@ final class PageWheel {
             // Vertical: the wheel on the home page, where nothing scrolls down.
             guard state.view == .overview || state.view == .empty else { return false }
             dx = event.scrollingDeltaY
-        } else if state.view == .shelf {
-            // The shelf's cards scroll (sideways as a carousel, down as a grid): a swipe there is for them.
+        } else if state.view == .shelf || state.view == .clipboard {
+            // The cards scroll (sideways as a carousel, down as a grid): a swipe there is for them.
             return false
         }
         travel += dx
@@ -135,6 +136,7 @@ struct PageBar: View {
         switch page {
         case .prompt: return String(localized: "Chat")
         case .shelf: return "Shelf"
+        case .clipboard: return "Clipboard"
         case .sessions: return "Sessions"
         default: return String(localized: "Home")
         }

@@ -23,6 +23,7 @@ enum IslandView: String, CaseIterable {
     case routineAlert // a routine's alert in the notch, with its quick actions (coucou-custom fork)
     case shelf        // files dropped on the notch, waiting to be dragged out (coucou-custom fork)
     case peek         // a moment's pill: charger, network, sound output, Caps Lock… (coucou-custom fork)
+    case clipboard    // what you copied, kept on this Mac (coucou-custom fork)
 }
 
 // MARK: - Bot State
@@ -292,6 +293,7 @@ enum IslandConst {
         .routineAlert: ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         // Shelf: the whole card is the shelf, no Mochi; its height comes from KeepLayout (islandSize)
         .shelf:        ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
+        .clipboard:    ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         // Peek: drawn by PeekStage at notch height (PeekLayout); no BotPlacement
         .peek:         ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 0,  agentMode: .none),
     ]

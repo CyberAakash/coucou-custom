@@ -697,7 +697,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew || v == .shelf) && active)
+                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew || v == .shelf || v == .clipboard) && active)
                         || (v == .overview && active && cornerHome)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
@@ -745,6 +745,7 @@ struct IslandHeader: View {
     @ObservedObject private var live = LiveSessions.shared   // coucou-custom fork
     #if !APPSTORE
     @ObservedObject private var shelf = FileShelf.shared     // coucou-custom fork
+    @ObservedObject private var clipSettings = ClipboardSettings.shared   // coucou-custom fork
     #endif
     @State private var gearHovered  = false
     @State private var soundHovered = false
@@ -772,6 +773,10 @@ struct IslandHeader: View {
                     TabButton(icon: shelf.items.isEmpty ? "tray" : "tray.full.fill", view: .shelf, state: state)
                 } else {
                     TabButton(icon: "plus", view: .upload, state: state)
+                }
+                // The clipboard (coucou-custom fork): filled while recording.
+                if clipSettings.enabled {
+                    TabButton(icon: clipSettings.recording ? "list.clipboard.fill" : "list.clipboard", view: .clipboard, state: state)
                 }
                 #else
                 TabButton(icon: "plus", view: .upload, state: state)

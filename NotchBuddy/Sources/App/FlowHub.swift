@@ -12,6 +12,7 @@ enum HubPage: String, CaseIterable, Identifiable {
     case runner  // coucou-custom fork: Settings → Menu bar (the one menu-bar item, its icon, panel, Custom Metrics)
     case brief   // coucou-custom fork: Settings → Daily brief
     case shelf   // coucou-custom fork: Keep → Shelf (manage the files, its settings)
+    case clipboard   // coucou-custom fork: Keep → Clipboard (what you copied, its settings)
     case mailOverview, mailRules, mailBanned, mailVIP
 
     var id: String { rawValue }
@@ -25,7 +26,7 @@ enum HubPage: String, CaseIterable, Identifiable {
     static let sidebarGroups: [(title: String, pages: [HubPage])] = [
         (String(localized: "hub.section.notch"), [.general, .agents, .chat, .voice, .shortcuts]),
         ("Desktop", [.buddy, .routines, .runner, .brief]),
-        ("Keep", [.shelf, .notes]),
+        ("Keep", [.shelf, .clipboard, .notes]),
         ("Connections", [.pills, .integrations]),
         ("Mail", mailPages),
         ("Flow", [.dictation, .dictionary, .snippets, .styles, .insights, .settings]),
@@ -68,6 +69,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .runner:       return String(localized: "Menu bar")
         case .brief:        return String(localized: "Briefs")
         case .shelf:        return "Shelf"
+        case .clipboard:    return "Clipboard"
         case .dictation:  return String(localized: "hub.page.dictation")
         case .notes:      return String(localized: "hub.page.notes")
         case .insights:   return String(localized: "hub.page.insights")
@@ -103,6 +105,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .runner:       return "menubar.rectangle"
         case .brief:        return "sun.horizon"
         case .shelf:        return "tray.full"
+        case .clipboard:    return "list.clipboard"
         case .mailOverview: return "tray"
         case .mailRules:    return "line.3.horizontal.decrease"
         case .mailBanned:   return "nosign"
@@ -284,6 +287,7 @@ struct FlowHubView: View {
         case .brief:      HubDailyBriefPage()   // coucou-custom fork
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
         case .shelf:      HubShelfPage()   // coucou-custom fork
+        case .clipboard:  HubClipboardPage()   // coucou-custom fork
         case .mailOverview: HubMailOverviewPage()
         case .mailRules:    HubMailRulesPage()
         case .mailBanned:   HubMailBannedPage()
@@ -438,38 +442,79 @@ struct HubMochi: View {
 }
 
 /// A page: its title, an optional line under it, and the content, scrolling.
-struct HubPageScaffold<Trailing: View, Content: View>: View {
+/// A page of the window (coucou-custom fork layout): the banner and what is `pinned` under it (a
+/// search, a tab bar) stay put at the top; `content` scrolls below; an `aside` (a preview, the
+/// chosen item) stands to the right and stays put too.
+struct HubPageScaffold<Trailing: View, Pinned: View, Aside: View, Content: View>: View {
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var trailing: () -> Trailing
+    @ViewBuilder var pinned: () -> Pinned
+    @ViewBuilder var aside: () -> Aside
+    /// False leaves no column for the aside (a page whose aside depends on its state).
+    var showsAside = true
+    var asideWidth: CGFloat = 320
     @ViewBuilder var content: () -> Content
 
     @Environment(\.hubPage) private var page
 
+    private var hasAside: Bool { showsAside && Aside.self != EmptyView.self }
+
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    HubHero(page: page, title: title, subtitle: subtitle, trailing: trailing)
-                    content()
-                }
-                .padding(.horizontal, 28)
-                .padding(.top, 24)
-                .padding(.bottom, 28)
-                .frame(maxWidth: 1100, alignment: .leading)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 16) {
+                HubHero(page: page, title: title, subtitle: subtitle, trailing: trailing)
+                pinned()
             }
-            .scrollIndicators(.automatic)
-            .settingsSearchScroll(proxy)
+            .padding(.horizontal, 28)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+            .frame(maxWidth: 1100, alignment: .leading)
+
+            HStack(alignment: .top, spacing: 22) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 22) { content() }
+                            .padding(.leading, 28)
+                            .padding(.trailing, hasAside ? 0 : 28)
+                            .padding(.top, 6)
+                            .padding(.bottom, 28)
+                    }
+                    .scrollIndicators(.automatic)
+                    .settingsSearchScroll(proxy)
+                }
+                if hasAside {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) { aside() }
+                            .padding(.top, 6)
+                            .padding(.bottom, 28)
+                    }
+                    .scrollIndicators(.never)
+                    .frame(width: asideWidth)
+                    .padding(.trailing, 28)
+                }
+            }
+            .frame(maxWidth: 1100, alignment: .leading)
         }
     }
 }
 
-extension HubPageScaffold where Trailing == EmptyView {
+extension HubPageScaffold where Trailing == EmptyView, Pinned == EmptyView, Aside == EmptyView {
     init(title: String, subtitle: String? = nil, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.subtitle = subtitle
-        self.trailing = { EmptyView() }
-        self.content = content
+        self.init(title: title, subtitle: subtitle, trailing: { EmptyView() }, pinned: { EmptyView() }, aside: { EmptyView() }, content: content)
+    }
+}
+
+extension HubPageScaffold where Pinned == EmptyView, Aside == EmptyView {
+    init(title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, subtitle: subtitle, trailing: trailing, pinned: { EmptyView() }, aside: { EmptyView() }, content: content)
+    }
+}
+
+extension HubPageScaffold where Aside == EmptyView {
+    init(title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing,
+         @ViewBuilder pinned: @escaping () -> Pinned, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, subtitle: subtitle, trailing: trailing, pinned: pinned, aside: { EmptyView() }, content: content)
     }
 }
 

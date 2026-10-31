@@ -860,6 +860,12 @@ final class IslandWindowController: NSWindowController {
             #endif
         case .closeIsland:
             closeFromKeyboard(reason: "close shortcut")
+        case .openClipboard:
+            #if !APPSTORE
+            islandPanel.makeKey()
+            fsm.openedExternally()
+            expand(to: .clipboard)
+            #endif
         }
     }
 
@@ -2511,7 +2517,8 @@ func islandSize(mode: IslandMode, view: IslandView,
         // coucou-custom fork: a peek is a pill at notch height.
         if let size = PeekLayout.size(for: view, nw: nw, nh: nh) { return size }
         // coucou-custom fork: the shelf is taller as a grid than as a carousel (Settings → Shelf).
-        if view == .shelf { return (IslandConst.expandedWidth, ShelfSettings.layoutForSize.islandHeight) }
+        if view == .shelf { return (IslandConst.expandedWidth, KeepPanels.islandHeight(.shelf, layout: ShelfSettings.layoutForSize)) }
+        if view == .clipboard { return (IslandConst.expandedWidth, KeepPanels.islandHeight(.clipboard, layout: ClipboardSettings.layoutForSize)) }
         // coucou-custom fork: the voice card is as tall as its answer.
         if VoiceCardLayout.applies(to: view) { return (VoiceCardLayout.width, VoiceCardLayout.height) }
         #endif

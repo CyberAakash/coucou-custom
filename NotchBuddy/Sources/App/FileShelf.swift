@@ -37,7 +37,7 @@ struct ShelfItem: Identifiable, Codable, Equatable {
 }
 
 /// What a kept thing is, for the chips and the badges (shared with the clipboard).
-enum KeepKind: String, CaseIterable, Identifiable {
+enum KeepKind: String, CaseIterable, Identifiable, Codable {
     case image, document, text, code, archive, folder
     case link, color, file
     var id: String { rawValue }
@@ -56,8 +56,10 @@ enum KeepKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The chips a shelf offers, in order.
-    static let shelfChips: [KeepKind] = [.image, .document, .text, .code, .archive]
+    /// What a shelf can hold, in the filter's order; a new kind added here shows up by itself.
+    static let shelfKinds: [KeepKind] = [.image, .document, .text, .code, .archive, .folder]
+    /// What the clipboard can hold.
+    static let clipboardKinds: [KeepKind] = [.text, .link, .image, .color, .code, .file]
 }
 
 /// Grid or carousel, per page (the shelf, the clipboard).
