@@ -167,10 +167,9 @@ struct ShelfView: View {
                     }
                 }
                 if shelf.items.isEmpty {
-                    Text(state.fileDragOver ? "Let go: the file lands here."
-                                            : "Drop files on the notch: they wait here, to drag out, ask Claude about or email.")
+                    Text("Drop files on the notch: they wait here, to drag out, ask Claude about or email.")
                         .font(.system(size: 12))
-                        .foregroundColor(Color(hex: state.fileDragOver ? "#F5F6F8" : "#9398A1"))
+                        .foregroundColor(Color(hex: "#9398A1"))
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 } else {
