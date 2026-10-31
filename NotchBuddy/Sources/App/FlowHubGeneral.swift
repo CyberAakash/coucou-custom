@@ -26,6 +26,8 @@ struct HubGeneralPage: View {
     @AppStorage(EventPeeks.powerKey) private var peekPower = true                  // coucou-custom fork
     @AppStorage(EventPeeks.networkKey) private var peekNetwork = true              // coucou-custom fork
     @AppStorage(EventPeeks.audioKey) private var peekAudio = true                  // coucou-custom fork
+    @AppStorage(EventPeeks.capsLockKey) private var peekCapsLock = true            // coucou-custom fork
+    @AppStorage(EventPeeks.inputSourceKey) private var peekInputSource = true      // coucou-custom fork
     #endif
     @AppStorage(IslandPages.wheelKey) private var pageWheel = true                 // coucou-custom fork
     @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
@@ -102,6 +104,16 @@ struct HubGeneralPage: View {
             HubRow(title: "Sound output",
                    detail: "When headphones, AirPods or a speaker take over the sound.") {
                 Toggle("", isOn: $peekAudio).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Caps Lock",
+                   detail: "On or off, so you see it before typing a line in capitals. Other apps' keys need the Accessibility permission.") {
+                Toggle("", isOn: $peekCapsLock).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Keyboard layout",
+                   detail: "When the input source changes (English, French, Hindi…), its name.") {
+                Toggle("", isOn: $peekInputSource).toggleStyle(.switch).labelsHidden()
             }
         }
     }

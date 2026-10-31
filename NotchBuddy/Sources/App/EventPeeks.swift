@@ -4,13 +4,14 @@ import SwiftUI
 import Network
 import CoreAudio
 import IOKit.ps
+import Carbon.HIToolbox
 
 // MARK: - Peeks (coucou-custom fork)
 //
 // A peek (after Nusa's event peeks): the resting notch widens for a moment into a pill, a
 // small Mochi on the left and an icon with a few words on the right, then folds again by
-// itself. The charger, the network and the sound output say so when they change; nothing
-// shows while a card is open.
+// itself. The charger, the network, the sound output, Caps Lock and the keyboard layout say
+// so when they change; nothing shows while a card is open.
 
 struct NotchPeekContent: Equatable {
     let icon: String
@@ -104,6 +105,8 @@ final class EventPeeks {
     static let powerKey = "coucouPeekPower"
     static let networkKey = "coucouPeekNetwork"
     static let audioKey = "coucouPeekAudio"
+    static let capsLockKey = "coucouPeekCapsLock"
+    static let inputSourceKey = "coucouPeekInputSource"
 
     static func on(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 
@@ -113,6 +116,9 @@ final class EventPeeks {
     private var online: (up: Bool, wifi: Bool)?
     private var networkDebounce: DispatchWorkItem?
     private var outputDevice: AudioDeviceID = 0
+    private var capsLockOn: Bool?
+    private var capsLockMonitors: [Any] = []
+    private var inputSource: String?
     private var started = false
 
     private init() {}
@@ -147,7 +153,55 @@ final class EventPeeks {
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main) { _, _ in
             Task { @MainActor in EventPeeks.shared.outputChanged() }
         }
-        appendAppLog("nb.log", "[Peek] watching: power \(onPower.map { $0 ? "ac" : "battery" } ?? "none"), network, sound output")
+        // Caps Lock: a modifier, so its presses come as flagsChanged (key code 57). Other apps'
+        // keys reach the global monitor only once Accessibility is granted (the close key needs it too).
+        capsLockOn = NSEvent.modifierFlags.contains(.capsLock)
+        let capsLock: (NSEvent) -> Void = { event in
+            guard event.keyCode == 57 else { return }
+            let on = event.modifierFlags.contains(.capsLock)
+            Task { @MainActor in EventPeeks.shared.capsLockChanged(on) }
+        }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: capsLock) {
+            capsLockMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { capsLock($0); return $0 }) {
+            capsLockMonitors.append(local)
+        }
+
+        // The keyboard layout (input source): Text Input Services tells every app when it changes.
+        inputSource = Self.currentInputSource()
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
+            object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in EventPeeks.shared.inputSourceChanged() }
+        }
+        appendAppLog("nb.log", "[Peek] watching: power \(onPower.map { $0 ? "ac" : "battery" } ?? "none"), network, sound output, Caps Lock \(capsLockOn == true ? "on" : "off"), keyboard \(inputSource ?? "?")")
+    }
+
+    // MARK: Caps Lock
+
+    private func capsLockChanged(_ on: Bool) {
+        guard on != capsLockOn else { return }
+        capsLockOn = on
+        guard Self.on(Self.capsLockKey) else { return }
+        NotchPeek.shared.show(icon: on ? "capslock.fill" : "capslock", text: on ? "Caps Lock on" : "Caps Lock off",
+                              tint: Color(hex: on ? "#F5A524" : "#8E939C"))
+    }
+
+    // MARK: Keyboard layout
+
+    private func inputSourceChanged() {
+        guard let name = Self.currentInputSource(), name != inputSource else { return }
+        inputSource = name
+        guard Self.on(Self.inputSourceKey) else { return }
+        NotchPeek.shared.show(icon: "globe", text: "Keyboard: \(name)", tint: Color(hex: "#60A5FA"))
+    }
+
+    private static func currentInputSource() -> String? {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let raw = TISGetInputSourceProperty(source, kTISPropertyLocalizedName) else { return nil }
+        return Unmanaged<CFString>.fromOpaque(raw).takeUnretainedValue() as String
     }
 
     // MARK: Power
