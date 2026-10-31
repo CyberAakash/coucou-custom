@@ -11,6 +11,7 @@ enum HubPage: String, CaseIterable, Identifiable {
     case routines   // coucou-custom fork: Settings → Routines (water, focus, reminders, timers, breathing)
     case runner  // coucou-custom fork: Settings → Menu bar (the one menu-bar item, its icon, panel, Custom Metrics)
     case brief   // coucou-custom fork: Settings → Daily brief
+    case shelf   // coucou-custom fork: Keep → Shelf (manage the files, its settings)
     case mailOverview, mailRules, mailBanned, mailVIP
 
     var id: String { rawValue }
@@ -24,9 +25,10 @@ enum HubPage: String, CaseIterable, Identifiable {
     static let sidebarGroups: [(title: String, pages: [HubPage])] = [
         (String(localized: "hub.section.notch"), [.general, .agents, .chat, .voice, .shortcuts]),
         ("Desktop", [.buddy, .routines, .runner, .brief]),
+        ("Keep", [.shelf, .notes]),
         ("Connections", [.pills, .integrations]),
         ("Mail", mailPages),
-        ("Flow", [.dictation, .notes, .dictionary, .snippets, .styles, .insights, .settings]),
+        ("Flow", [.dictation, .dictionary, .snippets, .styles, .insights, .settings]),
     ]
 
     /// The section of Settings this page shows, for the notch's pages.
@@ -65,6 +67,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .routines:     return String(localized: "Routines")
         case .runner:       return String(localized: "Menu bar")
         case .brief:        return String(localized: "Briefs")
+        case .shelf:        return "Shelf"
         case .dictation:  return String(localized: "hub.page.dictation")
         case .notes:      return String(localized: "hub.page.notes")
         case .insights:   return String(localized: "hub.page.insights")
@@ -99,6 +102,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .routines:     return "checklist"
         case .runner:       return "menubar.rectangle"
         case .brief:        return "sun.horizon"
+        case .shelf:        return "tray.full"
         case .mailOverview: return "tray"
         case .mailRules:    return "line.3.horizontal.decrease"
         case .mailBanned:   return "nosign"
@@ -279,6 +283,7 @@ struct FlowHubView: View {
         case .runner:     HubRunnerPage()  // coucou-custom fork
         case .brief:      HubDailyBriefPage()   // coucou-custom fork
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
+        case .shelf:      HubShelfPage()   // coucou-custom fork
         case .mailOverview: HubMailOverviewPage()
         case .mailRules:    HubMailRulesPage()
         case .mailBanned:   HubMailBannedPage()

@@ -275,6 +275,15 @@ struct IslandContainer: View {
             withAnimation(openSpring) { islandHeight = chatPromptHeight }
         }
         // coucou-custom fork: a brief went from its pill to its card (GitHub build only).
+        // coucou-custom fork: a Keep page's layout changed (grid ↔ carousel): an open island follows.
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("coucou.keepLayoutChanged"))) { note in
+            guard state.mode == .expanded, let view = note.object as? IslandView, state.view == view else { return }
+            let (w, h) = islandSize(mode: .expanded, view: view, nw: state.notchWidth, nh: state.notchHeight)
+            withAnimation(openSpring) {
+                islandWidth = w
+                islandHeight = h
+            }
+        }
         // coucou-custom fork: Settings changed the resting size: a resting island follows.
         .onReceive(NotificationCenter.default.publisher(for: IslandRestingStyle.changed)) { _ in
             guard state.mode == .compact else { return }
@@ -688,7 +697,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew) && active)
+                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew || v == .shelf) && active)
                         || (v == .overview && active && cornerHome)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)

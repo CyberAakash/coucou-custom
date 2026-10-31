@@ -290,7 +290,8 @@ enum IslandConst {
         .dailyBrief:   ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         .weeklyBrief:  ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         .routineAlert: ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
-        .shelf:        ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
+        // Shelf: the whole card is the shelf, no Mochi; its height comes from KeepLayout (islandSize)
+        .shelf:        ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         // Peek: drawn by PeekStage at notch height (PeekLayout); no BotPlacement
         .peek:         ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 0,  agentMode: .none),
     ]

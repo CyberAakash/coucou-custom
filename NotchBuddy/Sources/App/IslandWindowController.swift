@@ -2510,6 +2510,8 @@ func islandSize(mode: IslandMode, view: IslandView,
         if let size = BriefLayout.size(for: view, nw: nw, nh: nh) { return size }
         // coucou-custom fork: a peek is a pill at notch height.
         if let size = PeekLayout.size(for: view, nw: nw, nh: nh) { return size }
+        // coucou-custom fork: the shelf is taller as a grid than as a carousel (Settings → Shelf).
+        if view == .shelf { return (IslandConst.expandedWidth, ShelfSettings.layoutForSize.islandHeight) }
         // coucou-custom fork: the voice card is as tall as its answer.
         if VoiceCardLayout.applies(to: view) { return (VoiceCardLayout.width, VoiceCardLayout.height) }
         #endif

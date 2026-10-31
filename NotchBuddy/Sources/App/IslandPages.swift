@@ -89,11 +89,11 @@ final class PageWheel {
         guard !stepped else { return true }
         var dx = event.scrollingDeltaX
         if abs(dx) < abs(event.scrollingDeltaY) {
-            // Vertical: the wheel on the pages with nothing to scroll down (home, the shelf).
-            guard state.view == .overview || state.view == .empty || state.view == .shelf else { return false }
+            // Vertical: the wheel on the home page, where nothing scrolls down.
+            guard state.view == .overview || state.view == .empty else { return false }
             dx = event.scrollingDeltaY
         } else if state.view == .shelf {
-            // The shelf scrolls its files sideways: a swipe there is for them.
+            // The shelf's cards scroll (sideways as a carousel, down as a grid): a swipe there is for them.
             return false
         }
         travel += dx

@@ -1,15 +1,17 @@
 #if !APPSTORE
 import AppKit
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 
 // MARK: - File shelf (coucou-custom fork)
 //
-// Files dropped on the notch land on a shelf (after Nusa's shelf): a row of icons in the
-// island, dragged back out into Finder, a mail or any app, or sent on from there (Ask Claude,
-// Send by email, Open). The shelf keeps the files where they are (paths, not copies): a file
-// that moved or went is dropped from the shelf on load. With the shelf off, a drop runs
-// upstream's upload sequence (gulp, progress bar, "what to do with it") as before.
+// Files dropped on the notch land on a shelf (after Nusa's shelf): cards in the island, as a
+// grid or a carousel, searched and filtered by kind, dragged back out into Finder or any app,
+// opened (in the app you chose for that extension), looked at, asked about or emailed. The
+// shelf keeps the files where they are (paths, not copies); a file that moved or went leaves
+// the shelf on load, and files leave by themselves after the time you set. With the shelf off,
+// a drop runs upstream's upload sequence (gulp, progress bar, "what to do with it") as before.
 
 struct ShelfItem: Identifiable, Codable, Equatable {
     let id: UUID
@@ -18,58 +20,289 @@ struct ShelfItem: Identifiable, Codable, Equatable {
 
     var url: URL { URL(fileURLWithPath: path) }
     var name: String { url.lastPathComponent }
+    var ext: String { url.pathExtension.lowercased() }
+
+    /// The kind the chips filter by.
+    var kind: KeepKind {
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue, ext.isEmpty { return .folder }
+        if let type = UTType(filenameExtension: ext) {
+            if type.conforms(to: .image) || type.conforms(to: .movie) { return .image }
+            if type.conforms(to: .sourceCode) || ["swift", "py", "js", "ts", "json", "yml", "yaml", "sh", "rb", "go", "rs"].contains(ext) { return .code }
+            if type.conforms(to: .archive) || type.conforms(to: .diskImage) || ["zip", "tar", "gz"].contains(ext) { return .archive }
+            if type.conforms(to: .plainText) || type.conforms(to: .text) || ["md", "rtf"].contains(ext) { return .text }
+        }
+        return .document
+    }
 }
+
+/// What a kept thing is, for the chips and the badges (shared with the clipboard).
+enum KeepKind: String, CaseIterable, Identifiable {
+    case image, document, text, code, archive, folder
+    case link, color, file
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .image: return "Images"
+        case .document: return "Docs"
+        case .text: return "Text"
+        case .code: return "Code"
+        case .archive: return "Archives"
+        case .folder: return "Folders"
+        case .link: return "Links"
+        case .color: return "Colors"
+        case .file: return "Files"
+        }
+    }
+
+    /// The chips a shelf offers, in order.
+    static let shelfChips: [KeepKind] = [.image, .document, .text, .code, .archive]
+}
+
+/// Grid or carousel, per page (the shelf, the clipboard).
+enum KeepLayout: String, CaseIterable, Identifiable {
+    case grid, carousel
+    var id: String { rawValue }
+
+    var label: String { self == .grid ? "Grid" : "Carousel" }
+
+    /// The island's height for a page in this layout: the grid needs two rows.
+    var islandHeight: CGFloat { self == .grid ? 330 : 240 }
+
+    /// Posted when a setting changes a page's layout, so an open island follows.
+    static let changed = Notification.Name("coucou.keepLayoutChanged")
+}
+
+/// How long kept things stay.
+enum KeepRetention: String, CaseIterable, Identifiable {
+    case forever, days7, days14, days30, custom
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .forever: return "Permanently"
+        case .days7: return "7 days"
+        case .days14: return "14 days"
+        case .days30: return "30 days"
+        case .custom: return "Custom"
+        }
+    }
+
+    func days(custom: Int) -> Int? {
+        switch self {
+        case .forever: return nil
+        case .days7: return 7
+        case .days14: return 14
+        case .days30: return 30
+        case .custom: return max(1, custom)
+        }
+    }
+}
+
+// MARK: - Settings
+
+/// Settings → Shelf → Settings. UserDefaults-backed so the nonisolated `islandSize` can read the layout.
+@MainActor
+final class ShelfSettings: ObservableObject {
+    static let shared = ShelfSettings()
+
+    nonisolated static let enabledKey = "coucouShelfEnabled"
+    nonisolated static let layoutKey = "coucouShelfLayout"
+    static let previewsKey = "coucouShelfPreviews"
+    static let retentionKey = "coucouShelfKeep"
+    static let retentionDaysKey = "coucouShelfKeepDays"
+    static let maxItemsKey = "coucouShelfMax"
+    static let persistKey = "coucouShelfPersist"
+    static let defaultAppsKey = "coucouShelfDefaultApps"
+
+    private let ud = UserDefaults.standard
+
+    @Published var enabled: Bool { didSet { ud.set(enabled, forKey: Self.enabledKey) } }
+    @Published var layout: KeepLayout {
+        didSet {
+            ud.set(layout.rawValue, forKey: Self.layoutKey)
+            NotificationCenter.default.post(name: KeepLayout.changed, object: IslandView.shelf)
+        }
+    }
+    @Published var previews: Bool { didSet { ud.set(previews, forKey: Self.previewsKey) } }
+    @Published var retention: KeepRetention { didSet { ud.set(retention.rawValue, forKey: Self.retentionKey); FileShelf.shared.prune() } }
+    @Published var retentionDays: Int { didSet { ud.set(retentionDays, forKey: Self.retentionDaysKey); FileShelf.shared.prune() } }
+    /// 0 = no limit.
+    @Published var maxItems: Int { didSet { ud.set(maxItems, forKey: Self.maxItemsKey); FileShelf.shared.prune() } }
+    @Published var persist: Bool { didSet { ud.set(persist, forKey: Self.persistKey) } }
+    /// Extension → the application's path, for Open. Set from "Open with ▸ Set the default" or the Shelf page.
+    @Published var defaultApps: [String: String] { didSet { ud.set(defaultApps, forKey: Self.defaultAppsKey) } }
+
+    private init() {
+        enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
+        layout = KeepLayout(rawValue: ud.string(forKey: Self.layoutKey) ?? "") ?? .grid
+        previews = ud.object(forKey: Self.previewsKey) as? Bool ?? true
+        retention = KeepRetention(rawValue: ud.string(forKey: Self.retentionKey) ?? "") ?? .days7
+        retentionDays = max(1, ud.object(forKey: Self.retentionDaysKey) as? Int ?? 10)
+        maxItems = ud.object(forKey: Self.maxItemsKey) as? Int ?? 24
+        persist = ud.object(forKey: Self.persistKey) as? Bool ?? true
+        defaultApps = ud.dictionary(forKey: Self.defaultAppsKey) as? [String: String] ?? [:]
+    }
+
+    /// Read without the main actor, for `islandSize`.
+    nonisolated static var layoutForSize: KeepLayout {
+        KeepLayout(rawValue: UserDefaults.standard.string(forKey: layoutKey) ?? "") ?? .grid
+    }
+
+    var keepDays: Int? { retention.days(custom: retentionDays) }
+
+    func defaultApp(for ext: String) -> URL? {
+        guard let path = defaultApps[ext.lowercased()], FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    func setDefaultApp(_ app: URL?, for ext: String) {
+        var next = defaultApps
+        if let app { next[ext.lowercased()] = app.path } else { next.removeValue(forKey: ext.lowercased()) }
+        defaultApps = next
+    }
+}
+
+// MARK: - The shelf
 
 @MainActor
 final class FileShelf: ObservableObject {
     static let shared = FileShelf()
 
-    /// Settings → General → "File shelf" (default on).
-    static let enabledKey = "coucouShelfEnabled"
-    static let maxItems = 12
-
-    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
+    /// The drop handler and the header read this without the settings object.
+    static var enabled: Bool { UserDefaults.standard.object(forKey: ShelfSettings.enabledKey) as? Bool ?? true }
 
     @Published private(set) var items: [ShelfItem] = []
-    /// The file the actions act on: the last dropped, or the one clicked.
-    @Published var selected: UUID?
+    /// The files the actions act on: the last dropped, or the ones clicked (⌘-click adds).
+    @Published var selected: Set<UUID> = []
     /// A file is being dragged out: the island stays open for the drag (fsm.isHeldOpen).
     @Published var dragging = false
     private var dragReset: DispatchWorkItem?
     /// The file of the drag in progress: dropped back on the island, it is left alone.
     private(set) var draggedPath: String?
+    private var pruneTimer: Timer?
 
     private static var file: URL { HookServer.supportDir.appendingPathComponent("shelf.json") }
 
-    private init() { load() }
+    private init() {
+        load()
+        // Things left too long leave on the hour.
+        pruneTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
+            Task { @MainActor in FileShelf.shared.prune() }
+        }
+    }
 
-    /// Adds the files (newest first) and selects the first; a file already on the shelf
-    /// moves to the front and keeps its place in nothing else.
+    var selectedItems: [ShelfItem] { items.filter { selected.contains($0.id) } }
+    var firstSelected: ShelfItem? { items.first { selected.contains($0.id) } }
+
+    /// Adds the files (newest first) and selects them; a file already on the shelf moves to the front.
     func add(_ urls: [URL]) {
         var next = items
+        var ids: Set<UUID> = []
         for url in urls.reversed() {
             let path = url.standardizedFileURL.path
             next.removeAll { $0.path == path }
-            next.insert(ShelfItem(id: UUID(), path: path, addedAt: .now), at: 0)
+            let item = ShelfItem(id: UUID(), path: path, addedAt: .now)
+            next.insert(item, at: 0)
+            ids.insert(item.id)
         }
-        if next.count > Self.maxItems { next = Array(next.prefix(Self.maxItems)) }
         set(next)
-        selected = next.first?.id
-        appendAppLog("nb.log", "[Shelf] +\(urls.count) file(s), \(next.count) on the shelf")
+        selected = ids
+        prune()
+        appendAppLog("nb.log", "[Shelf] +\(urls.count) file(s), \(items.count) on the shelf")
     }
 
-    func remove(_ item: ShelfItem) {
-        set(items.filter { $0.id != item.id })
-        if selected == item.id { selected = items.first?.id }
+    func remove(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        set(items.filter { !ids.contains($0.id) })
+        selected.subtract(ids)
+        appendAppLog("nb.log", "[Shelf] \(ids.count) removed, \(items.count) left")
     }
 
-    var selectedItem: ShelfItem? { items.first { $0.id == selected } ?? items.first }
+    func remove(_ item: ShelfItem) { remove([item.id]) }
+
+    func clear() {
+        set([])
+        selected = []
+        appendAppLog("nb.log", "[Shelf] cleared")
+    }
+
+    func select(_ item: ShelfItem, adding: Bool) {
+        if adding {
+            if selected.contains(item.id) { selected.remove(item.id) } else { selected.insert(item.id) }
+        } else {
+            selected = [item.id]
+        }
+    }
+
+    /// Drops what is gone, what is too old and what is past the size.
+    func prune() {
+        let settings = ShelfSettings.shared
+        var next = items.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if let days = settings.keepDays {
+            let limit = Date().addingTimeInterval(-Double(days) * 86400)
+            next.removeAll { $0.addedAt < limit }
+        }
+        if settings.maxItems > 0, next.count > settings.maxItems { next = Array(next.prefix(settings.maxItems)) }
+        if next != items {
+            appendAppLog("nb.log", "[Shelf] pruned \(items.count - next.count) (keep: \(settings.retention.rawValue), max \(settings.maxItems))")
+            set(next)
+            selected = selected.filter { id in next.contains { $0.id == id } }
+        }
+    }
+
+    /// When `item` leaves by itself, in words, for the detail panel.
+    func leaves(_ item: ShelfItem) -> String {
+        guard let days = ShelfSettings.shared.keepDays else { return "Stays until you remove it." }
+        let left = max(0, Int((Double(days) * 86400 - Date().timeIntervalSince(item.addedAt)) / 86400))
+        return left == 0 ? "Leaves today." : "Leaves by itself in \(left) day\(left == 1 ? "" : "s")."
+    }
 
     /// A permission or a question waits, or a Finished/Error card is on screen: the drop
     /// must not take the notch over. The file lands quietly; the tray tab fills.
     static func dropsQuietly(_ state: AppState) -> Bool {
         state.pendingApproval != nil || state.pendingQuestion != nil
             || (state.mode == .expanded && (state.view == .finished || state.view == .error))
+    }
+
+    // MARK: Opening
+
+    /// The apps that can open `item`, the chosen default first.
+    func apps(for item: ShelfItem) -> [URL] {
+        var urls = NSWorkspace.shared.urlsForApplications(toOpen: item.url)
+        if let chosen = ShelfSettings.shared.defaultApp(for: item.ext) {
+            urls.removeAll { $0.standardizedFileURL == chosen.standardizedFileURL }
+            urls.insert(chosen, at: 0)
+        }
+        return Array(urls.prefix(8))
+    }
+
+    /// Opens in the app chosen for its extension, else as macOS would.
+    func open(_ item: ShelfItem) {
+        if let app = ShelfSettings.shared.defaultApp(for: item.ext) {
+            NSWorkspace.shared.open([item.url], withApplicationAt: app, configuration: .init()) { _, error in
+                if error != nil { NSWorkspace.shared.open(item.url) }
+            }
+        } else {
+            NSWorkspace.shared.open(item.url)
+        }
+        appendAppLog("nb.log", "[Shelf] open \(item.name)")
+    }
+
+    func open(_ item: ShelfItem, with app: URL) {
+        NSWorkspace.shared.open([item.url], withApplicationAt: app, configuration: .init(), completionHandler: nil)
+        appendAppLog("nb.log", "[Shelf] open \(item.name) with \(app.lastPathComponent)")
+    }
+
+    func showInFinder(_ items: [ShelfItem]) {
+        NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
+    }
+
+    func copy(_ items: [ShelfItem]) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(items.map { $0.url as NSURL })
     }
 
     // MARK: What to do with a file (upstream's "choose" buttons, on the shelf)
@@ -89,12 +322,9 @@ final class FileShelf: ObservableObject {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .mail }
     }
 
-    func clear() {
-        set([])
-        appendAppLog("nb.log", "[Shelf] cleared")
-    }
+    // MARK: Drag out
 
-    /// Called from the item's onDrag: holds the island open while the drag lasts.
+    /// Called from the card's onDrag: holds the island open while the drag lasts.
     func beginDrag(_ item: ShelfItem) {
         dragging = true
         draggedPath = item.path
@@ -118,6 +348,8 @@ final class FileShelf: ObservableObject {
         return !urls.isEmpty && urls.allSatisfy { $0.standardizedFileURL.path == draggedPath }
     }
 
+    // MARK: Storage
+
     private func set(_ next: [ShelfItem]) {
         guard next != items else { return }
         items = next
@@ -125,149 +357,21 @@ final class FileShelf: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: Self.file),
+        guard ShelfSettings.shared.persist, let data = try? Data(contentsOf: Self.file),
               let saved = try? JSONDecoder().decode([ShelfItem].self, from: data) else { return }
         items = saved.filter { FileManager.default.fileExists(atPath: $0.path) }
-        selected = items.first?.id
+        prune()
         if items.count != saved.count { save() }
     }
 
     private func save() {
+        guard ShelfSettings.shared.persist else {
+            try? FileManager.default.removeItem(at: Self.file)
+            return
+        }
         guard let data = try? JSONEncoder().encode(items) else { return }
         try? FileManager.default.createDirectory(at: HookServer.supportDir, withIntermediateDirectories: true)
         try? data.write(to: Self.file, options: .atomic)
-    }
-}
-
-// MARK: - Shelf card
-
-struct ShelfView: View {
-    @ObservedObject var state: AppState
-    @ObservedObject private var shelf = FileShelf.shared
-
-    var body: some View {
-        ZStack {
-            CardBackground(wash: nil)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(shelf.items.isEmpty ? "Shelf" : "Shelf · \(shelf.items.count)")
-                        .font(.system(size: 13, weight: .semibold))
-                    if let item = shelf.selectedItem {
-                        // What to do with the selected file (upstream's "choose" step, here).
-                        ShelfAction(icon: "bubble.left.fill", label: "Ask Claude") { shelf.askClaude(item, state: state) }
-                        ShelfAction(icon: "paperplane.fill", label: "Email") { shelf.sendByEmail(item, state: state) }
-                        ShelfAction(icon: "arrow.up.forward.square", label: "Open") { NSWorkspace.shared.open(item.url) }
-                    }
-                    Spacer()
-                    if !shelf.items.isEmpty {
-                        Button("Clear") { shelf.clear() }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(hex: "#8E939C"))
-                    }
-                }
-                if shelf.items.isEmpty {
-                    Text("Drop files on the notch: they wait here, to drag out, ask Claude about or email.")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(hex: "#9398A1"))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 6) {
-                            ForEach(shelf.items) { item in
-                                ShelfItemView(item: item, selected: shelf.selected == item.id, state: state)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            }
-            .padding(.leading, 118)
-            .padding(.trailing, 14)
-            .padding(.vertical, 8)
-        }
-    }
-}
-
-/// One of the header's small actions.
-private struct ShelfAction: View {
-    let icon: String
-    let label: String
-    let action: () -> Void
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 9, weight: .semibold))
-                Text(label).font(.system(size: 10.5, weight: .medium))
-            }
-            .foregroundColor(hovered ? Color(hex: "#F5F6F8") : Color(hex: "#B0B5BE"))
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(Color.white.opacity(hovered ? 0.12 : 0.07))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-    }
-}
-
-private struct ShelfItemView: View {
-    let item: ShelfItem
-    let selected: Bool
-    @ObservedObject var state: AppState
-    @State private var hovered = false
-
-    var body: some View {
-        VStack(spacing: 3) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: item.path))
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 34, height: 34)
-            Text(item.name)
-                .font(.system(size: 9.5))
-                .foregroundColor(Color(hex: "#C9CDD4"))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(width: 66)
-        }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 2)
-        .background(selected ? Color.white.opacity(0.12) : (hovered ? Color.white.opacity(0.07) : Color.clear))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(selected ? 0.18 : 0)))
-        .animation(.easeOut(duration: 0.2), value: selected)
-        .overlay(alignment: .topTrailing) {
-            if hovered {
-                Button {
-                    FileShelf.shared.remove(item)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(hex: "#B0B5BE"))
-                }
-                .buttonStyle(.plain)
-                .offset(x: 2, y: -2)
-            }
-        }
-        .onHover { hovered = $0 }
-        .onTapGesture(count: 2) { NSWorkspace.shared.open(item.url) }
-        .onTapGesture(count: 1) { FileShelf.shared.selected = item.id }
-        .onDrag {
-            FileShelf.shared.beginDrag(item)
-            return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
-        }
-        .contextMenu {
-            Button("Ask Claude about it") { FileShelf.shared.askClaude(item, state: state) }
-            Button("Send by email") { FileShelf.shared.sendByEmail(item, state: state) }
-            Divider()
-            Button("Open") { NSWorkspace.shared.open(item.url) }
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
-            Divider()
-            Button("Remove from the shelf") { FileShelf.shared.remove(item) }
-        }
-        .help(item.path)
     }
 }
 #endif
