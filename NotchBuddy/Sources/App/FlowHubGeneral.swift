@@ -21,6 +21,8 @@ struct HubGeneralPage: View {
     @AppStorage(FileShelf.enabledKey) private var shelfEnabled = true             // coucou-custom fork
     @AppStorage(FileShelf.dropModeKey) private var shelfDropMode = "ask"          // coucou-custom fork
     #endif
+    @AppStorage(IslandPages.enabledKey) private var pageBar = true                 // coucou-custom fork
+    @AppStorage(IslandPages.wheelKey) private var pageWheel = true                 // coucou-custom fork
     @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
     #if PHONE_LINK
     @AppStorage("iPhoneSyncEnabled") private var iPhoneSyncEnabled = false
@@ -142,6 +144,19 @@ struct HubGeneralPage: View {
             HubRow(title: "Close on a click outside",
                    detail: "Folds the open notch when you click anywhere else; never while a permission or a question waits.") {
                 Toggle("", isOn: $closesOnClickOutside).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            // coucou-custom fork: the page bar.
+            HubRow(title: "Page bar",
+                   detail: "Dots along the bottom of the open notch: home, chat, shelf, sessions. ← and → turn the page.") {
+                Toggle("", isOn: $pageBar).toggleStyle(.switch).labelsHidden()
+            }
+            if pageBar {
+                HubDivider()
+                HubRow(title: "Swipe or scroll between pages",
+                       detail: "A sideways swipe on the trackpad turns the page anywhere; the mouse wheel does on the home page.") {
+                    Toggle("", isOn: $pageWheel).toggleStyle(.switch).labelsHidden()
+                }
             }
             HubDivider()
             #if !APPSTORE
