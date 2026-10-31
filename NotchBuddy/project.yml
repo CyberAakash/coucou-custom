@@ -211,6 +211,10 @@ targets:
           HASH=$(git -C "${SRCROOT}/.." rev-parse --short HEAD 2>/dev/null || echo "unknown")
           /usr/libexec/PlistBuddy -c "Set :CoucouGitHash ${HASH}" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Add :CoucouGitHash string ${HASH}" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+        # coucou-custom fork: the processed Info.plist as input, so a clean build writes the hash
+        # after Xcode produces the plist, not before (the app then said "build unknown").
+        inputFiles:
+          - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
         showEnvVars: false
 
   CoucouAppStore:
