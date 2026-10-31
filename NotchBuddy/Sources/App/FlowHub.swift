@@ -11,11 +11,13 @@ enum HubPage: String, CaseIterable, Identifiable {
     case routines   // coucou-custom fork: Settings → Routines (water, focus, reminders, timers, breathing)
     case runner  // coucou-custom fork: Settings → Menu bar (the one menu-bar item, its icon, panel, Custom Metrics)
     case brief   // coucou-custom fork: Settings → Daily brief
+    case mailOverview, mailRules, mailBanned, mailVIP
 
     var id: String { rawValue }
 
     static let flowPages: [HubPage] = [.dictation, .notes, .insights, .dictionary, .snippets, .styles, .settings]
     static let notchPages: [HubPage] = [.general, .pills, .agents, .chat, .integrations, .voice, .shortcuts, .buddy, .routines, .runner, .brief]
+    static let mailPages: [HubPage] = [.mailOverview, .mailRules, .mailBanned, .mailVIP]
 
     /// coucou-custom fork: the sidebar's groups, in their order — the notch first, then what lives
     /// on the desktop and in the menu bar, what Coucou connects to, then Flow.
@@ -23,6 +25,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         (String(localized: "hub.section.notch"), [.general, .agents, .chat, .voice, .shortcuts]),
         ("Desktop", [.buddy, .routines, .runner, .brief]),
         ("Connections", [.pills, .integrations]),
+        ("Mail", mailPages),
         ("Flow", [.dictation, .notes, .dictionary, .snippets, .styles, .insights, .settings]),
     ]
 
@@ -69,6 +72,10 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .snippets:   return String(localized: "hub.page.snippets")
         case .styles:     return String(localized: "hub.page.styles")
         case .settings:   return String(localized: "hub.page.settings")
+        case .mailOverview: return String(localized: "hub.mail.overview")
+        case .mailRules:    return String(localized: "hub.mail.rules")
+        case .mailBanned:   return String(localized: "hub.mail.banned")
+        case .mailVIP:      return String(localized: "hub.mail.vip")
         }
     }
 
@@ -92,6 +99,10 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .routines:     return "checklist"
         case .runner:       return "menubar.rectangle"
         case .brief:        return "sun.horizon"
+        case .mailOverview: return "tray"
+        case .mailRules:    return "line.3.horizontal.decrease"
+        case .mailBanned:   return "nosign"
+        case .mailVIP:      return "star"
         }
     }
 }
@@ -268,6 +279,10 @@ struct FlowHubView: View {
         case .runner:     HubRunnerPage()  // coucou-custom fork
         case .brief:      HubDailyBriefPage()   // coucou-custom fork
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
+        case .mailOverview: HubMailOverviewPage()
+        case .mailRules:    HubMailRulesPage()
+        case .mailBanned:   HubMailBannedPage()
+        case .mailVIP:      HubMailVIPPage()
         default:
             if let section = router.page.settingsSection {
                 // coucou-custom fork: SettingsView draws the page itself (hero and content in one
@@ -286,6 +301,7 @@ struct FlowHubView: View {
 private struct HubSidebar: View {
     @ObservedObject var router: HubRouter
     @ObservedObject private var flow = FlowDictation.shared
+    @ObservedObject private var search = SettingsSearch.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -300,16 +316,23 @@ private struct HubSidebar: View {
             .padding(.horizontal, 8)
             // Halfway between the window's buttons and the first group.
             .padding(.top, 25)
-            .padding(.bottom, 31)
+            .padding(.bottom, 16)
+
+            HubSearchField()
+                .padding(.bottom, 14)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    // coucou-custom fork: regrouped (HubPage.sidebarGroups).
-                    ForEach(Array(HubPage.sidebarGroups.enumerated()), id: \.offset) { i, group in
-                        HubSidebarHeader(text: group.title)
-                            .padding(.top, i == 0 ? 0 : 14)
-                        ForEach(group.pages) { page in
-                            HubSidebarItem(page: page, selected: router.page == page) { router.page = page }
+                if !search.query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    HubSearchResults(router: router)
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        // coucou-custom fork: regrouped (HubPage.sidebarGroups).
+                        ForEach(Array(HubPage.sidebarGroups.enumerated()), id: \.offset) { i, group in
+                            HubSidebarHeader(text: group.title)
+                                .padding(.top, i == 0 ? 0 : 14)
+                            ForEach(group.pages) { page in
+                                HubSidebarItem(page: page, selected: router.page == page) { router.page = page }
+                            }
                         }
                     }
                 }
@@ -419,17 +442,20 @@ struct HubPageScaffold<Trailing: View, Content: View>: View {
     @Environment(\.hubPage) private var page
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                HubHero(page: page, title: title, subtitle: subtitle, trailing: trailing)
-                content()
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    HubHero(page: page, title: title, subtitle: subtitle, trailing: trailing)
+                    content()
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 24)
+                .padding(.bottom, 28)
+                .frame(maxWidth: 1100, alignment: .leading)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 24)
-            .padding(.bottom, 28)
-            .frame(maxWidth: 1100, alignment: .leading)
+            .scrollIndicators(.automatic)
+            .settingsSearchScroll(proxy)
         }
-        .scrollIndicators(.automatic)
     }
 }
 

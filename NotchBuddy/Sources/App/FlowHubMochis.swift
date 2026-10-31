@@ -308,6 +308,14 @@ struct HubHeroTheme {
             return .init(color: Color(hex: "#F7B32B"), cast: [m("#F7B32B", 56, 0.2, outfit: .sunglasses), m("#F5F6F8", 48, 0.6), m("#22D3EE", 42, 0.95)])
         case .runner:  // coucou-custom fork
             return .init(color: Color(hex: "#FB923C"), cast: [m("#FB923C", 52, 0.1, state: .working), m("#F5F6F8", 44, 0.55), m("#34D399", 40, 0.95)])
+        case .mailOverview:
+            return .init(color: Color(hex: "#2F8CFF"), cast: [m("#2F8CFF", 58, 0.2, state: .working), m("#F5F6F8", 46, 0.7), m("#F5A524", 40, 1)])
+        case .mailRules:
+            return .init(color: Color(hex: "#34D399"), cast: [m("#34D399", 56, 0.3, outfit: .roundGlasses), m("#8E939C", 46, 0.85)])
+        case .mailBanned:
+            return .init(color: Color(hex: "#FF453A"), cast: [m("#FF453A", 54, 0.25, outfit: .sunglasses), m("#F5F6F8", 44, 0.8, state: .sleeping, roams: false)])
+        case .mailVIP:
+            return .init(color: Color(hex: "#F5A524"), cast: [m("#F5A524", 60, 0.3, outfit: .crown), m("#2F8CFF", 46, 0.85)])
         }
     }
 }

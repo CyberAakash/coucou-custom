@@ -89,7 +89,6 @@ struct SessionStatusIcon: View {
 private struct SessionDetail: View {
     let session: SessionTracker.Session
     @ObservedObject var state: AppState
-    @ObservedObject private var line = QuestionQueueModel.shared
     @State private var promptExpanded = false
     @State private var agentsExpanded = false
     @State private var draft = ""
@@ -237,8 +236,11 @@ private struct SessionDetail: View {
     // MARK: Sections
 
     /// This session's own question is on the card, or waiting in line (QuestionQueue).
-    private var questionShown: Bool { state.pendingQuestion != nil && line.shownSessionId == s.id }
-    private var questionPosition: Int? { line.waitingSessions.firstIndex(of: s.id).map { $0 + 1 } }
+    // Upstream's queue: the head is on the card, the rest wait in order.
+    private var questionShown: Bool { state.pendingQuestion != nil && state.waitingQuestions.first?.sessionId == s.id }
+    private var questionPosition: Int? {
+        state.waitingQuestions.dropFirst().firstIndex(where: { $0.sessionId == s.id }).map { $0 + 1 }
+    }
     private var hasQuestion: Bool { questionShown || questionPosition != nil }
 
     @ViewBuilder private var waitingBanner: some View {

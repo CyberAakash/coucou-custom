@@ -37,6 +37,8 @@ struct SettingsView: View {
     @State private var hookNeedsUpdate: Bool = HookServer.hooksNeedUpdate()
 
     #if !APPSTORE
+    /// Bumped when a subscription tool is found or a switch moves: redraws Settings → Chat.
+    @State private var cliScan = 0
     @State private var showStatusLineDiff: Bool = false
     @State private var pendingStatusLineJSON: String = ""
     @State private var statusLinePendingInstall: Bool = true
@@ -309,14 +311,17 @@ struct SettingsView: View {
                         .padding(.top, 20)
                         .padding(.bottom, 12)
                 }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        sectionContent
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            sectionContent
+                        }
+                        .padding(.horizontal, embeddedSection == nil ? 20 : 28)
+                        .padding(.top, embeddedSection == nil ? 0 : 20)
+                        .padding(.bottom, 16)
+                        .frame(maxWidth: embeddedSection == nil ? .infinity : 1100, alignment: .leading)
                     }
-                    .padding(.horizontal, embeddedSection == nil ? 20 : 28)
-                    .padding(.top, embeddedSection == nil ? 0 : 20)
-                    .padding(.bottom, 16)
-                    .frame(maxWidth: embeddedSection == nil ? .infinity : 1100, alignment: .leading)
+                    .settingsSearchScroll(proxy)
                 }
                 if !statusMessage.isEmpty {
                     Divider()
@@ -400,6 +405,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.demo")
 
         GroupBox("Sound") {
             VStack(alignment: .leading, spacing: 10) {
@@ -434,6 +440,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.sound")
 
         GroupBox("Behavior") {
             VStack(alignment: .leading, spacing: 10) {
@@ -466,6 +473,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.behavior")
 
         spotlightSection
 
@@ -489,6 +497,20 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                // The notch or a corner of the screen (IslandPlacement), both builds.
+                Picker(String(localized: "island.position"), selection: $state.islandPlacement) {
+                    Text("island.position.notch").tag(IslandPlacement.notch)
+                    Divider()
+                    Text("island.position.top-left").tag(IslandPlacement.topLeft)
+                    Text("island.position.top-right").tag(IslandPlacement.topRight)
+                    Text("island.position.bottom-left").tag(IslandPlacement.bottomLeft)
+                    Text("island.position.bottom-right").tag(IslandPlacement.bottomRight)
+                }
+                .frame(maxWidth: 360)
+                Text("island.position.hint")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(6)
             .onAppear { refreshConnectedScreens() }
@@ -497,6 +519,7 @@ struct SettingsView: View {
                 refreshConnectedScreens()
             }
         }
+            .settingsAnchor("general.display")
 
         GroupBox(String(localized: "vitals.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -510,6 +533,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.vitals")
 
         GroupBox("Hotkey") {
             VStack(alignment: .leading, spacing: 10) {
@@ -538,15 +562,18 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.hotkey")
 
         GroupBox("Startup") {
             Toggle("Launch at Mac startup", isOn: $launchAtStartup)
                 .onChange(of: launchAtStartup) { _, on in toggleStartup(on) }
                 .padding(6)
         }
+            .settingsAnchor("general.startup")
 
         #if !APPSTORE
         UpdateSettingsSection()
+            .settingsAnchor("general.update")
         #endif
 
         GroupBox(String(localized: "Weekly recap")) {
@@ -562,6 +589,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.recap")
 
         GroupBox(String(localized: "Language")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -581,6 +609,8 @@ struct SettingsView: View {
                     Text("Deutsch").tag("de")
                     Text("Türkçe").tag("tr")
                     Text("ไทย").tag("th")
+                    Text("한국어").tag("ko")
+                    Text("日本語").tag("ja")
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
@@ -594,15 +624,22 @@ struct SettingsView: View {
                 }
                 HStack(spacing: 8) {
                     Button(String(localized: "Restart Coucou")) {
+                        #if APPSTORE
+                        // Sandboxed: no helper process that outlives the app (guideline 2.4.5).
+                        // Launch a fresh copy through Launch Services, then quit once it is on its way.
+                        let config = NSWorkspace.OpenConfiguration()
+                        config.createsNewApplicationInstance = true
+                        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
+                            DispatchQueue.main.async { NSApp.terminate(nil) }
+                        }
+                        #else
                         let appPath = Bundle.main.bundleURL.path
                         let pid = ProcessInfo.processInfo.processIdentifier
                         let task = Process()
                         task.executableURL = URL(fileURLWithPath: "/bin/sh")
                         task.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; open \"$1\"", "--", appPath]
                         try? task.run()
-                        #if APPSTORE
-                        NSApp.terminate(nil)
-                        #else
+                        // coucou-custom fork: quit for real, not into the background mode.
                         BackgroundMode.quitCompletely()
                         #endif
                     }
@@ -614,6 +651,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.language")
 
         #if PHONE_LINK
         GroupBox("iPhone") {
@@ -643,6 +681,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("general.iphone")
         #endif
     }
 
@@ -690,6 +729,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("pills.main")
     }
 
     // MARK: - Agents section
@@ -777,9 +817,11 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.claude")
 
         #if !APPSTORE
         ClaudeDesktopChatSettingsSection()
+            .settingsAnchor("agents.claude-desktop")
 
         GroupBox(String(localized: "hooks.gemini.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -813,6 +855,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.gemini")
 
         GroupBox(String(localized: "hooks.antigravity.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -846,6 +889,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.antigravity")
 
         GroupBox(String(localized: "hooks.codex.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -879,6 +923,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.codex")
 
         GroupBox(String(localized: "hooks.copilot.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -912,6 +957,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.copilot")
 
         GroupBox(String(localized: "hooks.muse.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -945,6 +991,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.muse")
 
         GroupBox(String(localized: "plugin.opencode.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -978,6 +1025,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.opencode")
 
         GroupBox(String(localized: "plugin.amp.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -1011,6 +1059,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.amp")
 
         GroupBox(String(localized: "plugin.hermes.title")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -1083,6 +1132,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.hermes")
         #if !APPSTORE
         .task(id: hermesPluginInstalled) {
             guard hermesPluginInstalled else { hermesSupportsApprovals = false; return }
@@ -1147,6 +1197,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("agents.plan")
         #endif
     }
 
@@ -1174,7 +1225,75 @@ struct SettingsView: View {
 
     // MARK: - Chat section
 
+    #if !APPSTORE
+    /// One provider under "Your AI subscriptions": its switch, and whether its tool is there.
+    @ViewBuilder private func subscriptionRow(_ provider: ChatProvider) -> some View {
+        let installed = provider.installedCLI
+        let tool = installed ?? provider.subscriptionCLIs[0]
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Circle().fill(Color(hex: provider.accentHex)).frame(width: 8, height: 8)
+                Text(provider.subscriptionName).font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Toggle(String(localized: "chat.subscriptions.use"), isOn: Binding(
+                    get: { state.usesSubscription(provider) },
+                    set: { on in
+                        state.setUsesSubscription(on, for: provider)
+                        cliScan += 1
+                    }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+            if let installed {
+                Text(String(format: String(localized: "chat.subscriptions.found"), installed.displayName))
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#22C55E"))
+                Text(String(format: String(localized: "chat.subscriptions.sign-in"), installed.signIn))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            } else {
+                HStack(spacing: 6) {
+                    Text(String(format: String(localized: "chat.subscriptions.missing"), tool.displayName))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Button(String(localized: "chat.subscriptions.install")) {
+                        if let url = URL(string: tool.installURL) { NSWorkspace.shared.open(url) }
+                    }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11))
+                }
+            }
+            if !provider.subscriptionOnly && !state.usesSubscription(provider) {
+                Text(String(localized: "chat.subscriptions.off"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    #endif
+
     @ViewBuilder private var chatSection: some View {
+        #if !APPSTORE
+        GroupBox(String(localized: "chat.subscriptions.title")) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(String(localized: "chat.subscriptions.description"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(ChatProvider.subscriptionProviders, id: \.self) { provider in
+                    subscriptionRow(provider)
+                    if provider != ChatProvider.subscriptionProviders.last { Divider() }
+                }
+            }
+            .padding(6)
+            .id(cliScan)
+        }
+            .settingsAnchor("chat.subscriptions")
+        .onAppear { CLILocator.shared.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: CLILocator.changed)) { _ in cliScan += 1 }
+        #endif
+
         GroupBox(String(localized: "chat.anthropic-api.title")) {
             VStack(alignment: .leading, spacing: 8) {
                 SecureField(String(localized: "chat.api-key.claude"), text: $apiKey)
@@ -1240,6 +1359,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("chat.anthropic")
 
         GroupBox(String(localized: "chat.other-providers.title")) {
             VStack(alignment: .leading, spacing: 12) {
@@ -1317,6 +1437,7 @@ struct SettingsView: View {
             }
             .padding(.vertical, 4)
         }
+            .settingsAnchor("chat.others")
 
         GroupBox(String(localized: "chat.local.title")) {
             VStack(alignment: .leading, spacing: 12) {
@@ -1394,6 +1515,7 @@ struct SettingsView: View {
             }
             .padding(.vertical, 4)
         }
+            .settingsAnchor("chat.local")
     }
 
     // MARK: - Integrations section
@@ -1528,9 +1650,11 @@ struct SettingsView: View {
                 .onChange(of: cryptoExchange) { _, _ in CryptoController.shared.settingsChanged() }
                 .onChange(of: cryptoCurrency) { _, _ in CryptoController.shared.settingsChanged() }
 
-                // Portfolio: exchange accounts + wallets.
+                #if !APPSTORE
+                // Portfolio: exchange accounts + wallets (GitHub build, like its pill).
                 PortfolioSettingsSection()
                     .padding(.top, 4)
+                #endif
 
                 #if !APPSTORE
                 // WhatsApp through a local gateway: its own fields, saved by its own button.
@@ -1546,6 +1670,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("integrations.all")
     }
 
     // MARK: - Voice section
@@ -1647,6 +1772,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("voice.wake")
         .onAppear {
             voicePermissionsGranted = VoiceSettings.micStatus == .granted
                 && VoiceSettings.speechStatus == .granted
@@ -1686,6 +1812,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("voice.language")
 
         GroupBox(String(localized: "voice.tts-engine")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -1753,6 +1880,7 @@ struct SettingsView: View {
             }
             .padding(6)
         }
+            .settingsAnchor("voice.tts")
     }
 
     #if !APPSTORE
@@ -1807,6 +1935,7 @@ struct SettingsView: View {
                     }
                     .padding(6)
                 }
+                    .settingsAnchor("voice.history")
             }
         }
     }
@@ -1872,9 +2001,18 @@ struct SettingsView: View {
 
     private func installHooksAppStore() {
         guard let claudeURL = pickClaudeFolder(prompt: "Select") else { return }
+        // Show the settings.json Coucou is about to write, as the GitHub build does.
+        let preview: String
+        do {
+            preview = try HookServer.shared.previewClaudeHooksAppStore(claudeURL: claudeURL)
+        } catch {
+            statusMessage = "❌ \(error.localizedDescription)"
+            return
+        }
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.hooks.title")
         alert.informativeText = String(localized: "alert.hooks.body")
+        alert.accessoryView = Self.hooksPreviewView(preview)
         alert.addButton(withTitle: String(localized: "alert.hooks.button-install"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.alertStyle = .informational
@@ -1886,6 +2024,21 @@ struct SettingsView: View {
         } catch {
             statusMessage = "❌ \(error.localizedDescription)"
         }
+    }
+
+    /// A read-only, scrollable copy of the settings.json to be written, for the alert.
+    private static func hooksPreviewView(_ json: String) -> NSView {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 420, height: 180))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let text = NSTextView(frame: scroll.bounds)
+        text.isEditable = false
+        text.isSelectable = true
+        text.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        text.string = json
+        text.autoresizingMask = [.width]
+        scroll.documentView = text
+        return scroll
     }
 
     private func uninstallHooksAppStore() {
