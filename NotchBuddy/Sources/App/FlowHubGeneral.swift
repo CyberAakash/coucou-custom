@@ -22,6 +22,11 @@ struct HubGeneralPage: View {
     @AppStorage(FileShelf.dropModeKey) private var shelfDropMode = "ask"          // coucou-custom fork
     #endif
     @AppStorage(IslandPages.enabledKey) private var pageBar = true                 // coucou-custom fork
+    #if !APPSTORE
+    @AppStorage(EventPeeks.powerKey) private var peekPower = true                  // coucou-custom fork
+    @AppStorage(EventPeeks.networkKey) private var peekNetwork = true              // coucou-custom fork
+    @AppStorage(EventPeeks.audioKey) private var peekAudio = true                  // coucou-custom fork
+    #endif
     @AppStorage(IslandPages.wheelKey) private var pageWheel = true                 // coucou-custom fork
     @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
     #if PHONE_LINK
@@ -46,6 +51,12 @@ struct HubGeneralPage: View {
 
             HubLabel(String(localized: "hub.general.alerts", defaultValue: "When it opens by itself"))
             alertsCard
+
+            #if !APPSTORE
+            // coucou-custom fork
+            HubLabel("Peeks")
+            peeksCard
+            #endif
 
             HubLabel(String(localized: "spotlight.title", defaultValue: "Spotlight"))
             HubSpotlightCard(enabled: ambientPulse, animating: visible)
@@ -72,6 +83,29 @@ struct HubGeneralPage: View {
             refreshConnectedScreens()
         }
     }
+
+    #if !APPSTORE
+    // MARK: - Peeks (coucou-custom fork)
+
+    private var peeksCard: some View {
+        HubCard {
+            HubRow(title: "Charger",
+                   detail: "The notch says for a moment when the Mac is plugged in or goes on battery.") {
+                Toggle("", isOn: $peekPower).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Network",
+                   detail: "When Wi‑Fi connects, the Mac goes offline or comes back online.") {
+                Toggle("", isOn: $peekNetwork).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Sound output",
+                   detail: "When headphones, AirPods or a speaker take over the sound.") {
+                Toggle("", isOn: $peekAudio).toggleStyle(.switch).labelsHidden()
+            }
+        }
+    }
+    #endif
 
     // MARK: - Demo
 

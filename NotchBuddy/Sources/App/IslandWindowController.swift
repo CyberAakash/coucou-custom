@@ -2466,6 +2466,8 @@ func islandSize(mode: IslandMode, view: IslandView,
         #if !APPSTORE
         // coucou-custom fork: the briefs open as a pill, then as their card (BriefLayout).
         if let size = BriefLayout.size(for: view, nw: nw, nh: nh) { return size }
+        // coucou-custom fork: a peek is a pill at notch height.
+        if let size = PeekLayout.size(for: view, nw: nw, nh: nh) { return size }
         // coucou-custom fork: the voice card is as tall as its answer.
         if VoiceCardLayout.applies(to: view) { return (VoiceCardLayout.width, VoiceCardLayout.height) }
         #endif
