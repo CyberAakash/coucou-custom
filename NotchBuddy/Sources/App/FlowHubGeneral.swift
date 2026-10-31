@@ -17,6 +17,10 @@ struct HubGeneralPage: View {
     @AppStorage(NotchAlertRules.openOnErrorKey) private var openOnError = true
     @AppStorage(NotchAlertRules.ambientKey) private var ambientPulse = true
     @AppStorage(IslandClickOutside.key) private var closesOnClickOutside = true   // coucou-custom fork
+    #if !APPSTORE
+    @AppStorage(FileShelf.enabledKey) private var shelfEnabled = true             // coucou-custom fork
+    @AppStorage(FileShelf.dropModeKey) private var shelfDropMode = "ask"          // coucou-custom fork
+    #endif
     @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
     #if PHONE_LINK
     @AppStorage("iPhoneSyncEnabled") private var iPhoneSyncEnabled = false
@@ -140,6 +144,26 @@ struct HubGeneralPage: View {
                 Toggle("", isOn: $closesOnClickOutside).toggleStyle(.switch).labelsHidden()
             }
             HubDivider()
+            #if !APPSTORE
+            // coucou-custom fork: the file shelf.
+            HubRow(title: "File shelf",
+                   detail: "Files dropped on the notch wait on a shelf (the tray tab) until you drag them out again.") {
+                Toggle("", isOn: $shelfEnabled).toggleStyle(.switch).labelsHidden()
+            }
+            if shelfEnabled {
+                HubDivider()
+                HubRow(title: "After a drop",
+                       detail: "Ask what to do with the file (chat, mail), or just keep it on the shelf.") {
+                    Picker("", selection: $shelfDropMode) {
+                        Text("Ask what to do").tag("ask")
+                        Text("Keep on the shelf").tag("shelf")
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+            HubDivider()
+            #endif
             HubRow(title: String(localized: "Hide after"),
                    detail: String(localized: "hub.general.hide-detail", defaultValue: "Hides Mochi while you are away from the Mac.")) {
                 numberField(absenceMinutes, unit: String(localized: "min without movement"))

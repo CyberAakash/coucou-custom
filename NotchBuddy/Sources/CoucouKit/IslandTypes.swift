@@ -21,6 +21,7 @@ enum IslandView: String, CaseIterable {
     case dailyBrief   // the Daily brief in the notch (coucou-custom fork)
     case weeklyBrief  // the Weekly recap in the notch, the fork's richer card (coucou-custom fork)
     case routineAlert // a routine's alert in the notch, with its quick actions (coucou-custom fork)
+    case shelf        // files dropped on the notch, waiting to be dragged out (coucou-custom fork)
 }
 
 // MARK: - Bot State
@@ -288,6 +289,7 @@ enum IslandConst {
         .dailyBrief:   ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         .weeklyBrief:  ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         .routineAlert: ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
+        .shelf:        ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
     ]
 
     // Project colors — keyed by lowercase display name or slug

@@ -67,6 +67,24 @@ enum FileDropHandler {
         guard let url = urls.first else { return }
         let name = url.lastPathComponent
 
+        #if !APPSTORE
+        // coucou-custom fork: the shelf keeps every dropped file; set to "keep", or with the
+        // shelf already open, the drop ends there instead of the upload sequence.
+        if FileShelf.enabled {
+            FileShelf.shared.add(urls)
+            if FileShelf.dropGoesToShelf || state.view == .shelf {
+                state.fileDragOver = false
+                UploadSequenceEngine.shared.deactivate()
+                NotificationCenter.default.post(name: .botGulp, object: nil)
+                SoundEngine.shared.play("approve")
+                NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
+                NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
+                state.view = .shelf
+                return
+            }
+        }
+        #endif
+
         // Start animation immediately — do NOT block on file copy.
         // Use original URL first; swap to inbox copy once background copy finishes.
         state.droppedFile = DroppedFile(url: url, name: name)

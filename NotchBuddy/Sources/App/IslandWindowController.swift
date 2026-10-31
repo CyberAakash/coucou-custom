@@ -147,6 +147,14 @@ final class IslandWindowController: NSWindowController {
                     NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(1))
                     return
                 }
+                #if !APPSTORE
+                // coucou-custom fork: a drop that goes straight to the shelf shows the shelf.
+                if FileShelf.enabled && (FileShelf.dropGoesToShelf || AppState.shared.view == .shelf) {
+                    NotificationCenter.default.post(name: .hookExpand, object: IslandView.shelf)
+                    NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(1))
+                    return
+                }
+                #endif
                 // enterZone sets isActive=true BEFORE hookExpand triggers re-render,
                 // so IslandContainer sees isActive=true when state.view becomes .upload.
                 UploadSequenceEngine.shared.enterZone(x: iLoc.x, y: iLoc.y)
@@ -367,7 +375,8 @@ final class IslandWindowController: NSWindowController {
         // A WhatsApp reply being typed holds the island open, like a voice mail draft.
         // coucou-custom fork: a pending question holds the notch open too (typing "Other…").
         fsm.isHeldOpen = { AppState.shared.pendingApproval != nil || AppState.shared.voiceMailDraft != nil
-                           || AppState.shared.pendingQuestion != nil || WhatsAppController.shared.composing }
+                           || AppState.shared.pendingQuestion != nil || WhatsAppController.shared.composing
+                           || FileShelf.shared.dragging }
         #else
         fsm.isHeldOpen = { AppState.shared.pendingApproval != nil || AppState.shared.voiceMailDraft != nil
                            || AppState.shared.pendingQuestion != nil }
