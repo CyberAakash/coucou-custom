@@ -62,10 +62,27 @@ enum FileDropHandler {
         }
     }
 
+    /// coucou-custom fork: each drop gets a number; a later drop makes the earlier handler's
+    /// remaining steps (its ticks, its "done", its final view) stand down, so a second drop
+    /// within a few seconds of the first keeps its canvas and Mochi's follow.
+    @MainActor private static var generation = 0
+
+    /// coucou-custom fork: the progress bar runs for about as long as the copy will take
+    /// (120 MB/s on the SSD), between 0.4 s so the gulp reads and 1.5 s so nothing waits on
+    /// a huge file. Folders and unknown sizes take the middle.
+    static func progressDuration(for url: URL) -> Double {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+        if values?.isDirectory == true { return 0.8 }
+        guard let bytes = values?.fileSize else { return 0.8 }
+        return min(1.5, max(0.4, Double(bytes) / 120_000_000))
+    }
+
     @MainActor
     static func handle(urls: [URL], state: AppState) async {
         guard let url = urls.first else { return }
         let name = url.lastPathComponent
+        generation += 1
+        let gen = generation
 
         #if !APPSTORE
         // coucou-custom fork: with the shelf on, every dropped file lands there (all of them,
@@ -97,7 +114,7 @@ enum FileDropHandler {
         state.fileDragOver = false
         state.promptContext = .file(name: name, fileURL: url)
 
-        let dur = 2.4
+        let dur = progressDuration(for: url)
         UploadSequenceEngine.shared.performDrop(uploadDuration: dur)
 
         // Copy to inbox in background — update state when done
@@ -156,6 +173,7 @@ enum FileDropHandler {
             let progStart = Date().addingTimeInterval(preProgress)
             while lastTens < 9 {
                 try? await Task.sleep(nanoseconds: 80_000_000)
+                guard gen == generation else { return }
                 let approxP = min(1.0, max(0, Date().timeIntervalSince(progStart) / dur))
                 let tens = Int(approxP * 10)
                 if tens > lastTens {
@@ -167,6 +185,7 @@ enum FileDropHandler {
 
         // Wait for canvas progress to complete (gulp/shrink phase + upload duration)
         try? await Task.sleep(nanoseconds: UInt64((preProgress + dur) * 1_000_000_000))
+        guard gen == generation else { return }   // a newer drop took over
 
         // Canvas shows checkmark at this point
         SoundEngine.shared.play("approve")
@@ -174,6 +193,7 @@ enum FileDropHandler {
 
         // Wait for grow-back animation + choose overlay settle
         try? await Task.sleep(nanoseconds: UInt64(1_000_000_000))
+        guard gen == generation else { return }
 
         // Clean up upload state
         state.uploadProgress = 0
