@@ -59,6 +59,12 @@ struct IslandViewContent: View {
             #else
             EmptyView()
             #endif
+        case .shelf:
+            #if !APPSTORE
+            ShelfView(state: state)
+            #else
+            EmptyView()
+            #endif
         case .dailyBrief, .weeklyBrief:   // coucou-custom fork: drawn by BriefNotchStage instead
             EmptyView()
         case .routineAlert:   // coucou-custom fork

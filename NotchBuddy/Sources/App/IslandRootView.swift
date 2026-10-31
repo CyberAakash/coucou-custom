@@ -708,6 +708,9 @@ struct IslandContentView: View {
 struct IslandHeader: View {
     @ObservedObject var state: AppState
     @ObservedObject private var live = LiveSessions.shared   // coucou-custom fork
+    #if !APPSTORE
+    @ObservedObject private var shelf = FileShelf.shared     // coucou-custom fork
+    #endif
     @State private var gearHovered  = false
     @State private var soundHovered = false
     @State private var closeHovered = false
@@ -729,6 +732,12 @@ struct IslandHeader: View {
                     #endif
                 })
                 TabButton(icon: "plus", view: .upload, state: state)
+                #if !APPSTORE
+                // The file shelf (coucou-custom fork): full when files wait on it.
+                if FileShelf.enabled {
+                    TabButton(icon: shelf.items.isEmpty ? "tray" : "tray.full.fill", view: .shelf, state: state)
+                }
+                #endif
                 // Sessions (coucou-custom fork): only while an agent session is known.
                 if !live.sessions.isEmpty {
                     TabButton(icon: "rectangle.stack.fill", view: .sessions, state: state)
