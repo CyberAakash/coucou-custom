@@ -963,10 +963,15 @@ struct CompactSideContent: View {
                     #endif
                 } else if !state.islandPlacement.isCorner {
                     // In a corner the tile holds Mochi alone: no room for the mini Mochis.
+                    let hasGrid = !state.gridSlots.isEmpty
                     CompactMiniGrid(state: state)
                         .scaleEffect(IslandRestingLayout(width: islandWidth, height: islandHeight).miniGridScale)
                         .position(x: islandWidth - 40, y: islandHeight / 2)
                         .transition(.opacity)
+                    // coucou-custom fork: the time, at the grid's place when it is empty, else beside it.
+                    CompactClock()
+                        .position(x: islandWidth - (hasGrid ? 78 : 40), y: islandHeight / 2)
+                        .animation(.easeInOut(duration: 0.25), value: hasGrid)
                 }
             }
         }

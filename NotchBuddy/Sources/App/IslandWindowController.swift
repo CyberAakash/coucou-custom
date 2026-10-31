@@ -78,6 +78,8 @@ final class IslandWindowController: NSWindowController {
     // Island-local key monitor (active only when island is key window)
     private var localKeyMonitor: Any?
     private var pageWheelMonitor: Any?                 // coucou-custom fork: the page bar
+    private var fullScreenCheckedAt: TimeInterval = 0  // coucou-custom fork: hide in full screen
+    private var hiddenForFullScreen = false
     private let pageWheel = PageWheel()
 
     convenience init() {
@@ -489,6 +491,30 @@ final class IslandWindowController: NSWindowController {
         if wanted != pollInterval { startPolling(interval: wanted) }
     }
 
+    /// coucou-custom fork: the island steps aside while the front app runs full screen
+    /// (Settings → General), unless a permission or a question waits. Checked twice a second.
+    private func checkFullScreen(panel: IslandPanel) {
+        let now = CACurrentMediaTime()
+        guard now - fullScreenCheckedAt > 0.5 else { return }
+        fullScreenCheckedAt = now
+        let hide = IslandFullScreen.enabled
+            && state.pendingApproval == nil && state.pendingQuestion == nil
+            && IslandFullScreen.frontAppIsFullScreen(on: panel.screen ?? NSScreen.main)
+        if hide {
+            // Something else may have shown the panel again meanwhile (a drag ghost): keep it away.
+            if panel.alphaValue != 0 { panel.alphaValue = 0 }
+        }
+        guard hide != hiddenForFullScreen else { return }
+        hiddenForFullScreen = hide
+        appendAppLog("nb.log", "[Notch] \(hide ? "hidden: \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "an app") is full screen" : "back: no full-screen app in front")")
+        if !hide {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                panel.animator().alphaValue = 1
+            }
+        }
+    }
+
     private func pollFrame() {
         guard let panel = window as? IslandPanel else { return }
 
@@ -518,6 +544,8 @@ final class IslandWindowController: NSWindowController {
         let inIsland = hoverRect.contains(local)
         let peek = placement.isCorner && state.mode == .compact && inIsland
         if state.cornerPeek != peek { state.cornerPeek = peek }
+
+        checkFullScreen(panel: panel)
 
         // Toggle click-through
         let shouldAcceptMouse = inIsland || inAttachDrag || attachDragStart != nil
