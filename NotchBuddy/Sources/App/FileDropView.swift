@@ -68,20 +68,29 @@ enum FileDropHandler {
         let name = url.lastPathComponent
 
         #if !APPSTORE
-        // coucou-custom fork: the shelf keeps every dropped file; set to "keep", or with the
-        // shelf already open, the drop ends there instead of the upload sequence.
+        // coucou-custom fork: with the shelf on, every dropped file lands there (all of them,
+        // not the first alone) and the shelf shows the newest, selected: Ask Claude, Email and
+        // Open take over from upstream's "choose" step. While a permission or a question
+        // waits, or a Finished/Error card is up, the file lands quietly and the tray tab fills.
         if FileShelf.enabled {
+            state.fileDragOver = false
+            UploadSequenceEngine.shared.deactivate()
             FileShelf.shared.add(urls)
-            if FileShelf.dropGoesToShelf || state.view == .shelf {
-                state.fileDragOver = false
-                UploadSequenceEngine.shared.deactivate()
-                NotificationCenter.default.post(name: .botGulp, object: nil)
-                SoundEngine.shared.play("approve")
-                NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
-                NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
-                state.view = .shelf
+            NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
+            if FileShelf.dropsQuietly(state) {
+                appendAppLog("nb.log", "[Shelf] landed quietly (\(state.view.rawValue) is up)")
+                SoundEngine.shared.play("tick")
                 return
             }
+            NotificationCenter.default.post(name: .botGulp, object: nil)
+            SoundEngine.shared.play("approve")
+            NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
+            if state.mode == .expanded {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .shelf }
+            } else {
+                NotificationCenter.default.post(name: .hookExpand, object: IslandView.shelf)
+            }
+            return
         }
         #endif
 

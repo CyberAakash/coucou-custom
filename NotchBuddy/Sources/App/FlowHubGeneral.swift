@@ -19,7 +19,6 @@ struct HubGeneralPage: View {
     @AppStorage(IslandClickOutside.key) private var closesOnClickOutside = true   // coucou-custom fork
     #if !APPSTORE
     @AppStorage(FileShelf.enabledKey) private var shelfEnabled = true             // coucou-custom fork
-    @AppStorage(FileShelf.dropModeKey) private var shelfDropMode = "ask"          // coucou-custom fork
     #endif
     @AppStorage(IslandPages.enabledKey) private var pageBar = true                 // coucou-custom fork
     @AppStorage(IslandFullScreen.enabledKey) private var hideInFullScreen = false   // coucou-custom fork
@@ -257,20 +256,8 @@ struct HubGeneralPage: View {
             HubDivider()
             // coucou-custom fork: the file shelf.
             HubRow(title: "File shelf",
-                   detail: "Files dropped on the notch wait on a shelf (the tray tab) until you drag them out again.") {
+                   detail: "Files dropped on the notch land on a shelf (the tray tab): drag them out, ask Claude about one or email it. Off, a drop asks what to do with the file right away, as before.") {
                 Toggle("", isOn: $shelfEnabled).toggleStyle(.switch).labelsHidden()
-            }
-            if shelfEnabled {
-                HubDivider()
-                HubRow(title: "After a drop",
-                       detail: "Ask what to do with the file (chat, mail), or just keep it on the shelf.") {
-                    Picker("", selection: $shelfDropMode) {
-                        Text("Ask what to do").tag("ask")
-                        Text("Keep on the shelf").tag("shelf")
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                }
             }
             HubDivider()
             #endif

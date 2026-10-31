@@ -757,12 +757,15 @@ struct IslandHeader: View {
                     }
                     #endif
                 })
-                TabButton(icon: "plus", view: .upload, state: state)
                 #if !APPSTORE
-                // The file shelf (coucou-custom fork): full when files wait on it.
+                // The file shelf (coucou-custom fork) takes the "+" tab's place: full when files wait.
                 if FileShelf.enabled {
                     TabButton(icon: shelf.items.isEmpty ? "tray" : "tray.full.fill", view: .shelf, state: state)
+                } else {
+                    TabButton(icon: "plus", view: .upload, state: state)
                 }
+                #else
+                TabButton(icon: "plus", view: .upload, state: state)
                 #endif
                 // Sessions (coucou-custom fork): only while an agent session is known.
                 if !live.sessions.isEmpty {
