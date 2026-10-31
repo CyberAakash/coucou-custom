@@ -21,6 +21,7 @@ enum ShortcutAction: String, CaseIterable, Sendable {
     case talkToCoucou      = "talkToCoucou"       // (unset) — start listening without wake phrase (non-AppStore)
     case captureScreen     = "captureScreen"      // ⌘⇧S — capture a part of the screen for Claude (non-AppStore)
     case closeIsland       = "closeIsland"        // ⌃⌥X — close the open notch (coucou-custom fork)
+    case openClipboard     = "openClipboard"      // ⌘⇧V — open the notch on the clipboard page (coucou-custom fork)
 
     // MARK: UserDefaults keys
 
@@ -54,12 +55,13 @@ enum ShortcutAction: String, CaseIterable, Sendable {
         case .talkToCoucou:      return String(localized: "shortcut.talk-to-coucou")
         case .captureScreen:     return String(localized: "shortcut.capture")
         case .closeIsland:       return String(localized: "shortcut.close-island", defaultValue: "Close the notch")
+        case .openClipboard:     return "Open the clipboard"
         }
     }
 
     /// Whether this action should be omitted from App Store builds.
     var isAppStoreOnly: Bool { false }
-    var isNonAppStore: Bool  { self == .attachFrontWindow || self == .talkToCoucou || self == .captureScreen }
+    var isNonAppStore: Bool  { self == .attachFrontWindow || self == .talkToCoucou || self == .captureScreen || self == .openClipboard }
 
     /// Whether the shortcut is enabled by default.
     /// `toggleIsland` and `talkToCoucou` are off by default; all others are on.
@@ -113,6 +115,7 @@ enum ShortcutLogic {
         .talkToCoucou:      ShortcutSpec(keyCode: 9,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥V (disabled by default)
         .captureScreen:     ShortcutSpec(keyCode: 1,  nsFlags: ShortcutSpec.cmdShift), // ⌘⇧S
         .closeIsland:       ShortcutSpec(keyCode: 7,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥X (fork; Esc-based chords clash with Claude Code)
+        .openClipboard:     ShortcutSpec(keyCode: 9,  nsFlags: ShortcutSpec.cmdShift), // ⌘⇧V (fork)
     ]
 
     // MARK: - Load / save (UserDefaults)

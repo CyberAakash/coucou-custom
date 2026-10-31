@@ -48,18 +48,16 @@ struct HubBuddyPage: View {
             if kind == .buddy {
                 HubBannerSwitch(title: "Show on the desktop", tint: Color(hex: "#F472B6"), isOn: $settings.enabled)
             }
-        }) {
+        }, pinned: {
             BuddySearchField(query: $query)
             BriefSegmented(options: tabs.map { BriefSegmentedOption(value: $0, title: $0.title, symbol: $0.symbol) },
                            selection: Binding(get: { tab }, set: { query = ""; sectionRaw = $0.rawValue }),
                            tint: Self.tint, height: 38)
                 .opacity(searching ? 0.45 : 1)
-
-            if kind == .buddy {
-                HubLabel("Preview")
-                BuddyHeroCard(settings: settings)
-            }
-
+        }, aside: {
+            HubLabel("Preview")
+            BuddyHeroCard(settings: settings)
+        }, showsAside: kind == .buddy) {
             if !BuddySection.allCases.contains(where: shows) {
                 HubEmptyState(text: "No \(kind == .buddy ? "Buddy" : "routine") setting matches “\(query)”.", state: .thinking)
             }

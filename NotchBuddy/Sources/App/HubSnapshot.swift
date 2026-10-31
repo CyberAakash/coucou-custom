@@ -29,7 +29,7 @@ enum HubSnapshot {
         win.contentView = host
         win.orderFrontRegardless()
         window = win
-        for page in [HubPage.general, .agents, .chat, .integrations, .voice, .shortcuts, .pills, .buddy, .runner, .brief] {
+        for page in [HubPage.general, .agents, .chat, .integrations, .voice, .shortcuts, .pills, .buddy, .runner, .brief, .shelf, .clipboard] {
             router.page = page
             try? await Task.sleep(for: .seconds(1.2))
             host.layoutSubtreeIfNeeded()

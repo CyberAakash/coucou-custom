@@ -17,10 +17,12 @@ struct HubRunnerPage: View {
         ZStack(alignment: .bottom) {
             // The page's one banner: its title and its switches.
             HubPageScaffold(title: String(localized: "Menu bar"), subtitle: String(localized: "hub.notch.menubar"),
-                            trailing: { RunnerBanner(settings: settings) }) {
+                            trailing: { RunnerBanner(settings: settings) },
+                            pinned: { EmptyView() },
+                            aside: {
                 HubLabel("Preview")
                 RunnerHeroCard(settings: settings, sampler: sampler)
-
+            }) {
                 HubLabel("Icon")
                 RunnerPickerCard(settings: settings, library: library)
 
@@ -163,8 +165,9 @@ private struct RunnerHeroCard: View {
         let frames = RunnerStatusItem.frames(for: settings.runnerID)
         let speed = RunnerSpeed.speed(load: load, slowerUnderLoad: settings.slowerUnderLoad)
         let shows = settings.unified || settings.enabled
-        HubCard(padding: 20) {
-            HStack(alignment: .center, spacing: 22) {
+        HubCard(padding: 16) {
+            // Stacked: the card stands in the column beside the settings (coucou-custom fork layout).
+            VStack(alignment: .leading, spacing: 14) {
                 VStack(spacing: 12) {
                     RunnerPreview(frames: frames.images, isTemplate: frames.isTemplate,
                                   speed: sampler.running ? speed : 2, flipped: settings.flipped, scale: 3)
@@ -185,6 +188,7 @@ private struct RunnerHeroCard: View {
                     .foregroundColor(HubTheme.text)
                 }
                 .padding(14)
+                .frame(maxWidth: .infinity)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.25)))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
 

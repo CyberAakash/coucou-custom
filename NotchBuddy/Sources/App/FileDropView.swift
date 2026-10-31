@@ -191,6 +191,21 @@ enum FileDropHandler {
         SoundEngine.shared.play("approve")
         NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
 
+        #if !APPSTORE
+        if landsOnShelf {
+            // coucou-custom fork: the tick has shown; before the canvas fades its old "choose"
+            // buttons in, the shelf takes over with the new cards selected and a word of welcome.
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard gen == generation else { return }
+            state.uploadProgress = 0
+            state.uploadStartTime = nil
+            state.promptContext = nil
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .shelf }
+            NotificationCenter.default.post(name: .shelfLanded, object: urls.count)
+            return
+        }
+        #endif
+
         // Wait for grow-back animation + choose overlay settle
         try? await Task.sleep(nanoseconds: UInt64(1_000_000_000))
         guard gen == generation else { return }
@@ -199,15 +214,6 @@ enum FileDropHandler {
         state.uploadProgress = 0
         state.uploadStartTime = nil
 
-        #if !APPSTORE
-        if landsOnShelf {
-            // coucou-custom fork: the file is on the shelf; its actions wait there. The chat
-            // context set above for the choose step is not wanted until Ask Claude is chosen.
-            state.promptContext = nil
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .shelf }
-            return
-        }
-        #endif
         // Switch to choose — canvas stays active (uploadActive covers .choose).
         // Engine deactivates when user clicks a canvas choose button or navigates away.
         state.view = .choose

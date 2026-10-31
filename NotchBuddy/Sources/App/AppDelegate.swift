@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppActivation.installDebugHook()
         AppActivation.installKeyTapHook()
         AppActivation.installExpandHook()
+        KeepSnapshots.install()   // coucou-custom fork: render the Keep pages to PNG, for checking from a terminal
         #endif
         #if !APPSTORE
         // Before anything writes its settings: did Coucou just update itself? (What's new, once.)
@@ -65,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MachineVitals.shared.start()
         #if !APPSTORE
         EventPeeks.shared.start()   // coucou-custom fork: charger, network, sound output, Caps Lock, keyboard peeks
+        ClipboardStore.shared.start()   // coucou-custom fork: the clipboard history
         #endif
         #if !APPSTORE
         // Opened by hand (Finder, Dock, Spotlight): the Coucou window shows. Not at login.

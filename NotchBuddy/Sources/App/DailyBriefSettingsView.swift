@@ -22,20 +22,20 @@ struct HubDailyBriefPage: View {
     var body: some View {
         // The page's one banner: its title, and the two switches beside it.
         HubPageScaffold(title: String(localized: "Briefs"), subtitle: String(localized: "hub.notch.briefs"),
-                        trailing: { BriefsBanner() }) {
+                        trailing: { BriefsBanner() },
+                        pinned: {
             BriefSegmented(options: BriefsTab.allCases.map {
                 BriefSegmentedOption(value: $0, title: $0.title, symbol: $0 == .daily ? "sun.max.fill" : "calendar")
             }, selection: Binding(get: { tab }, set: { tabRaw = $0.rawValue }), tint: tab.tint, height: 38)
-            Group {
-                VStack(alignment: .leading, spacing: 12) {
-                    HubLabel("Preview")
-                    BriefSettingsPreview(tab: tab)
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    switch tab {
-                    case .daily: dailyTab
-                    case .weekly: weeklyTab
-                    }
+        }, aside: {
+            HubLabel("Preview")
+            BriefSettingsPreview(tab: tab)
+                .id(tab)
+        }, asideWidth: 400) {
+            VStack(alignment: .leading, spacing: 12) {
+                switch tab {
+                case .daily: dailyTab
+                case .weekly: weeklyTab
                 }
             }
             .id(tab)
@@ -356,16 +356,15 @@ private struct BriefSettingsPreview: View {
 
     var body: some View {
         HubCard {
+            // Stacked: the preview stands in the column beside the settings (coucou-custom fork layout).
+            BriefSegmented(options: HubDailyBriefPage.places, selection: Binding(get: { shown }, set: { place = $0 }), tint: tab.tint)
             HStack(spacing: 8) {
-                BriefSegmented(options: HubDailyBriefPage.places, selection: Binding(get: { shown }, set: { place = $0 }), tint: tab.tint)
-                    .frame(width: 300)
                 if shown == .notch {
                     Button { replay() } label: { Image(systemName: "arrow.counterclockwise") }
                         .buttonStyle(HubButtonStyle()).help("Play it again")
                 }
-                Spacer()
-                Button("Try in the notch") { open(.notch) }.buttonStyle(HubButtonStyle(primary: shown == .notch))
-                Button("Try full screen") { open(.fullScreen) }.buttonStyle(HubButtonStyle(primary: shown == .fullScreen))
+                Spacer(minLength: 0)
+                Button(shown == .notch ? "Try in the notch" : "Try full screen") { open(shown) }.buttonStyle(HubButtonStyle(primary: true))
             }
             ZStack {
                 if shown == .notch { notch.transition(.opacity) } else { fullScreen.transition(.opacity) }
