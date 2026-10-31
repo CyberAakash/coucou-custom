@@ -152,6 +152,8 @@ final class IslandWindowController: NSWindowController {
                     return
                 }
                 #if !APPSTORE
+                // coucou-custom fork: a shelf file dragged around and back: nothing changes.
+                if FileShelf.shared.dragging { return }
                 // coucou-custom fork: a drop that goes straight to the shelf shows the shelf.
                 if FileShelf.enabled && (FileShelf.dropGoesToShelf || AppState.shared.view == .shelf) {
                     NotificationCenter.default.post(name: .hookExpand, object: IslandView.shelf)
@@ -183,6 +185,16 @@ final class IslandWindowController: NSWindowController {
         dropView.onFilesDropped = { [weak self] urls in
             Task { @MainActor in
                 #if !APPSTORE
+                // coucou-custom fork: the shelf's own file dropped back on the island: no upload,
+                // no second copy. Any other drop ends the shelf drag too.
+                let ownDrag = FileShelf.shared.isOwnDrag(urls)
+                FileShelf.shared.endDrag()
+                if ownDrag {
+                    AppState.shared.fileDragOver = false
+                    NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
+                    appendAppLog("nb.log", "[Shelf] own file dropped back, left alone")
+                    return
+                }
                 // During the voice email (above all after "any attachment?"), a file
                 // dropped on the notch goes into that email.
                 if VoiceActionRunner.shared.isMailInProgress, let url = urls.first {

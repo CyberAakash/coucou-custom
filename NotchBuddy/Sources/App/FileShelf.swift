@@ -36,6 +36,8 @@ final class FileShelf: ObservableObject {
     /// A file is being dragged out: the island stays open for the drag (fsm.isHeldOpen).
     @Published var dragging = false
     private var dragReset: DispatchWorkItem?
+    /// The file of the drag in progress: dropped back on the island, it is left alone.
+    private(set) var draggedPath: String?
 
     private static var file: URL { HookServer.supportDir.appendingPathComponent("shelf.json") }
 
@@ -62,13 +64,27 @@ final class FileShelf: ObservableObject {
     }
 
     /// Called from the item's onDrag: holds the island open while the drag lasts.
-    func beginDrag() {
+    func beginDrag(_ item: ShelfItem) {
         dragging = true
+        draggedPath = item.path
         dragReset?.cancel()
-        let reset = DispatchWorkItem { [weak self] in self?.dragging = false }
+        let reset = DispatchWorkItem { [weak self] in self?.endDrag() }
         dragReset = reset
         // A drag ends with no callback here; a few seconds covers the drop in another app.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: reset)
+    }
+
+    func endDrag() {
+        dragReset?.cancel()
+        dragging = false
+        draggedPath = nil
+    }
+
+    /// True when these are the shelf's own file coming back from a drag that started on it:
+    /// nothing to upload, nothing to copy, the shelf already has it.
+    func isOwnDrag(_ urls: [URL]) -> Bool {
+        guard dragging, let draggedPath else { return false }
+        return !urls.isEmpty && urls.allSatisfy { $0.standardizedFileURL.path == draggedPath }
     }
 
     private func set(_ next: [ShelfItem]) {
@@ -173,7 +189,7 @@ private struct ShelfItemView: View {
         .onHover { hovered = $0 }
         .onTapGesture(count: 2) { NSWorkspace.shared.open(item.url) }
         .onDrag {
-            FileShelf.shared.beginDrag()
+            FileShelf.shared.beginDrag(item)
             return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
         }
         .contextMenu {
