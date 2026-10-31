@@ -18,7 +18,6 @@ struct HubGeneralPage: View {
     @AppStorage(NotchAlertRules.ambientKey) private var ambientPulse = true
     @AppStorage(IslandClickOutside.key) private var closesOnClickOutside = true   // coucou-custom fork
     #if !APPSTORE
-    @AppStorage(FileShelf.enabledKey) private var shelfEnabled = true             // coucou-custom fork
     #endif
     @AppStorage(IslandPages.enabledKey) private var pageBar = true                 // coucou-custom fork
     @AppStorage(IslandFullScreen.enabledKey) private var hideInFullScreen = false   // coucou-custom fork
@@ -252,12 +251,6 @@ struct HubGeneralPage: View {
             HubRow(title: "Lyrics while music plays",
                    detail: "The Spotify and Apple Music cards show the line being sung, from LRCLIB (lrclib.net), in place of the artist.") {
                 Toggle("", isOn: $lyricsEnabled).toggleStyle(.switch).labelsHidden()
-            }
-            HubDivider()
-            // coucou-custom fork: the file shelf.
-            HubRow(title: "File shelf",
-                   detail: "Files dropped on the notch land on a shelf (the tray tab): drag them out, ask Claude about one or email it. Off, a drop asks what to do with the file right away, as before.") {
-                Toggle("", isOn: $shelfEnabled).toggleStyle(.switch).labelsHidden()
             }
             HubDivider()
             #endif
