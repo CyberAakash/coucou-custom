@@ -22,6 +22,9 @@ struct HubGeneralPage: View {
     @AppStorage(FileShelf.dropModeKey) private var shelfDropMode = "ask"          // coucou-custom fork
     #endif
     @AppStorage(IslandPages.enabledKey) private var pageBar = true                 // coucou-custom fork
+    @AppStorage(IslandFullScreen.enabledKey) private var hideInFullScreen = false   // coucou-custom fork
+    @AppStorage(IslandClock.enabledKey) private var notchClock = false              // coucou-custom fork
+    @AppStorage(IslandClock.secondsKey) private var notchClockSeconds = false       // coucou-custom fork
     #if !APPSTORE
     @AppStorage(EventPeeks.powerKey) private var peekPower = true                  // coucou-custom fork
     @AppStorage(EventPeeks.networkKey) private var peekNetwork = true              // coucou-custom fork
@@ -191,6 +194,22 @@ struct HubGeneralPage: View {
             HubRow(title: "Close on a click outside",
                    detail: "Folds the open notch when you click anywhere else; never while a permission or a question waits.") {
                 Toggle("", isOn: $closesOnClickOutside).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            // coucou-custom fork: full screen and the clock.
+            HubRow(title: "Hide in full screen",
+                   detail: "Mochi steps aside while the app in front runs full screen (a film, a game); a permission or a question still shows.") {
+                Toggle("", isOn: $hideInFullScreen).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            HubRow(title: "Time in the notch",
+                   detail: "The clock on the resting notch's right wing, beside the mini Mochis.") {
+                HStack(spacing: 10) {
+                    if notchClock {
+                        Toggle("Seconds", isOn: $notchClockSeconds).toggleStyle(.checkbox).font(.system(size: 12))
+                    }
+                    Toggle("", isOn: $notchClock).toggleStyle(.switch).labelsHidden()
+                }
             }
             HubDivider()
             // coucou-custom fork: the page bar.
