@@ -4752,6 +4752,7 @@ struct MusicControlButton: View {
 struct MusicCardView: View {
     @ObservedObject private var controller = MusicController.shared
     @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var lyrics = LyricsModel.shared   // coucou-custom fork
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -4799,8 +4800,15 @@ struct MusicCardView: View {
                 .padding(.top, 6)
                 .padding(.leading, 108)
 
-                // Line 2: artist
-                if let artist = controller.artist {
+                // Line 2: artist (coucou-custom fork: the line being sung while it plays)
+                if lyrics.status == .found && appState.musicPlaying {
+                    TimelineView(.animation(minimumInterval: 0.25, paused: !appState.musicPlaying)) { context in
+                        LyricsLineView(position: controller.position(at: context.date), accent: Color(hex: "#FDB4BF"))
+                    }
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .padding(.leading, 108)
+                    .help(controller.artist ?? "")
+                } else if let artist = controller.artist {
                     Text(artist)
                         .font(.system(size: 11))
                         .foregroundColor(Color(hex: "#8E939C"))
@@ -4836,6 +4844,8 @@ struct MusicCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.top, 4)
+        // Music announces no seeks: re-read the position when the card shows (coucou-custom fork).
+        .onAppear { controller.refreshPosition() }
     }
 }
 #endif

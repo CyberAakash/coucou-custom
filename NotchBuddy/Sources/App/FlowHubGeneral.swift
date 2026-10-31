@@ -28,6 +28,7 @@ struct HubGeneralPage: View {
     @AppStorage(EventPeeks.audioKey) private var peekAudio = true                  // coucou-custom fork
     @AppStorage(EventPeeks.capsLockKey) private var peekCapsLock = true            // coucou-custom fork
     @AppStorage(EventPeeks.inputSourceKey) private var peekInputSource = true      // coucou-custom fork
+    @AppStorage(LyricsModel.enabledKey) private var lyricsEnabled = true           // coucou-custom fork
     #endif
     @AppStorage(IslandPages.wheelKey) private var pageWheel = true                 // coucou-custom fork
     @AppStorage(NotchAlertRules.openWhenTerminalInFrontKey) private var openWhenTerminalInFront = true
@@ -206,6 +207,12 @@ struct HubGeneralPage: View {
             }
             HubDivider()
             #if !APPSTORE
+            // coucou-custom fork: synced lyrics.
+            HubRow(title: "Lyrics while music plays",
+                   detail: "The Spotify and Apple Music cards show the line being sung, from LRCLIB (lrclib.net), in place of the artist.") {
+                Toggle("", isOn: $lyricsEnabled).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
             // coucou-custom fork: the file shelf.
             HubRow(title: "File shelf",
                    detail: "Files dropped on the notch wait on a shelf (the tray tab) until you drag them out again.") {

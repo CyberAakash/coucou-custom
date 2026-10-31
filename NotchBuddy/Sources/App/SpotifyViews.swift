@@ -84,6 +84,7 @@ struct SpotifyPill: View {
 
 struct SpotifyCardView: View {
     @ObservedObject private var controller = SpotifyController.shared
+    @ObservedObject private var lyrics = LyricsModel.shared   // coucou-custom fork
 
     private let green = Color(hex: SpotifyController.green)
 
@@ -123,7 +124,13 @@ struct SpotifyCardView: View {
                             .foregroundColor(Color(hex: "#F5F6F8"))
                             .lineLimit(1).truncationMode(.tail)
                     }
-                    if !subtitle.isEmpty {
+                    // coucou-custom fork: the line being sung takes the subtitle's place.
+                    if lyrics.status == .found && controller.isPlaying && !track.isAd {
+                        TimelineView(.animation(minimumInterval: 0.25, paused: !controller.isPlaying)) { context in
+                            LyricsLineView(position: controller.position(at: context.date), accent: Color(hex: "#C9F7D8"))
+                        }
+                        .help(subtitle)
+                    } else if !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.system(size: 11))
                             .foregroundColor(Color(hex: "#8E939C"))
