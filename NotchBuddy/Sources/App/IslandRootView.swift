@@ -275,6 +275,15 @@ struct IslandContainer: View {
             withAnimation(openSpring) { islandHeight = chatPromptHeight }
         }
         // coucou-custom fork: a brief went from its pill to its card (GitHub build only).
+        // coucou-custom fork: Settings changed the resting size: a resting island follows.
+        .onReceive(NotificationCenter.default.publisher(for: IslandRestingStyle.changed)) { _ in
+            guard state.mode == .compact else { return }
+            let (w, h) = islandSize(mode: .compact, view: state.view, nw: state.notchWidth, nh: state.notchHeight)
+            withAnimation(openSpring) {
+                islandWidth = w
+                islandHeight = h
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .islandBriefFit)) { _ in
             #if !APPSTORE
             guard state.mode == .expanded,
@@ -552,7 +561,7 @@ func botPosition(mode: IslandMode, view: IslandView, islandW: CGFloat, islandH: 
     case .hidden:
         return hasNotch ? (46, 16, 6, 0)
             : (islandW / 2, resting.botCenterY, resting.botDiameter, 1)
-    case .compact: return (40, resting.botCenterY, resting.botDiameter, 1)
+    case .compact: return (IslandRestingStyle.mochiX, resting.botCenterY, resting.botDiameter, 1)
     case .expanded:
         let layout = IslandConst.viewLayouts[view]!
         let diameter = layout.botDiameter
@@ -956,22 +965,28 @@ struct CompactSideContent: View {
             if state.mode == .compact {
                 if showsWaves {
                     #if !APPSTORE
+                    // The waves fill the right wing, whatever its width (IslandRestingStyle).
+                    let wing = IslandRestingStyle.wing
                     VoiceWaveView(compact: true)
-                        .frame(width: 112, height: 24)
-                        .position(x: islandWidth - 66, y: islandHeight / 2)
+                        .frame(width: min(112, max(40, wing * 2 - 48)), height: 24)
+                        .position(x: islandWidth - wing / 2 - 26, y: islandHeight / 2)
                         .transition(.opacity)
                     #endif
                 } else if !state.islandPlacement.isCorner {
                     // In a corner the tile holds Mochi alone: no room for the mini Mochis.
                     let hasGrid = !state.gridSlots.isEmpty
+                    let inset = IslandRestingStyle.gridInset
                     CompactMiniGrid(state: state)
                         .scaleEffect(IslandRestingLayout(width: islandWidth, height: islandHeight).miniGridScale)
-                        .position(x: islandWidth - 40, y: islandHeight / 2)
+                        .position(x: islandWidth - inset, y: islandHeight / 2)
                         .transition(.opacity)
-                    // coucou-custom fork: the time, at the grid's place when it is empty, else beside it.
-                    CompactClock()
-                        .position(x: islandWidth - (hasGrid ? 78 : 40), y: islandHeight / 2)
-                        .animation(.easeInOut(duration: 0.25), value: hasGrid)
+                    // coucou-custom fork: the time, at the grid's place when it is empty, else beside it
+                    // (a minimal wing has room for one of the two).
+                    if !hasGrid || IslandRestingStyle.wing >= CGFloat(IslandRestingStyle.Wing.standard.rawValue) {
+                        CompactClock()
+                            .position(x: islandWidth - (hasGrid ? inset + 38 : inset), y: islandHeight / 2)
+                            .animation(.easeInOut(duration: 0.25), value: hasGrid)
+                    }
                 }
             }
         }

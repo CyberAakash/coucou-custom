@@ -23,6 +23,8 @@ struct HubGeneralPage: View {
     #endif
     @AppStorage(IslandPages.enabledKey) private var pageBar = true                 // coucou-custom fork
     @AppStorage(IslandFullScreen.enabledKey) private var hideInFullScreen = false   // coucou-custom fork
+    @AppStorage(IslandRestingStyle.wingKey) private var restingWing = IslandRestingStyle.Wing.standard.rawValue   // coucou-custom fork
+    @AppStorage(IslandRestingStyle.extraHeightKey) private var restingExtraHeight = 0                            // coucou-custom fork
     @AppStorage(IslandClock.enabledKey) private var notchClock = false              // coucou-custom fork
     @AppStorage(IslandClock.secondsKey) private var notchClockSeconds = false       // coucou-custom fork
     #if !APPSTORE
@@ -194,6 +196,27 @@ struct HubGeneralPage: View {
             HubRow(title: "Close on a click outside",
                    detail: "Folds the open notch when you click anywhere else; never while a permission or a question waits.") {
                 Toggle("", isOn: $closesOnClickOutside).toggleStyle(.switch).labelsHidden()
+            }
+            HubDivider()
+            // coucou-custom fork: the resting notch's size.
+            HubRow(title: "Resting notch",
+                   detail: "How far the resting island reaches past the notch: minimal keeps just Mochi and one mini Mochi or the clock.") {
+                Picker("", selection: $restingWing) {
+                    ForEach(IslandRestingStyle.Wing.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: restingWing) { _, _ in NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil) }
+            }
+            HubDivider()
+            HubRow(title: "Resting height",
+                   detail: "Flush with the notch, or standing a little below it, so Mochi has more room.") {
+                Picker("", selection: $restingExtraHeight) {
+                    ForEach(IslandRestingStyle.ExtraHeight.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: restingExtraHeight) { _, _ in NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil) }
             }
             HubDivider()
             // coucou-custom fork: full screen and the clock.
