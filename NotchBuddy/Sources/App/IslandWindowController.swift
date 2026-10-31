@@ -77,6 +77,8 @@ final class IslandWindowController: NSWindowController {
 
     // Island-local key monitor (active only when island is key window)
     private var localKeyMonitor: Any?
+    private var pageWheelMonitor: Any?                 // coucou-custom fork: the page bar
+    private let pageWheel = PageWheel()
 
     convenience init() {
         let screen = Self.targetScreen(for: AppState.shared.islandDisplay)
@@ -203,6 +205,7 @@ final class IslandWindowController: NSWindowController {
         observeScreenForPolling()
         startKeyMonitor()
         startLocalKeyMonitor()
+        startPageWheelMonitor()
         startHotKeys()
         wireFSM()
         #if !APPSTORE
@@ -876,10 +879,21 @@ final class IslandWindowController: NSWindowController {
         }
     }
 
+    /// coucou-custom fork: a sideways swipe (or the wheel on the home page) turns the page.
+    private func startPageWheelMonitor() {
+        pageWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, event.window === self.islandPanel else { return event }
+            return self.pageWheel.handle(event, state: self.state) ? nil : event
+        }
+    }
+
     @discardableResult
     private func handleIslandKey(_ event: NSEvent) -> Bool {
         let raw = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let cmd = raw == .command
+
+        // ← → — the page bar (coucou-custom fork)
+        if IslandPages.handleKey(event, state: state) { return true }
 
         // ⌘⇧→ / ⌘⇧← — next / previous session of the focused pill (coucou-custom fork)
         if raw == [.command, .shift], event.keyCode == 124 || event.keyCode == 123,

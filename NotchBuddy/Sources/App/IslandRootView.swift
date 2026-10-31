@@ -694,6 +694,14 @@ struct IslandContentView: View {
         }
         .padding(.top, 8)
         .padding(.bottom, 10)
+        // coucou-custom fork: the page dots sit in the bottom padding, no height taken.
+        .overlay(alignment: .bottom) {
+            if IslandPages.showsBar(state) {
+                PageBar(state: state)
+                    .padding(.bottom, 3)
+                    .transition(.opacity)
+            }
+        }
         .foregroundColor(Color(hex: "#F5F6F8"))
         .onReceive(NotificationCenter.default.publisher(for: .islandResize)) { _ in
             let extra = max(0, (MailLayout.detailHeight ?? 160) - 160)
