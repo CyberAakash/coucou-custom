@@ -117,13 +117,14 @@ struct BuddyWaterCard: View {
                     Text(routines.waterToday >= plan.goal ? "Goal reached. Nice!"
                          : "\(BuddyWater.amount(plan.goal - routines.waterToday)) to go, about \(Int(ceil(Double(plan.goal - routines.waterToday) / Double(max(1, plan.glass))))) glasses.")
                         .font(.system(size: 12)).foregroundColor(HubTheme.secondary)
+                    BuddyWaterNextLine(settings: settings, routines: routines)   // coucou-custom fork
                 }
                 Spacer(minLength: 8)
                 BuddyWaterWeek(days: settings.waterLog.history(7, upTo: .now), goal: plan.goal)
             }
             HubDivider()
             HubRow(title: "Water reminder", detail: settings.waterEnabled
-                   ? "A gentle nudge, only while you are at the Mac\(plan.stopAtGoal ? ", until the goal" : "")\(routines.nextWaterNudge.map { ". Next at \($0.formatted(date: .omitted, time: .shortened))" } ?? "")."
+                   ? "A gentle nudge, only while you are at the Mac\(plan.stopAtGoal ? ", until the goal" : ""). The next one is counted down above."
                    : "A gentle nudge to take a water break, and a glass logged in one click.") {
                 BriefSwitch(isOn: $settings.waterEnabled, tint: HubBuddyPage.tint)
             }
@@ -159,6 +160,24 @@ struct BuddyWaterCard: View {
             HubDivider()
             HubRow(title: "Stop once the goal is reached", detail: "No more nudges that day.") {
                 BriefSwitch(isOn: $settings.waterPlan.stopAtGoal, tint: HubBuddyPage.tint)
+            }
+        }
+    }
+}
+
+/// The countdown to the next nudge, or why it waits (coucou-custom fork): refreshed every
+/// 20 s, and at once when the controller moves it.
+struct BuddyWaterNextLine: View {
+    @ObservedObject var settings: BuddyRoutineSettings
+    @ObservedObject var routines: BuddyRoutineController
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 20)) { ctx in
+            let text = BuddyWater.nextNudgeText(next: routines.nextWaterNudge, now: ctx.date, enabled: settings.waterEnabled,
+                                                plan: settings.waterPlan, today: routines.waterToday)
+            HStack(spacing: 6) {
+                Image(systemName: "clock").font(.system(size: 11)).foregroundColor(HubBuddyPage.tint)
+                Text(verbatim: text).font(.system(size: 12, weight: .medium)).foregroundColor(HubTheme.text)
             }
         }
     }

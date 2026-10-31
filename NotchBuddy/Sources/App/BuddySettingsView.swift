@@ -9,34 +9,59 @@ struct HubBuddyPage: View {
     /// The page's colour: its banner, tabs, switches and choices.
     static let tint = Color(hex: "#F472B6")
 
+    /// One view, two pages (coucou-custom fork): the Buddy itself, and Routines (water, focus,
+    /// reminders, timers, breathing), which used to be two of its tabs and are not about the pet.
+    enum Kind { case buddy, routines }
+    let kind: Kind
+
+    init(_ kind: Kind = .buddy) {
+        self.kind = kind
+        _sectionRaw = AppStorage(wrappedValue: (kind == .buddy ? BuddySection.look : .routines).rawValue,
+                                 kind == .buddy ? "buddySettingsSection" : "routinesSettingsSection")
+    }
+
     @ObservedObject private var settings = BuddySettings.shared
     @ObservedObject private var routineSettings = BuddyRoutineSettings.shared
-    /// The tab shown; a search shows what matches in every tab.
-    @AppStorage("buddySettingsSection") private var sectionRaw = BuddySection.look.rawValue
+    /// The tab shown; a search shows what matches in every tab of this page.
+    @AppStorage private var sectionRaw: String
     @State private var query = ""
 
-    private var tab: BuddySection { BuddySection(rawValue: sectionRaw) ?? .look }
+    private var tabs: [BuddySection] { BuddySection.tabs(for: kind) }
+    private var tab: BuddySection {
+        let t = BuddySection(rawValue: sectionRaw) ?? tabs[0]
+        return tabs.contains(t) ? t : tabs[0]
+    }
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func shows(_ s: BuddySection) -> Bool {
-        searching ? s.matches(query) : (s == tab || (tab == .behaviour && s == .moving))
+        let onPage = tabs.contains(s) || (kind == .buddy && s == .moving)
+        guard onPage else { return false }
+        return searching ? s.matches(query) : (s == tab || (tab == .behaviour && s == .moving))
     }
 
     var body: some View {
-        // The page's one banner: its title and its switch.
-        HubPageScaffold(title: String(localized: "Buddy"), subtitle: String(localized: "hub.notch.buddy"),
-                        trailing: { HubBannerSwitch(title: "Show on the desktop", tint: Color(hex: "#F472B6"), isOn: $settings.enabled) }) {
+        // The page's one banner: its title and, for the Buddy, its switch.
+        HubPageScaffold(title: kind == .buddy ? String(localized: "Buddy") : String(localized: "Routines"),
+                        subtitle: kind == .buddy ? String(localized: "hub.notch.buddy")
+                                                 : String(localized: "hub.notch.routines", defaultValue: "Water, focus sessions, reminders, timers and breathing: what they do and where they show."),
+                        trailing: {
+            if kind == .buddy {
+                HubBannerSwitch(title: "Show on the desktop", tint: Color(hex: "#F472B6"), isOn: $settings.enabled)
+            }
+        }) {
             BuddySearchField(query: $query)
-            BriefSegmented(options: BuddySection.tabs.map { BriefSegmentedOption(value: $0, title: $0.title, symbol: $0.symbol) },
+            BriefSegmented(options: tabs.map { BriefSegmentedOption(value: $0, title: $0.title, symbol: $0.symbol) },
                            selection: Binding(get: { tab }, set: { query = ""; sectionRaw = $0.rawValue }),
                            tint: Self.tint, height: 38)
                 .opacity(searching ? 0.45 : 1)
 
-            HubLabel("Preview")
-            BuddyHeroCard(settings: settings)
+            if kind == .buddy {
+                HubLabel("Preview")
+                BuddyHeroCard(settings: settings)
+            }
 
             if !BuddySection.allCases.contains(where: shows) {
-                HubEmptyState(text: "No Buddy setting matches “\(query)”.", state: .thinking)
+                HubEmptyState(text: "No \(kind == .buddy ? "Buddy" : "routine") setting matches “\(query)”.", state: .thinking)
             }
 
             if shows(.look) {
@@ -401,8 +426,14 @@ enum BuddySection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// The tabs: Moving it around shows under Behaviour.
-    static let tabs: [BuddySection] = [.look, .wardrobe, .routines, .water, .assistant, .behaviour, .clicks]
+    /// The tabs of each page: Moving it around shows under Behaviour; Routines and Water have
+    /// their own page (coucou-custom fork).
+    static func tabs(for kind: HubBuddyPage.Kind) -> [BuddySection] {
+        switch kind {
+        case .buddy: return [.look, .wardrobe, .assistant, .behaviour, .clicks]
+        case .routines: return [.routines, .water]
+        }
+    }
 
     var title: String {
         switch self {

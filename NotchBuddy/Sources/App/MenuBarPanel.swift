@@ -803,8 +803,11 @@ private struct PanelWater: View {
     }
 
     private var nudge: String? {
-        guard settings.waterEnabled, let next = routines.nextWaterNudge else { return nil }
-        return "next nudge \(next.formatted(.dateTime.hour().minute()))"
+        guard settings.waterEnabled else { return nil }
+        // The same line as Settings → Routines → Water (coucou-custom fork).
+        let t = BuddyWater.nextNudgeText(next: routines.nextWaterNudge, now: .now, enabled: true,
+                                         plan: settings.waterPlan, today: routines.waterToday)
+        return t.hasSuffix(".") ? String(t.dropLast()).lowercased() : t.lowercased()
     }
 
     private func log(_ ml: Int) {

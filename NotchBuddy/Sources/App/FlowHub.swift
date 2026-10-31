@@ -8,19 +8,20 @@ enum HubPage: String, CaseIterable, Identifiable {
     case dictation, notes, insights, dictionary, snippets, styles, settings
     case general, pills, agents, chat, integrations, voice, shortcuts
     case buddy   // coucou-custom fork: Settings → Buddy
+    case routines   // coucou-custom fork: Settings → Routines (water, focus, reminders, timers, breathing)
     case runner  // coucou-custom fork: Settings → Menu bar (the one menu-bar item, its icon, panel, Custom Metrics)
     case brief   // coucou-custom fork: Settings → Daily brief
 
     var id: String { rawValue }
 
     static let flowPages: [HubPage] = [.dictation, .notes, .insights, .dictionary, .snippets, .styles, .settings]
-    static let notchPages: [HubPage] = [.general, .pills, .agents, .chat, .integrations, .voice, .shortcuts, .buddy, .runner, .brief]
+    static let notchPages: [HubPage] = [.general, .pills, .agents, .chat, .integrations, .voice, .shortcuts, .buddy, .routines, .runner, .brief]
 
     /// coucou-custom fork: the sidebar's groups, in their order — the notch first, then what lives
     /// on the desktop and in the menu bar, what Coucou connects to, then Flow.
     static let sidebarGroups: [(title: String, pages: [HubPage])] = [
         (String(localized: "hub.section.notch"), [.general, .agents, .chat, .voice, .shortcuts]),
-        ("Desktop", [.buddy, .runner, .brief]),
+        ("Desktop", [.buddy, .routines, .runner, .brief]),
         ("Connections", [.pills, .integrations]),
         ("Flow", [.dictation, .notes, .dictionary, .snippets, .styles, .insights, .settings]),
     ]
@@ -36,6 +37,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .voice:        return "voice"
         case .shortcuts:    return "shortcuts"
         case .buddy:        return "buddy"
+        case .routines:     return "routines"
         case .runner:       return "runner"
         case .brief:        return "brief"
         default:            return nil
@@ -57,6 +59,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .voice:        return String(localized: "Voice")
         case .shortcuts:    return String(localized: "Shortcuts")
         case .buddy:        return String(localized: "Buddy")
+        case .routines:     return String(localized: "Routines")
         case .runner:       return String(localized: "Menu bar")
         case .brief:        return String(localized: "Briefs")
         case .dictation:  return String(localized: "hub.page.dictation")
@@ -86,6 +89,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .voice:        return "waveform"
         case .shortcuts:    return "keyboard"
         case .buddy:        return "pawprint"
+        case .routines:     return "checklist"
         case .runner:       return "menubar.rectangle"
         case .brief:        return "sun.horizon"
         }
@@ -260,6 +264,7 @@ struct FlowHubView: View {
         case .styles:     HubStylesPage(router: router)
         case .settings:   HubSettingsPage()
         case .buddy:      HubBuddyPage()   // coucou-custom fork
+        case .routines:   HubBuddyPage(.routines)   // coucou-custom fork
         case .runner:     HubRunnerPage()  // coucou-custom fork
         case .brief:      HubDailyBriefPage()   // coucou-custom fork
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
