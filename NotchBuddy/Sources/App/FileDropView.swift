@@ -72,26 +72,22 @@ enum FileDropHandler {
         // not the first alone) and the shelf shows the newest, selected: Ask Claude, Email and
         // Open take over from upstream's "choose" step. While a permission or a question
         // waits, or a Finished/Error card is up, the file lands quietly and the tray tab fills.
-        if FileShelf.enabled {
-            state.fileDragOver = false
-            UploadSequenceEngine.shared.deactivate()
+        let landsOnShelf = FileShelf.enabled
+        if landsOnShelf {
             FileShelf.shared.add(urls)
-            NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
             if FileShelf.dropsQuietly(state) {
+                state.fileDragOver = false
+                UploadSequenceEngine.shared.deactivate()
+                NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
                 appendAppLog("nb.log", "[Shelf] landed quietly (\(state.view.rawValue) is up)")
                 SoundEngine.shared.play("tick")
                 return
             }
-            NotificationCenter.default.post(name: .botGulp, object: nil)
-            SoundEngine.shared.play("approve")
-            NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
-            if state.mode == .expanded {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .shelf }
-            } else {
-                NotificationCenter.default.post(name: .hookExpand, object: IslandView.shelf)
-            }
-            return
+            // Otherwise the upload canvas plays through (gulp, progress, Mochi back) and the
+            // sequence below ends on the shelf instead of the "choose" step.
         }
+        #else
+        let landsOnShelf = false
         #endif
 
         // Start animation immediately — do NOT block on file copy.
@@ -183,6 +179,15 @@ enum FileDropHandler {
         state.uploadProgress = 0
         state.uploadStartTime = nil
 
+        #if !APPSTORE
+        if landsOnShelf {
+            // coucou-custom fork: the file is on the shelf; its actions wait there. The chat
+            // context set above for the choose step is not wanted until Ask Claude is chosen.
+            state.promptContext = nil
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .shelf }
+            return
+        }
+        #endif
         // Switch to choose — canvas stays active (uploadActive covers .choose).
         // Engine deactivates when user clicks a canvas choose button or navigates away.
         state.view = .choose

@@ -154,12 +154,10 @@ final class IslandWindowController: NSWindowController {
                 #if !APPSTORE
                 // coucou-custom fork: a shelf file dragged around and back: nothing changes.
                 if FileShelf.shared.dragging { return }
-                // coucou-custom fork: with the shelf on, a file over the notch opens the shelf,
-                // where it will land; quietly (no change) while something waits in the notch.
-                if FileShelf.enabled {
-                    if !FileShelf.dropsQuietly(AppState.shared) {
-                        NotificationCenter.default.post(name: .hookExpand, object: IslandView.shelf)
-                    }
+                // coucou-custom fork: while a permission or a question waits, a file over the
+                // notch changes nothing; it will land on the shelf quietly. Otherwise upstream's
+                // upload canvas plays (Mochi grows to take the file), and the drop lands on the shelf.
+                if FileShelf.enabled && FileShelf.dropsQuietly(AppState.shared) {
                     NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(1))
                     return
                 }
