@@ -5,9 +5,11 @@ import UniformTypeIdentifiers
 
 // MARK: - File shelf (coucou-custom fork)
 //
-// Files dropped on the notch wait on a shelf (after Nusa's shelf): a row of icons in the
-// island, dragged back out into Finder, a mail or any app. The shelf keeps the files where
-// they are (paths, not copies): a file that moved or went is dropped from the shelf on load.
+// Files dropped on the notch land on a shelf (after Nusa's shelf): a row of icons in the
+// island, dragged back out into Finder, a mail or any app, or sent on from there (Ask Claude,
+// Send by email, Open). The shelf keeps the files where they are (paths, not copies): a file
+// that moved or went is dropped from the shelf on load. With the shelf off, a drop runs
+// upstream's upload sequence (gulp, progress bar, "what to do with it") as before.
 
 struct ShelfItem: Identifiable, Codable, Equatable {
     let id: UUID
@@ -22,17 +24,15 @@ struct ShelfItem: Identifiable, Codable, Equatable {
 final class FileShelf: ObservableObject {
     static let shared = FileShelf()
 
-    /// Settings → General → "File shelf" (default on) and "After a drop".
+    /// Settings → General → "File shelf" (default on).
     static let enabledKey = "coucouShelfEnabled"
-    static let dropModeKey = "coucouShelfDropMode"
     static let maxItems = 12
 
     static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
-    /// "shelf": a drop lands on the shelf and the island shows it; "ask" (default): the
-    /// upload sequence runs as before, the shelf keeps the file as well.
-    static var dropGoesToShelf: Bool { UserDefaults.standard.string(forKey: dropModeKey) == "shelf" }
 
     @Published private(set) var items: [ShelfItem] = []
+    /// The file the actions act on: the last dropped, or the one clicked.
+    @Published var selected: UUID?
     /// A file is being dragged out: the island stays open for the drag (fsm.isHeldOpen).
     @Published var dragging = false
     private var dragReset: DispatchWorkItem?
@@ -43,7 +43,8 @@ final class FileShelf: ObservableObject {
 
     private init() { load() }
 
-    /// Adds the files (newest first); a file already on the shelf moves to the front.
+    /// Adds the files (newest first) and selects the first; a file already on the shelf
+    /// moves to the front and keeps its place in nothing else.
     func add(_ urls: [URL]) {
         var next = items
         for url in urls.reversed() {
@@ -53,10 +54,40 @@ final class FileShelf: ObservableObject {
         }
         if next.count > Self.maxItems { next = Array(next.prefix(Self.maxItems)) }
         set(next)
+        selected = next.first?.id
         appendAppLog("nb.log", "[Shelf] +\(urls.count) file(s), \(next.count) on the shelf")
     }
 
-    func remove(_ item: ShelfItem) { set(items.filter { $0.id != item.id }) }
+    func remove(_ item: ShelfItem) {
+        set(items.filter { $0.id != item.id })
+        if selected == item.id { selected = items.first?.id }
+    }
+
+    var selectedItem: ShelfItem? { items.first { $0.id == selected } ?? items.first }
+
+    /// A permission or a question waits, or a Finished/Error card is on screen: the drop
+    /// must not take the notch over. The file lands quietly; the tray tab fills.
+    static func dropsQuietly(_ state: AppState) -> Bool {
+        state.pendingApproval != nil || state.pendingQuestion != nil
+            || (state.mode == .expanded && (state.view == .finished || state.view == .error))
+    }
+
+    // MARK: What to do with a file (upstream's "choose" buttons, on the shelf)
+
+    /// The chat, with the file as its context.
+    func askClaude(_ item: ShelfItem, state: AppState) {
+        state.droppedFile = DroppedFile(url: item.url, name: item.name)
+        state.promptContext = .file(name: item.name, fileURL: item.url)
+        appendAppLog("nb.log", "[Shelf] ask Claude about \(item.name)")
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .prompt }
+    }
+
+    /// The mail card, with the file attached.
+    func sendByEmail(_ item: ShelfItem, state: AppState) {
+        state.droppedFile = DroppedFile(url: item.url, name: item.name)
+        appendAppLog("nb.log", "[Shelf] email \(item.name)")
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .mail }
+    }
 
     func clear() {
         set([])
@@ -97,6 +128,7 @@ final class FileShelf: ObservableObject {
         guard let data = try? Data(contentsOf: Self.file),
               let saved = try? JSONDecoder().decode([ShelfItem].self, from: data) else { return }
         items = saved.filter { FileManager.default.fileExists(atPath: $0.path) }
+        selected = items.first?.id
         if items.count != saved.count { save() }
     }
 
@@ -120,6 +152,12 @@ struct ShelfView: View {
                 HStack(spacing: 8) {
                     Text(shelf.items.isEmpty ? "Shelf" : "Shelf · \(shelf.items.count)")
                         .font(.system(size: 13, weight: .semibold))
+                    if let item = shelf.selectedItem {
+                        // What to do with the selected file (upstream's "choose" step, here).
+                        ShelfAction(icon: "bubble.left.fill", label: "Ask Claude") { shelf.askClaude(item, state: state) }
+                        ShelfAction(icon: "paperplane.fill", label: "Email") { shelf.sendByEmail(item, state: state) }
+                        ShelfAction(icon: "arrow.up.forward.square", label: "Open") { NSWorkspace.shared.open(item.url) }
+                    }
                     Spacer()
                     if !shelf.items.isEmpty {
                         Button("Clear") { shelf.clear() }
@@ -129,16 +167,17 @@ struct ShelfView: View {
                     }
                 }
                 if shelf.items.isEmpty {
-                    Text("Drop files on the notch: they wait here until you drag them out.")
+                    Text(state.fileDragOver ? "Let go: the file lands here."
+                                            : "Drop files on the notch: they wait here, to drag out, ask Claude about or email.")
                         .font(.system(size: 12))
-                        .foregroundColor(Color(hex: "#9398A1"))
+                        .foregroundColor(Color(hex: state.fileDragOver ? "#F5F6F8" : "#9398A1"))
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 6) {
                             ForEach(shelf.items) { item in
-                                ShelfItemView(item: item)
+                                ShelfItemView(item: item, selected: shelf.selected == item.id, state: state)
                             }
                         }
                         .padding(.vertical, 2)
@@ -152,8 +191,33 @@ struct ShelfView: View {
     }
 }
 
+/// One of the header's small actions.
+private struct ShelfAction: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 9, weight: .semibold))
+                Text(label).font(.system(size: 10.5, weight: .medium))
+            }
+            .foregroundColor(hovered ? Color(hex: "#F5F6F8") : Color(hex: "#B0B5BE"))
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(Color.white.opacity(hovered ? 0.12 : 0.07))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+    }
+}
+
 private struct ShelfItemView: View {
     let item: ShelfItem
+    let selected: Bool
+    @ObservedObject var state: AppState
     @State private var hovered = false
 
     var body: some View {
@@ -171,8 +235,10 @@ private struct ShelfItemView: View {
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 2)
-        .background(hovered ? Color.white.opacity(0.07) : Color.clear)
+        .background(selected ? Color.white.opacity(0.12) : (hovered ? Color.white.opacity(0.07) : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(selected ? 0.18 : 0)))
+        .animation(.easeOut(duration: 0.2), value: selected)
         .overlay(alignment: .topTrailing) {
             if hovered {
                 Button {
@@ -188,11 +254,15 @@ private struct ShelfItemView: View {
         }
         .onHover { hovered = $0 }
         .onTapGesture(count: 2) { NSWorkspace.shared.open(item.url) }
+        .onTapGesture(count: 1) { FileShelf.shared.selected = item.id }
         .onDrag {
             FileShelf.shared.beginDrag(item)
             return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
         }
         .contextMenu {
+            Button("Ask Claude about it") { FileShelf.shared.askClaude(item, state: state) }
+            Button("Send by email") { FileShelf.shared.sendByEmail(item, state: state) }
+            Divider()
             Button("Open") { NSWorkspace.shared.open(item.url) }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
             Divider()
