@@ -10,7 +10,8 @@ import SwiftUI
 /// The open notch's pages that can be moved and hidden (Settings → General → Pages); Home is
 /// not one of them: the notch opens on it, so it is always first and always there.
 enum NotchPage: String, CaseIterable, Identifiable, Codable {
-    case chat, shelf, clipboard, sessions, tasks
+    // Sessions last: it comes and goes with the agents, so the pages before it never move.
+    case chat, shelf, clipboard, tasks, sessions
     var id: String { rawValue }
 
     var view: IslandView {

@@ -798,6 +798,13 @@ struct IslandHeader: View {
         }
     }
 
+    /// Tabs (Home included) that fit between the island's left edge and the notch: each is 30 pt
+    /// wide with 5 pt between, after the 14 pt inset, keeping 6 pt clear of the camera housing.
+    static func tabRoom(notchWidth: CGFloat) -> Int {
+        let room = (IslandConst.expandedWidth - notchWidth) / 2 - 14 - 6
+        return max(2, Int((room + 5) / 35))
+    }
+
     /// Whether a page draws a tab now (the shelf's slot always does: the shelf, or the + upload tab).
     private func inHeader(_ page: NotchPage) -> Bool {
         let shown = arrangement.isShown(page)
@@ -824,9 +831,8 @@ struct IslandHeader: View {
             HStack(spacing: 5) {
                 TabButton(icon: "house.fill", view: .overview, state: state)
                 // coucou-custom fork: the other tabs in the order set in Settings → General → Pages.
-                // At most four after Home: more would reach the camera housing; the dots and
-                // ← → still go to every page.
-                ForEach(Array(arrangement.order.filter(inHeader).prefix(4))) { page in tab(page) }
+                // As many as fit left of the camera housing (the dots and ← → still go to every page).
+                ForEach(Array(arrangement.order.filter(inHeader).prefix(Self.tabRoom(notchWidth: state.notchWidth) - 1))) { page in tab(page) }
             }
             .padding(.leading, 14)
 
