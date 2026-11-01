@@ -198,7 +198,7 @@ struct HubGeneralPage: View {
             HubDivider()
             // coucou-custom fork: the resting notch's size.
             HubRow(title: "Resting notch",
-                   detail: "How far the resting island reaches past the notch: minimal keeps just Mochi and one mini Mochi or the clock.") {
+                   detail: "How far the resting island reaches past the notch: minimal keeps just Mochi and one mini Mochi or the clock; Auto follows the width of the screen it is on.") {
                 Picker("", selection: $restingWing) {
                     ForEach(IslandRestingStyle.Wing.allCases) { Text($0.label).tag($0.rawValue) }
                 }
