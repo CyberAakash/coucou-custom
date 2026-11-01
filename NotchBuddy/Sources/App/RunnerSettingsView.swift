@@ -73,7 +73,7 @@ struct RunnerChips<Value: Hashable>: View {
                             .fill(on ? HubTheme.accent : Color.white.opacity(0.05)))
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointer()
             }
         }
     }
@@ -271,7 +271,7 @@ private struct MenuBarPanelSettingsCard: View {
                                 .padding(.horizontal, 8).frame(height: 24)
                                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(has ? HubTheme.accent : Color.white.opacity(0.05)))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).pointer()
                     }
                 }
             }
@@ -393,7 +393,7 @@ private struct RunnerTile: View {
                 .strokeBorder(selected ? HubTheme.accent : Color.white.opacity(0.06), lineWidth: selected ? 1.5 : 1))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointer()
         .onHover { hover = $0 }
     }
 }
@@ -486,7 +486,7 @@ private struct RunnerGalleryCard: View {
                     Text("\(gallery.entries.count) runners").font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
                     Spacer()
                     Button("Open the gallery’s website") { NSWorkspace.shared.open(RunnerGallery.site) }
-                        .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+                        .buttonStyle(.plain).pointer().font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
                 }
             }
         }
@@ -543,7 +543,7 @@ private struct RunnerGalleryTile: View {
                 ProgressView().controlSize(.small).frame(height: 26)
             } else {
                 Button("Install", action: install)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointer()
                     .font(.system(size: 11.5, weight: .bold))
                     .foregroundColor(HubTheme.onAccent)
                     .padding(.horizontal, 12)
@@ -679,13 +679,13 @@ private struct RunnerMetricsSourcesCard: View {
             HubNote(text: "A path may point at a file a script hasn’t written yet; it shows as failed until the file appears, checked every 5 seconds.")
             HStack(spacing: 14) {
                 Button("Make a sample file") { makeSample() }
-                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+                    .buttonStyle(.plain).pointer().font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
                 Button(showFormat ? "Hide the format" : "Show the format") { withAnimation { showFormat.toggle() } }
-                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+                    .buttonStyle(.plain).pointer().font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
                 Button("RunCat’s samples") {
                     NSWorkspace.shared.open(URL(string: "https://github.com/runcat-dev/RunCatNeo/tree/main/docs/samples")!)
                 }
-                .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
+                .buttonStyle(.plain).pointer().font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.accent)
             }
             if showFormat { RunnerFormatPanel() }
         }

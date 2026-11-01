@@ -181,7 +181,7 @@ final class FlowHubController {
     static let shared = FlowHubController()
     let router = HubRouter()
     let windowState = HubWindowState()
-    private var window: NSWindow?
+    private(set) var window: NSWindow?
 
     static let showInDockKey = "coucouShowInDock"
     static let openAtLaunchKey = "coucouOpenAtLaunch"
@@ -311,36 +311,53 @@ private struct HubSidebar: View {
     @ObservedObject var router: HubRouter
     @ObservedObject private var flow = FlowDictation.shared
     @ObservedObject private var search = SettingsSearch.shared
+    /// coucou-custom fork: folded to its icons; the button to fold or unfold shows under the pointer at the top.
+    @AppStorage("hubSidebarCollapsed") private var collapsed = false
+    @State private var headHover = false
+
+    static let wideWidth: CGFloat = 228
+    static let narrowWidth: CGFloat = 68
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 10) {
-                // The scene draws Mochi a little below its middle (room for his
-                // hops and hats): lifted so his body lines up with the name.
-                HubLiveMochi(size: 28)
-                    .offset(y: -4)
-                Text(verbatim: "Coucou")
-                    .font(.system(size: 18, weight: .bold))
-            }
-            .padding(.horizontal, 8)
-            // Halfway between the window's buttons and the first group.
-            .padding(.top, 25)
-            .padding(.bottom, 16)
+            head
+                .padding(.horizontal, collapsed ? 0 : 8)
+                // Halfway between the window's buttons and the first group.
+                .padding(.top, 25)
+                .padding(.bottom, 16)
 
-            HubSearchField()
+            if collapsed {
+                Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { collapsed = false } } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(hex: "#B7BBC2"))
+                        .frame(width: 44, height: 32)
+                        .background(RoundedRectangle(cornerRadius: 9).fill(HubTheme.card))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).pointer().help("Search the settings")
+                .frame(maxWidth: .infinity)
                 .padding(.bottom, 14)
+            } else {
+                HubSearchField()
+                    .padding(.bottom, 14)
+            }
 
             ScrollView {
-                if !search.query.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !collapsed && !search.query.trimmingCharacters(in: .whitespaces).isEmpty {
                     HubSearchResults(router: router)
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         // coucou-custom fork: regrouped (HubPage.sidebarGroups).
                         ForEach(Array(HubPage.sidebarGroups.enumerated()), id: \.offset) { i, group in
-                            HubSidebarHeader(text: group.title)
-                                .padding(.top, i == 0 ? 0 : 14)
+                            if collapsed {
+                                if i > 0 { HubDivider().padding(.horizontal, 14).padding(.vertical, 8) }
+                            } else {
+                                HubSidebarHeader(text: group.title)
+                                    .padding(.top, i == 0 ? 0 : 14)
+                            }
                             ForEach(group.pages) { page in
-                                HubSidebarItem(page: page, selected: router.page == page) { router.page = page }
+                                HubSidebarItem(page: page, selected: router.page == page, compact: collapsed) { router.page = page }
                             }
                         }
                     }
@@ -352,31 +369,80 @@ private struct HubSidebar: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 14)
-        .frame(width: 228)
+        .frame(width: collapsed ? Self.narrowWidth : Self.wideWidth)
         .frame(maxHeight: .infinity)
         .background(HubTheme.sidebar)
     }
 
-    @ViewBuilder private var status: some View {
-        let ready = flow.isEnabled && flow.trusted
-        Button { router.page = .settings } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(ready ? HubTheme.green : (flow.isEnabled ? HubTheme.accent : HubTheme.muted))
-                    .frame(width: 7, height: 7)
-                Text(ready ? String(format: String(localized: "hub.status-ready %@"), flow.key.label)
-                     : (flow.isEnabled ? String(localized: "hub.status-access") : String(localized: "hub.status-off")))
-                    .font(.system(size: 12))
-                    .foregroundColor(Color(hex: "#A4A9B1"))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
+    /// Mochi and the name; under the pointer, the fold button (the name's place, or over Mochi when folded).
+    private var head: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                // The scene draws Mochi a little below its middle (room for his
+                // hops and hats): lifted so his body lines up with the name.
+                HubLiveMochi(size: 28)
+                    .offset(y: -4)
+                    .opacity(collapsed && headHover ? 0 : 1)
+                if collapsed && headHover { foldButton }
             }
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 10).fill(HubTheme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.06)))
+            .frame(width: 32, height: 28)
+            if !collapsed {
+                Text(verbatim: "Coucou")
+                    .font(.system(size: 18, weight: .bold))
+                Spacer(minLength: 0)
+                if headHover { foldButton }
+            }
+        }
+        .frame(maxWidth: collapsed ? .infinity : nil, alignment: .center)
+        .frame(height: 28)
+        .contentShape(Rectangle())
+        .onHover { headHover = $0 }
+        .animation(.easeOut(duration: 0.15), value: headHover)
+    }
+
+    private var foldButton: some View {
+        Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { collapsed.toggle() } } label: {
+            Image(systemName: collapsed ? "sidebar.leading" : "sidebar.left")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Color(hex: "#B7BBC2"))
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointer()
+        .help(collapsed ? "Show the sidebar" : "Hide the sidebar")
+        .transition(.opacity)
+    }
+
+    @ViewBuilder private var status: some View {
+        let ready = flow.isEnabled && flow.trusted
+        let dot = Circle()
+            .fill(ready ? HubTheme.green : (flow.isEnabled ? HubTheme.accent : HubTheme.muted))
+            .frame(width: 7, height: 7)
+        let line = ready ? String(format: String(localized: "hub.status-ready %@"), flow.key.label)
+            : (flow.isEnabled ? String(localized: "hub.status-access") : String(localized: "hub.status-off"))
+        Button { router.page = .settings } label: {
+            HStack(spacing: 8) {
+                dot
+                if !collapsed {
+                    Text(line)
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(hex: "#A4A9B1"))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 10).fill(HubTheme.card))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointer()
+        .help(collapsed ? line : "")
     }
 }
 
@@ -397,6 +463,7 @@ private struct HubSidebarHeader: View {
 private struct HubSidebarItem: View {
     let page: HubPage
     let selected: Bool
+    var compact = false
     let action: () -> Void
     @State private var hover = false
 
@@ -406,18 +473,23 @@ private struct HubSidebarItem: View {
                 Image(systemName: page.symbol)
                     .font(.system(size: 14, weight: .medium))
                     .frame(width: 20)
-                Text(page.title)
-                    .font(.system(size: 14, weight: selected ? .semibold : .regular))
-                Spacer(minLength: 0)
+                if !compact {
+                    Text(page.title)
+                        .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                    Spacer(minLength: 0)
+                }
             }
             .foregroundColor(selected ? HubTheme.text : Color(hex: "#B7BBC2"))
-            .padding(.horizontal, 10)
+            .padding(.horizontal, compact ? 0 : 10)
+            .frame(maxWidth: compact ? .infinity : nil)
             .frame(height: 32)
             .background(RoundedRectangle(cornerRadius: 9)
                 .fill(Color.white.opacity(selected ? 0.08 : (hover ? 0.04 : 0))))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointer()
+        .help(compact ? page.title : "")
         .onHover { hover = $0 }
     }
 }
@@ -460,6 +532,11 @@ struct HubPageScaffold<Trailing: View, Pinned: View, Aside: View, Content: View>
 
     private var hasAside: Bool { showsAside && Aside.self != EmptyView.self }
 
+    /// The settings column is never squeezed under this: rows of chips and segmented controls need it.
+    static var contentMinWidth: CGFloat { 560 }
+    /// Narrower than this an aside is unreadable: it moves above the content instead.
+    static var asideMinWidth: CGFloat { 260 }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 16) {
@@ -471,30 +548,52 @@ struct HubPageScaffold<Trailing: View, Pinned: View, Aside: View, Content: View>
             .padding(.bottom, 16)
             .frame(maxWidth: 1100, alignment: .leading)
 
-            HStack(alignment: .top, spacing: 22) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 22) { content() }
-                            .padding(.leading, 28)
-                            .padding(.trailing, hasAside ? 0 : 28)
-                            .padding(.top, 6)
-                            .padding(.bottom, 28)
+            // The aside takes what is left beside a content column of at least `contentMinWidth`,
+            // shrinking down to `asideMinWidth`; below that (a narrow window, a wide aside) it
+            // stands above the content and scrolls with it, so nothing ever overlaps.
+            GeometryReader { geo in
+                let room = geo.size.width - 56 - Self.contentMinWidth - 22
+                let asideW = min(asideWidth, room)
+                if hasAside && asideW >= Self.asideMinWidth {
+                    HStack(alignment: .top, spacing: 22) {
+                        scroll(trailingPadding: 0) { content() }
+                            .frame(maxWidth: .infinity)
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 22) { aside() }
+                                .frame(width: asideW)
+                                .padding(.top, 6)
+                                .padding(.bottom, 28)
+                        }
+                        .scrollIndicators(.never)
+                        .frame(width: asideW)
+                        .padding(.trailing, 28)
                     }
-                    .scrollIndicators(.automatic)
-                    .settingsSearchScroll(proxy)
-                }
-                if hasAside {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) { aside() }
-                            .padding(.top, 6)
-                            .padding(.bottom, 28)
+                } else {
+                    scroll(trailingPadding: 28) {
+                        if hasAside {
+                            VStack(alignment: .leading, spacing: 22) { aside() }
+                                .frame(maxWidth: max(asideWidth, 480), alignment: .leading)
+                        }
+                        content()
                     }
-                    .scrollIndicators(.never)
-                    .frame(width: asideWidth)
-                    .padding(.trailing, 28)
                 }
             }
             .frame(maxWidth: 1100, alignment: .leading)
+        }
+    }
+
+    private func scroll<V: View>(trailingPadding: CGFloat, @ViewBuilder _ body: @escaping () -> V) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) { body() }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 28)
+                    .padding(.trailing, trailingPadding)
+                    .padding(.top, 6)
+                    .padding(.bottom, 28)
+            }
+            .scrollIndicators(.automatic)
+            .settingsSearchScroll(proxy)
         }
     }
 }
@@ -578,18 +677,50 @@ struct HubButtonStyle: ButtonStyle {
     var primary = false
 
     func makeBody(configuration: Configuration) -> some View {
+        HubButtonBody(configuration: configuration, primary: primary)
+    }
+}
+
+/// The button's face: brighter under the pointer, dimmer while pressed, faded when disabled.
+private struct HubButtonBody: View {
+    let configuration: ButtonStyle.Configuration
+    let primary: Bool
+    @State private var hover = false
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
         configuration.label
             .font(.system(size: 13, weight: primary ? .bold : .semibold))
             .foregroundColor(primary ? HubTheme.onAccent : HubTheme.text)
             .padding(.horizontal, 14)
             .frame(height: 34)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(primary ? HubTheme.accent : Color(hex: "#1D1E22")))
+                .fill(primary ? HubTheme.accent : Color(hex: hover ? "#26272C" : "#1D1E22")))
             .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(primary ? Color.clear : Color.white.opacity(0.1)))
-            .opacity(configuration.isPressed ? 0.75 : 1)
+                .strokeBorder(primary ? Color.clear : Color.white.opacity(hover ? 0.16 : 0.1)))
+            .brightness(primary && hover ? 0.06 : 0)
+            .opacity(!enabled ? 0.45 : (configuration.isPressed ? 0.75 : 1))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: hover)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
             .contentShape(Rectangle())
+            .onHover { hover = $0 }
+            .pointer(enabled)
     }
+}
+
+/// The hand cursor over anything clickable (coucou-custom fork): every button, tab, chip and card.
+struct HubPointer: ViewModifier {
+    var active = true
+    func body(content: Content) -> some View {
+        content.onHover { inside in
+            if inside && active { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+    }
+}
+
+extension View {
+    func pointer(_ active: Bool = true) -> some View { modifier(HubPointer(active: active)) }
 }
 
 /// A small square icon button (copy, delete).

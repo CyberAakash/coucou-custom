@@ -61,6 +61,7 @@ struct BriefPress: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(BriefLayout.pop, value: configuration.isPressed)
+            .pointer()
     }
 }
 
@@ -378,7 +379,7 @@ struct BriefComboList<Value: Hashable>: View {
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(lit ? tint.opacity(0.16) : Color.clear))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointer()
         .onHover { if $0 { highlighted = index } }
     }
 

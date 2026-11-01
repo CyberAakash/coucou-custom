@@ -25,7 +25,7 @@ struct HubKeepSearch: View {
             Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.secondary)
             TextField(placeholder, text: $text).textFieldStyle(.plain).font(.system(size: 13))
             if !text.isEmpty {
-                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(HubTheme.secondary) }.buttonStyle(.plain)
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(HubTheme.secondary) }.buttonStyle(.plain).pointer()
             }
         }
         .padding(.horizontal, 12)
@@ -81,6 +81,7 @@ struct HubShelfPage: View {
     @State private var filterOpen = false
     @State private var selected: UUID?
     @State private var note = ""
+    @State private var confirmClear = false
 
     private var tab: HubKeepTab { HubKeepTab(rawValue: tabRaw) ?? .items }
     private var visible: [ShelfItem] {
@@ -100,10 +101,16 @@ struct HubShelfPage: View {
                            selection: Binding(get: { tab }, set: { tabRaw = $0.rawValue }),
                            tint: Self.tint, height: 38)
         }, aside: {
-            HubLabel("Selected")
+            HubLabel("Preview")
             detail
         }, showsAside: tab == .items) {
             if tab == .items { files } else { settingsTab }
+        }
+        .alert("Clear the shelf?", isPresented: $confirmClear) {
+            Button("Clear", role: .destructive) { shelf.clear(); selected = nil }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The \(shelf.items.count) file\(shelf.items.count == 1 ? "" : "s") leave the shelf. Nothing is deleted from disk.")
         }
     }
 
@@ -123,8 +130,8 @@ struct HubShelfPage: View {
                     HubLabel(countLabel)
                     Spacer()
                     if !shelf.items.isEmpty {
-                        Button("Clear the shelf") { shelf.clear(); selected = nil }
-                            .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundColor(HubTheme.red)
+                        Button("Clear the shelf") { confirmClear = true }
+                            .buttonStyle(.plain).pointer().font(.system(size: 12, weight: .medium)).foregroundColor(HubTheme.red)
                     }
                 }
                 .padding(.top, 4)
@@ -159,38 +166,19 @@ struct HubShelfPage: View {
         return (query.isEmpty && kinds.isEmpty) ? all : "\(visible.count) of \(all)"
     }
 
+    /// The chosen file, large; its name and a line under it. Open, Finder, Copy and Remove are a right-click away.
     @ViewBuilder private var detail: some View {
         if let item = shown {
-            HubCard(padding: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-                    KeepQuickLook(url: item.url, cornerRadius: 10)
-                        .frame(height: 180)
-                        .frame(maxWidth: .infinity)
-                        .padding(12)
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.name).font(.system(size: 14, weight: .semibold)).lineLimit(2).truncationMode(.middle)
-                            Text(shelf.leaves(item)).font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
-                        }
-                        VStack(alignment: .leading, spacing: 6) {
-                            KeepFact(label: "Kind", value: kindLine(item))
-                            KeepFact(label: "Size", value: sizeLine(item))
-                            KeepFact(label: "Where", value: item.url.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                            KeepFact(label: "Modified", value: modifiedLine(item))
-                            KeepFact(label: "On the shelf", value: "\(KeepBucket.ago(item.addedAt)) ago")
-                            KeepFact(label: "Opens in", value: ShelfSettings.shared.defaultApp(for: item.ext).map(appName) ?? "As macOS would")
-                        }
-                        HStack(spacing: 6) {
-                            KeepActionButton(symbol: "arrow.up.forward.app", label: "Open", primary: true) { shelf.open(item) }
-                            KeepActionButton(symbol: "square.grid.2x2", label: "Open with", menu: { openWithMenu(item) })
-                            KeepActionButton(symbol: "folder", label: "Finder") { shelf.showInFinder([item]) }
-                            KeepActionButton(symbol: "doc.on.doc", label: "Copy") { shelf.copy([item]); flash("Copied") }
-                            KeepActionButton(symbol: "trash", label: "Remove", tint: HubTheme.red) { shelf.remove(item); selected = nil }
-                        }
-                        if !note.isEmpty { Text(note).font(.system(size: 11)).foregroundColor(HubTheme.green).transition(.opacity) }
-                    }
-                    .padding([.horizontal, .bottom], 16)
+            HubCard(padding: 12) {
+                KeepQuickLook(url: item.url, cornerRadius: 10)
+                    .frame(height: 220)
+                    .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(2).truncationMode(.middle)
+                    Text("\(kindLine(item)) · \(sizeLine(item)) · \(shelf.leaves(item))").font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
+                        .lineLimit(2)
                 }
+                .padding(.horizontal, 4)
             }
         } else {
             HubCard { Text("Click a file to see it here.").font(.system(size: 13)).foregroundColor(HubTheme.secondary) }
@@ -342,6 +330,8 @@ struct HubClipboardPage: View {
     @State private var kinds: Set<KeepKind> = []
     @State private var filterOpen = false
     @State private var selected: UUID?
+    @State private var confirmClear = false
+    @State private var deleting: UUID?
     @State private var note = ""
 
     private var tab: HubKeepTab { HubKeepTab(rawValue: tabRaw) ?? .items }
@@ -364,10 +354,22 @@ struct HubClipboardPage: View {
                            selection: Binding(get: { tab }, set: { tabRaw = $0.rawValue }),
                            tint: Self.tint, height: 38)
         }, aside: {
-            HubLabel("Selected")
+            HubLabel("Preview")
             detail
         }, showsAside: tab == .items) {
             if tab == .items { history } else { settingsTab }
+        }
+        .alert("Clear the history?", isPresented: $confirmClear) {
+            Button("Clear", role: .destructive) { store.clear(); selected = nil }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every item that is not pinned is deleted, images and files kept for them too.")
+        }
+        .alert("Delete this item?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete", role: .destructive) { if let id = deleting { store.delete(id); if selected == id { selected = nil } }; deleting = nil }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        } message: {
+            Text("It leaves the history for good.")
         }
     }
 
@@ -387,8 +389,8 @@ struct HubClipboardPage: View {
                     HubLabel(countLabel)
                     Spacer()
                     if store.items.contains(where: { !$0.pinned }) {
-                        Button("Clear the history") { store.clear(); selected = nil }
-                            .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundColor(HubTheme.red)
+                        Button("Clear the history") { confirmClear = true }
+                            .buttonStyle(.plain).pointer().font(.system(size: 12, weight: .medium)).foregroundColor(HubTheme.red)
                     }
                 }
                 .padding(.top, 4)
@@ -408,7 +410,7 @@ struct HubClipboardPage: View {
                                 Button("Put on the shelf") { store.putOnShelf(item) }
                                 Button(item.pinned ? "Unpin" : "Pin") { store.togglePin(item.id) }
                                 Divider()
-                                Button("Delete", role: .destructive) { store.delete(item.id) }
+                                Button("Delete", role: .destructive) { deleting = item.id }
                             }
                         }
                     }
@@ -423,48 +425,29 @@ struct HubClipboardPage: View {
         return (query.isEmpty && kinds.isEmpty) ? all : "\(visible.count) of \(all)"
     }
 
+    /// The chosen item, large; what it is and where it came from under it. Copy, To shelf, Pin and Delete are a right-click away.
     @ViewBuilder private var detail: some View {
         if let item = shown {
-            HubCard(padding: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Group {
-                        if item.kind == .image, let url = item.imageURL {
-                            KeepQuickLook(url: url, cornerRadius: 10)
-                        } else if item.kind == .file, let first = item.paths.first {
-                            KeepQuickLook(url: URL(fileURLWithPath: first), cornerRadius: 10)
-                        } else {
-                            ClipPreview(item: item, height: 180, large: true)
-                                .background(Color.black.opacity(0.3))
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        }
+            HubCard(padding: 12) {
+                Group {
+                    if item.kind == .image, let url = item.imageURL {
+                        KeepQuickLook(url: url, cornerRadius: 10)
+                    } else if item.kind == .file, let first = item.paths.first {
+                        KeepQuickLook(url: URL(fileURLWithPath: first), cornerRadius: 10)
+                    } else {
+                        ClipPreview(item: item, height: 220, large: true)
+                            .background(Color.black.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
-                    .frame(height: 180)
-                    .frame(maxWidth: .infinity)
-                    .padding(12)
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(title(item)).font(.system(size: 14, weight: .semibold)).lineLimit(2).truncationMode(.middle)
-                            Text(store.leaves(item)).font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
-                        }
-                        VStack(alignment: .leading, spacing: 6) {
-                            KeepFact(label: "Kind", value: item.kind.label)
-                            KeepFact(label: "From", value: item.appName)
-                            KeepFact(label: "Copied", value: item.at.formatted(date: .abbreviated, time: .shortened))
-                            if item.kind == .text || item.kind == .code {
-                                KeepFact(label: "Length", value: "\(item.text.count) characters · \(item.text.split(whereSeparator: \.isNewline).count) lines")
-                            }
-                            if item.kind == .file { KeepFact(label: "Files", value: item.text) }
-                        }
-                        HStack(spacing: 6) {
-                            KeepActionButton(symbol: "doc.on.doc", label: "Copy", primary: true) { store.copy(item); flash("Copied") }
-                            KeepActionButton(symbol: "tray.and.arrow.down", label: "To shelf") { store.putOnShelf(item); flash("On the shelf") }
-                            KeepActionButton(symbol: item.pinned ? "pin.slash" : "pin", label: item.pinned ? "Unpin" : "Pin") { store.togglePin(item.id) }
-                            KeepActionButton(symbol: "trash", label: "Delete", tint: HubTheme.red) { store.delete(item.id); selected = nil }
-                        }
-                        if !note.isEmpty { Text(note).font(.system(size: 11)).foregroundColor(HubTheme.green).transition(.opacity) }
-                    }
-                    .padding([.horizontal, .bottom], 16)
                 }
+                .frame(height: 220)
+                .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title(item)).font(.system(size: 13.5, weight: .semibold)).lineLimit(2).truncationMode(.middle)
+                    Text("\(item.kind.label) · from \(item.appName) · \(item.at.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 11.5)).foregroundColor(HubTheme.muted).lineLimit(2)
+                }
+                .padding(.horizontal, 4)
             }
         } else {
             HubCard { Text("Click an item to see it here.").font(.system(size: 13)).foregroundColor(HubTheme.secondary) }
@@ -484,7 +467,7 @@ struct HubClipboardPage: View {
                                 Text(appName(bundle)).font(.system(size: 12.5))
                                 Button { settings.skippedApps.removeAll { $0 == bundle } } label: {
                                     Image(systemName: "xmark.circle.fill").foregroundColor(HubTheme.secondary)
-                                }.buttonStyle(.plain)
+                                }.buttonStyle(.plain).pointer()
                             }
                         }
                         Button("Add an app…") { addSkippedApp() }.buttonStyle(HubButtonStyle())

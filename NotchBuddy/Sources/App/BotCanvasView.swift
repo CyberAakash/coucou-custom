@@ -317,6 +317,10 @@ enum MochiFrameClock {
     /// display frame, 120 a second on ProMotion, per Mochi was most of Coucou's CPU.
     static let mainFPS = 60.0
     static let miniFPS = 30.0
+    /// The desktop Buddy at rest (coucou-custom fork): drawing it and its companions every
+    /// display frame was about half of Coucou's CPU with nothing going on, and made the
+    /// window feel slow. Under the pointer (and so while dragged) it draws at `mainFPS`.
+    static let restFPS = 30.0
 
     static func pacing(cap: Double, display: Double = displayFPS) -> MochiPacing {
         MochiPacing(cap: cap, display: display)
