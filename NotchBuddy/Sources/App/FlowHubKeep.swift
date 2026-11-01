@@ -496,6 +496,11 @@ struct HubClipboardPage: View {
                 HubKeepRow(title: "↩ pastes", detail: "Return and a double-click paste into the app in front (this needs the Accessibility permission); off, they only copy.") {
                     Toggle("", isOn: $settings.enterPastes).toggleStyle(.switch).labelsHidden()
                 }
+                HubDivider()
+                HubKeepRow(title: "Drag a card out", detail: "Pull a card down out of the notch and let go: the quick action, without a menu.") {
+                    Picker("", selection: $settings.dragOut) { ForEach(ClipDragAction.allCases) { Text($0.label).tag($0) } }
+                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                }
             }
             HubLabel("Keeping")
             HubCard {

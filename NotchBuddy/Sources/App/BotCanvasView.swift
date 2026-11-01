@@ -18,7 +18,11 @@ struct BotCanvasView: View {
     var body: some View {
         // At most 60 frames a second (every frame on a 60 Hz screen, one in two on ProMotion);
         // the engine runs the steps of the frames it skips, so Mochi's speed never changes.
-        let pace = MochiFrameClock.pacing(cap: MochiFrameClock.mainFPS)
+        // At rest in the closed notch (nothing running, nothing dragged over it) half that:
+        // its canvas was a large share of Coucou's idle CPU (coucou-custom fork).
+        let lively = state.mode == .expanded || state.fileDragOver
+            || !(state.effectiveState == .idle || state.effectiveState == .sleeping)
+        let pace = MochiFrameClock.pacing(cap: lively ? MochiFrameClock.mainFPS : MochiFrameClock.restFPS)
         TimelineView(.animation(minimumInterval: pace.interval, paused: state.mode == .hidden || paused)) { timeline in
             // The Canvas must capture the frame's date: a closure that doesn't change from
             // one tick to the next is not redrawn, and Mochi froze.
