@@ -801,7 +801,7 @@ struct IslandHeader: View {
     /// Tabs (Home included) that fit between the island's left edge and the notch: each is 30 pt
     /// wide with 5 pt between, after the 14 pt inset, keeping 6 pt clear of the camera housing.
     static func tabRoom(notchWidth: CGFloat) -> Int {
-        let room = (IslandConst.expandedWidth - notchWidth) / 2 - 14 - 6
+        let room = (IslandConst.openWidth - notchWidth) / 2 - 14 - 6
         return max(2, Int((room + 5) / 35))
     }
 
@@ -1048,9 +1048,9 @@ struct CompactSideContent: View {
                         .scaleEffect(IslandRestingLayout(width: islandWidth, height: islandHeight).miniGridScale)
                         .position(x: islandWidth - inset, y: islandHeight / 2)
                         .transition(.opacity)
-                    // coucou-custom fork: the time, at the grid's place when it is empty, else beside it
-                    // (a minimal wing has room for one of the two).
-                    if !hasGrid || IslandRestingStyle.wing >= CGFloat(IslandRestingStyle.Wing.standard.rawValue) {
+                    // coucou-custom fork: the time, at the grid's place when it is empty, else beside it;
+                    // the wing grows to fit it (IslandRestingStyle.contentNeed), so it never sits under the notch.
+                    do {
                         // coucou-custom fork: a task due within 15 minutes takes the clock's place.
                         #if !APPSTORE
                         if let due = dueSoon.next {
@@ -1073,6 +1073,59 @@ struct CompactSideContent: View {
         }
         .animation(.easeInOut(duration: 0.25), value: state.mode == .compact)
         .animation(.easeInOut(duration: 0.25), value: showsWaves)
+        .onAppear(perform: updateNeed)
+        .onChange(of: needKey) { _, _ in updateNeed() }
+    }
+
+    // MARK: Room for the right wing's text (coucou-custom fork)
+
+    @AppStorage(IslandClock.enabledKey) private var clockOn = false
+    @AppStorage(IslandClock.secondsKey) private var clockSeconds = false
+
+    /// What decides the text's width: whether the grid is there, the clock's form, a due task.
+    private var needKey: String {
+        #if !APPSTORE
+        let due = dueSoon.next != nil
+        #else
+        let due = false
+        #endif
+        return "\(!state.gridSlots.isEmpty)|\(clockOn)|\(clockSeconds)|\(due)"
+    }
+
+    private func updateNeed() {
+        #if !APPSTORE
+        let due = dueSoon.next != nil
+        #else
+        let due = false
+        #endif
+        let need = Self.need(gridShown: !state.gridSlots.isEmpty, clockOn: clockOn, seconds: clockSeconds, dueSoon: due)
+        guard abs(need - IslandRestingStyle.contentNeed) > 0.5 else { return }
+        IslandRestingStyle.contentNeed = need
+        NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil)
+    }
+
+    /// The right wing's width for its text: a task's time when one is due soon, else the clock.
+    static func need(gridShown: Bool, clockOn: Bool, seconds: Bool, dueSoon: Bool) -> CGFloat {
+        var width: CGFloat = 0
+        if dueSoon {
+            // Dot 7 + 5, and the widest time in the wing's font.
+            width = 12 + textWidth("12:58", size: 11, weight: .bold)
+        } else if clockOn {
+            width = textWidth(IslandClock.text(widest, seconds: seconds), size: 11, weight: .semibold)
+        }
+        return IslandRestingStyle.need(textWidth: width, besideGrid: gridShown)
+    }
+
+    /// 12:58:58 PM: the widest time of day in most fonts.
+    private static let widest: Date = {
+        var c = DateComponents()
+        c.year = 2026; c.month = 1; c.day = 1; c.hour = 12; c.minute = 58; c.second = 58
+        return Calendar.current.date(from: c) ?? .now
+    }()
+
+    private static func textWidth(_ text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 
     private var showsWaves: Bool {

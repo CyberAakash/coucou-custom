@@ -54,10 +54,26 @@ enum IslandRestingStyle {
         appendAppLog("nb.log", "[Island] auto wing \(Int(autoWing)) pt for a \(Int(screenWidth)) pt wide screen")
     }
 
-    static var wing: CGFloat {
+    /// What the right wing's content needs (the clock or a task's time, beside the mini Mochis),
+    /// set by `CompactSideContent`: the wing grows to it rather than draw under the notch.
+    nonisolated(unsafe) static var contentNeed: CGFloat = 0
+
+    /// The wing as chosen in Settings.
+    static var chosenWing: CGFloat {
         let stored = UserDefaults.standard.integer(forKey: wingKey)
         if stored == Wing.auto.rawValue { return autoWing }
         return CGFloat(Wing(rawValue: stored)?.rawValue ?? Wing.standard.rawValue)
+    }
+
+    /// The wing drawn: the chosen one, wider when its content needs it.
+    static var wing: CGFloat { max(chosenWing, contentNeed) }
+
+    /// The wing a text of this width needs at the right edge: alone, centred in the wing; beside
+    /// the mini Mochis, left of them (`CompactSideContent` places it at inset + 38). 8 pt stay
+    /// clear of the notch.
+    static func need(textWidth t: CGFloat, besideGrid: Bool) -> CGFloat {
+        guard t > 0 else { return 0 }
+        return besideGrid ? (92 + t).rounded(.up) : (t + 16).rounded(.up)
     }
 
     static var extraHeight: CGFloat {
