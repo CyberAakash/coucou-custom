@@ -17,9 +17,12 @@ enum HubSnapshot {
             // object: "buddy,runner@1000" renders those pages in a 1000 pt wide window; "@1000" every page; empty: every page at 1180.
             let spec = (note.object as? String ?? "")
             let parts = spec.split(separator: "@", omittingEmptySubsequences: false).map(String.init)
-            let pages = (parts.first ?? "").split(separator: ",").compactMap { HubPage(rawValue: String($0)) }
+            // "routines#alerts": the page with that tab chosen (its AppStorage key, set in this process).
+            let items = (parts.first ?? "").split(separator: ",").map { $0.split(separator: "#", maxSplits: 1).map(String.init) }
+            let pages = items.compactMap { HubPage(rawValue: $0[0]) }
+            let tabs = Dictionary(items.compactMap { i in i.count > 1 ? (i[0], i[1]) : nil }, uniquingKeysWith: { a, _ in a })
             let width = parts.count > 1 ? CGFloat(Double(parts[1]) ?? 1180) : 1180
-            Task { @MainActor in await render(pages: pages, width: width) }
+            Task { @MainActor in await render(pages: pages, width: width, tabs: tabs) }
         }
         // Opens the real window on a page, so its behaviour under the pointer (and its CPU) can be checked.
         DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fr.louisraille.NotchBuddy.debug.openHub"), object: nil, queue: .main) { note in
@@ -30,7 +33,11 @@ enum HubSnapshot {
         }
     }
 
-    private static func render(pages: [HubPage], width: CGFloat) async {
+    /// The AppStorage key holding a page's chosen tab, for "page#tab".
+    private static let tabKeys: [String: String] = ["routines": "routinesSettingsSection", "buddy": "buddySettingsSection",
+                                                    "brief": "briefsSettingsTab", "shelf": "shelfSettingsTab", "clipboard": "clipboardSettingsTab"]
+
+    private static func render(pages: [HubPage], width: CGFloat, tabs: [String: String] = [:]) async {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NotchBuddy/hub-snapshots", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -43,12 +50,18 @@ enum HubSnapshot {
         window = win
         let all: [HubPage] = [.general, .agents, .chat, .integrations, .voice, .shortcuts, .pills, .buddy, .runner, .brief, .shelf, .clipboard]
         for page in pages.isEmpty ? all : pages {
+            var restore: (String, Any?)?
+            if let tab = tabs[page.rawValue], let key = tabKeys[page.rawValue] {
+                restore = (key, UserDefaults.standard.object(forKey: key))
+                UserDefaults.standard.set(tab, forKey: key)
+            }
+            defer { if let (key, old) = restore { UserDefaults.standard.set(old, forKey: key) } }
             router.page = page
             try? await Task.sleep(for: .seconds(1.2))
             host.layoutSubtreeIfNeeded()
             guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
             host.cacheDisplay(in: host.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("\(page.rawValue)-\(Int(width)).png"))
+            try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("\(page.rawValue)\(tabs[page.rawValue].map { "-" + $0 } ?? "")-\(Int(width)).png"))
         }
         win.orderOut(nil)
         window = nil

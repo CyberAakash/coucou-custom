@@ -16,7 +16,7 @@ struct HubBuddyPage: View {
 
     init(_ kind: Kind = .buddy) {
         self.kind = kind
-        _sectionRaw = AppStorage(wrappedValue: (kind == .buddy ? BuddySection.look : .routines).rawValue,
+        _sectionRaw = AppStorage(wrappedValue: (kind == .buddy ? BuddySection.look : .focus).rawValue,
                                  kind == .buddy ? "buddySettingsSection" : "routinesSettingsSection")
     }
 
@@ -112,15 +112,34 @@ struct HubBuddyPage: View {
                 BuddyAssistantCard(settings: routineSettings)
             }
 
-            if shows(.routines) {
-                HubLabel("Routines")
-                BuddyRoutinesCard(settings: routineSettings)
+            if shows(.focus) {
+                HubLabel("Focus")
+                BuddyFocusCard(settings: routineSettings)
+                HubLabel("Where its alerts show")
+                BuddyAlertPlaces(kinds: [.focusStart, .focusDone, .breakDone])
+            }
+
+            if shows(.breathing) {
+                HubLabel("Breathing")
+                BuddyBreathingCard(settings: routineSettings)
+            }
+
+            if shows(.timers) {
+                HubLabel("Timers")
+                BuddyTimersCard()
+                HubLabel("Where its alerts show")
+                BuddyAlertPlaces(kinds: [.timerStart, .timerDone])
+            }
+
+            if shows(.alerts) {
                 HubLabel("Alerts")
-                BuddyFullScreenCard()
+                BuddyAlertsCard(settings: routineSettings)
             }
 
             if shows(.tasks) {
                 HubTasksSettings()
+                HubLabel("Where reminders show")
+                BuddyAlertPlaces(kinds: [.reminder], trial: true)
             }
 
             if shows(.water) {
@@ -435,7 +454,9 @@ private struct BuddyTip: View {
 /// The Buddy page's sections, for its filter bar: a chip each, and the words a search matches
 /// (the settings each one holds).
 enum BuddySection: String, CaseIterable, Identifiable {
-    case look, wardrobe, assistant, routines, tasks, water, behaviour, clicks, moving
+    // coucou-custom fork: the Routines page has a tab per routine (focus, breathing, timers,
+    // tasks, water) and one for how their alerts show.
+    case look, wardrobe, assistant, focus, breathing, timers, tasks, water, alerts, behaviour, clicks, moving
 
     var id: String { rawValue }
 
@@ -444,7 +465,7 @@ enum BuddySection: String, CaseIterable, Identifiable {
     static func tabs(for kind: HubBuddyPage.Kind) -> [BuddySection] {
         switch kind {
         case .buddy: return [.look, .wardrobe, .assistant, .behaviour, .clicks]
-        case .routines: return [.routines, .tasks, .water]
+        case .routines: return [.focus, .breathing, .timers, .tasks, .water, .alerts]
         }
     }
 
@@ -453,7 +474,10 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .look: "Look"
         case .wardrobe: "Wardrobe"
         case .assistant: "Assistant"
-        case .routines: "Routines"
+        case .focus: "Focus"
+        case .breathing: "Breathing"
+        case .timers: "Timers"
+        case .alerts: "Alerts"
         case .tasks: "Tasks"
         case .water: "Water"
         case .behaviour: "Behaviour"
@@ -467,7 +491,10 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .look: "paintpalette"
         case .wardrobe: "tshirt"
         case .assistant: "sparkles"
-        case .routines: "timer"
+        case .focus: "brain.head.profile"
+        case .breathing: "wind"
+        case .timers: "timer"
+        case .alerts: "bell.badge"
         case .tasks: "checklist"
         case .water: "drop"
         case .behaviour: "face.smiling"
@@ -481,7 +508,10 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .look: "size colour color companions side shadow look appearance scale"
         case .wardrobe: "wardrobe outfit clothes hat cap crown bow schedule seasons always wear nightcap"
         case .assistant: "assistant chat act tools ask mochi reminder timer slash commands"
-        case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert alerts sound start full screen fullscreen moment notch card popup where show"
+        case .focus: "focus pomodoro session sessions break breaks long short rounds start buddy"
+        case .breathing: "breathing breathe calm orb full screen fullscreen dim relax"
+        case .timers: "timer timers countdown start done stays seconds"
+        case .alerts: "alerts alert sound launch greeting hello start card notch full screen fullscreen screen behind dim where show popup moment"
         case .tasks: "tasks task reminders reminder apple lists list colour color to-do todo composer new due notch"
         case .water: "water drink glass goal hydration nudge every between days ml litre"
         case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep card hud popup drag distance gap"

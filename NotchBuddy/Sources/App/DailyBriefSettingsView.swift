@@ -452,37 +452,26 @@ private struct BriefSettingsPreview: View {
     }
 }
 
-/// Settings → Buddy: where each routine's alert shows — the Buddy's card, the notch, or full screen.
-struct BuddyFullScreenCard: View {
-    @ObservedObject private var settings = RoutineMomentSettings.shared
-    @ObservedObject private var buddy = BuddySettings.shared
+/// Settings → Routines: where a routine's alerts show — the Buddy's card, the notch, or full screen.
+/// Each routine's tab lists its own kinds; the Tasks tab also offers a test reminder.
+struct BuddyAlertPlaces: View {
+    let kinds: [RoutineMomentKind]
+    var trial = false
+    @ObservedObject private var routines = BuddyRoutineController.shared
 
     var body: some View {
         HubCard {
-            Text("Buddy card: on the Buddy, with its buttons. Notch: a line in the notch, gone after a moment, no buttons. Full screen: over the whole screen, Mochi in the middle; Return and Esc work on it when Coucou has the keyboard, never taking it from what you type.")
-                .font(.system(size: 12.5)).foregroundColor(HubTheme.body).fixedSize(horizontal: false, vertical: true)
-            if !buddy.enabled {
-                HubNote(text: "The Buddy is hidden: what is set to its card shows in the notch until you show it again.")
-            }
-            ForEach(Array(RoutineMomentKind.allCases.enumerated()), id: \.element) { i, kind in
+            ForEach(Array(kinds.enumerated()), id: \.element) { i, kind in
                 if i > 0 { HubDivider() }
                 BriefSettingRow(title: kind.title, detail: detail(kind)) {
                     BuddyAlertStylePicker(kind: kind)
                 }
             }
-            HubDivider()
-            HubRow(title: "A start stays", detail: "Focus starts and timer starts.") {
-                BriefComboBox(options: RoutineMomentSettings.startChoices.map { BriefComboOption(value: $0, title: "\($0) s", symbol: "timer") },
-                              selection: $settings.startSeconds, tint: HubBuddyPage.tint, symbol: "timer", width: 200,
-                              custom: { BriefInput.seconds(from: $0).flatMap { $0 <= 30 ? $0 : nil } }, customTitle: { "\($0) s" },
-                              placeholder: "Search, or type seconds")
-            }
-            HubDivider()
-            HubRow(title: "Screen behind", detail: "How dark it goes.") {
-                HStack(spacing: 8) {
-                    Slider(value: $settings.dim, in: 0.2...0.85).frame(width: 150)
-                    Text(MetricsFormat.percent(settings.dim)).font(.system(size: 12).monospacedDigit()).foregroundColor(HubTheme.secondary)
-                        .frame(width: 40, alignment: .trailing)
+            if trial {
+                HubDivider()
+                HubRow(title: "Try it", detail: "A reminder due in 5 seconds, where it is set to show.") {
+                    Button("Test reminder") { routines.addReminder("Test reminder", due: .now.addingTimeInterval(5)) }
+                        .buttonStyle(HubButtonStyle())
                 }
             }
         }
@@ -512,7 +501,7 @@ struct BuddyAlertStylePicker: View {
     var body: some View {
         HStack(spacing: 8) {
             BriefSegmented(options: RoutineAlertStyle.allCases.map {
-                BriefSegmentedOption(value: $0, title: $0.label, symbol: BuddyFullScreenCard.symbol($0))
+                BriefSegmentedOption(value: $0, title: $0.label, symbol: BuddyAlertPlaces.symbol($0))
             }, selection: Binding(get: { settings.style(kind) }, set: { settings.set(kind, $0) }), tint: HubBuddyPage.tint)
             Button { BuddyRoutineController.shared.previewAlert(kind) } label: {
                 Label("Try", systemImage: "play.fill").font(.system(size: 12, weight: .semibold))
