@@ -7,6 +7,80 @@ import SwiftUI
 // Dots along the bottom edge say which one is open; ← → and a sideways swipe (or the wheel
 // on the home page, which has nothing to scroll) go to the next one.
 
+/// The open notch's pages that can be moved and hidden (Settings → General → Pages); Home is
+/// not one of them: the notch opens on it, so it is always first and always there.
+enum NotchPage: String, CaseIterable, Identifiable, Codable {
+    case chat, shelf, clipboard, sessions
+    var id: String { rawValue }
+
+    var view: IslandView {
+        switch self {
+        case .chat: .prompt
+        case .shelf: .shelf
+        case .clipboard: .clipboard
+        case .sessions: .sessions
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .chat: String(localized: "Chat")
+        case .shelf: "Shelf"
+        case .clipboard: "Clipboard"
+        case .sessions: "Sessions"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .chat: "bubble.left.fill"
+        case .shelf: "tray.full.fill"
+        case .clipboard: "list.clipboard.fill"
+        case .sessions: "rectangle.stack.fill"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .chat: "Ask Claude about what is on screen."
+        case .shelf: "Files dropped on the notch. Hidden, the + tab takes its place for uploads."
+        case .clipboard: "What you copied. Hiding the page keeps recording; turn recording off on the Clipboard page."
+        case .sessions: "Every agent session; shows only while one is running."
+        }
+    }
+}
+
+/// The pages' order and which are hidden, kept in UserDefaults and published so the header tabs,
+/// the page dots and the settings list follow at once.
+@MainActor
+final class PageArrangement: ObservableObject {
+    static let shared = PageArrangement()
+    static let orderKey = "coucouPageOrder"
+    static let hiddenKey = "coucouPagesHidden"
+
+    @Published var order: [NotchPage] { didSet { UserDefaults.standard.set(order.map(\.rawValue), forKey: Self.orderKey) } }
+    @Published var hidden: Set<NotchPage> { didSet { UserDefaults.standard.set(hidden.map(\.rawValue).sorted(), forKey: Self.hiddenKey) } }
+
+    private init() {
+        let stored = (UserDefaults.standard.stringArray(forKey: Self.orderKey) ?? []).compactMap(NotchPage.init(rawValue:))
+        // A page added in a later version, or an order never set, lands in the default place at the end.
+        var seen = Set<NotchPage>()
+        order = stored.filter { seen.insert($0).inserted } + NotchPage.allCases.filter { !stored.contains($0) }
+        hidden = Set((UserDefaults.standard.stringArray(forKey: Self.hiddenKey) ?? []).compactMap(NotchPage.init(rawValue:)))
+    }
+
+    func isShown(_ page: NotchPage) -> Bool { !hidden.contains(page) }
+
+    func set(_ page: NotchPage, shown: Bool) {
+        if shown { hidden.remove(page) } else { hidden.insert(page) }
+    }
+
+    func reset() {
+        order = NotchPage.allCases
+        hidden = []
+    }
+}
+
 enum IslandPages {
     /// Settings → General → "Page bar" (default on) and "Swipe or scroll between pages".
     static let enabledKey = "coucouPageBar"
@@ -18,13 +92,23 @@ enum IslandPages {
     /// The pages in order, as they can be reached right now.
     @MainActor
     static func pages(_ state: AppState) -> [IslandView] {
-        var pages: [IslandView] = [.overview, .prompt]
+        let arrangement = PageArrangement.shared
+        return [.overview] + arrangement.order.filter { arrangement.isShown($0) && available($0) }.map(\.view)
+    }
+
+    /// Whether a page can be reached at all right now, whatever the arrangement says.
+    @MainActor
+    static func available(_ page: NotchPage) -> Bool {
+        switch page {
+        case .chat: return true
         #if !APPSTORE
-        if FileShelf.enabled { pages.append(.shelf) }
-        if ClipboardSettings.shared.enabled { pages.append(.clipboard) }
-        if !LiveSessions.shared.sessions.isEmpty { pages.append(.sessions) }
+        case .shelf: return FileShelf.enabled
+        case .clipboard: return ClipboardSettings.shared.enabled
+        case .sessions: return !LiveSessions.shared.sessions.isEmpty
+        #else
+        case .shelf, .clipboard, .sessions: return false
         #endif
-        return pages
+        }
     }
 
     /// The page a view belongs to (the empty home is the home page); nil for cards and alerts.
@@ -111,6 +195,7 @@ final class PageWheel {
 /// The dots: the open page is a short bar, the others small circles. Click a dot to go there.
 struct PageBar: View {
     @ObservedObject var state: AppState
+    @ObservedObject private var arrangement = PageArrangement.shared
     #if !APPSTORE
     @ObservedObject private var live = LiveSessions.shared
     @ObservedObject private var shelf = FileShelf.shared

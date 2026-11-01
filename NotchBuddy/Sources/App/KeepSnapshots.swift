@@ -45,6 +45,11 @@ enum KeepSnapshots {
             let h = KeepPanels.islandHeight(.shelf, layout: ShelfSettings.shared.layout) + (KeepDebug.filterOpen ? KeepPanels.filterRow : 0)
             size = CGSize(width: 640, height: h)
             view = AnyView(islandFrame(height: h) { ShelfView(state: state) })
+        case "header":
+            // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
+            appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))
+            size = CGSize(width: 640, height: 44)
+            view = AnyView(IslandHeader(state: state).frame(width: 640, height: 44).background(Color.black))
         case "clipboard":
             let h = KeepPanels.islandHeight(.clipboard, layout: ClipboardSettings.shared.layout) + (KeepDebug.filterOpen ? KeepPanels.filterRow : 0)
             size = CGSize(width: 640, height: h)
