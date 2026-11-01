@@ -25,8 +25,20 @@ enum PeekLayout {
     static let wing: CGFloat = 100
     static let seconds: TimeInterval = 2.6
 
+    /// The shown peek's icon and text, measured (coucou-custom fork): the pill reaches past the
+    /// notch as far as they need, so no word sits under the camera housing.
+    nonisolated(unsafe) static var contentWidth: CGFloat = 0
+
     static func size(for view: IslandView, nw: CGFloat, nh: CGFloat) -> (CGFloat, CGFloat)? {
-        view == .peek ? (nw + wing * 2, nh) : nil
+        // Icon, text and the 14 pt trailing inset, plus 10 pt clear of the notch.
+        let side = max(wing, contentWidth + 14 + 10)
+        return view == .peek ? (nw + side * 2, nh) : nil
+    }
+
+    /// Icon 12 pt + 6 pt + the text in the pill's font.
+    static func measure(_ text: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+        return 18 + ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 
     static func corner(for view: IslandView) -> CGFloat? { view == .peek ? 16 : nil }
@@ -41,6 +53,14 @@ final class NotchPeek: ObservableObject {
 
     private init() {}
 
+    #if DEBUG
+    /// Snapshots only: the peek's content without opening the island.
+    func debugSet(icon: String, text: String) {
+        PeekLayout.contentWidth = PeekLayout.measure(text)
+        content = NotchPeekContent(icon: icon, text: text, tint: Color(hex: "#34D399"))
+    }
+    #endif
+
     /// Shows the peek, unless a card is open (a peek replaces a peek).
     func show(icon: String, text: String, tint: Color) {
         let state = AppState.shared
@@ -49,6 +69,7 @@ final class NotchPeek: ObservableObject {
             return
         }
         appendAppLog("nb.log", "[Peek] \(text)")
+        PeekLayout.contentWidth = PeekLayout.measure(text)
         content = NotchPeekContent(icon: icon, text: text, tint: tint)
         NotificationCenter.default.post(name: .hookExpand, object: IslandView.peek)
         closer?.cancel()

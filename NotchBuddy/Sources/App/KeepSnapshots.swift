@@ -56,12 +56,48 @@ enum KeepSnapshots {
             view = AnyView(HStack {
                 if let due = TaskDueSoon.shared.next { TaskDueWing(due: due) } else { CompactClock() }
             }.frame(width: 160, height: 37).background(Color.black))
+        case "peek":
+            // "peek:Keyboard: English (India)": the pill sized for that text, the notch in red.
+            let text = parts.dropFirst().joined(separator: ":")
+            NotchPeek.shared.debugSet(icon: "keyboard", text: text.isEmpty ? "Charging · 72 %" : text)
+            let (w, h) = PeekLayout.size(for: .peek, nw: state.notchWidth, nh: state.notchHeight) ?? (400, 32)
+            appendAppLog("nb.log", "[Snapshot] peek \(Int(w)) pt for a \(Int(state.notchWidth)) pt notch")
+            size = CGSize(width: w, height: h)
+            view = AnyView(ZStack {
+                Color.black
+                PeekStage(width: w, height: h)
+                Self.housing(state.notchWidth, h)
+            }.frame(width: w, height: h))
+        case "compact":
+            // The closed notch, the clock on ("compact:clock"), the notch in red.
+            let clockWas = UserDefaults.standard.object(forKey: IslandClock.enabledKey)
+            if options.contains("clock") { UserDefaults.standard.set(true, forKey: IslandClock.enabledKey) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UserDefaults.standard.set(clockWas, forKey: IslandClock.enabledKey) }
+            IslandRestingStyle.contentNeed = CompactSideContent.need(
+                gridShown: !state.gridSlots.isEmpty, clockOn: UserDefaults.standard.bool(forKey: IslandClock.enabledKey),
+                seconds: UserDefaults.standard.bool(forKey: IslandClock.secondsKey), dueSoon: TaskDueSoon.shared.next != nil)
+            let (w, h) = IslandRestingStyle.compactSize(nw: state.notchWidth, nh: state.notchHeight)
+            size = CGSize(width: w + 40, height: h)
+            view = AnyView(ZStack {
+                Color.gray.opacity(0.3)
+                ZStack {
+                    Color.black
+                    CompactSideContent(state: state, islandWidth: w, islandHeight: h)
+                    Self.housing(state.notchWidth, h)
+                }.frame(width: w, height: h)
+            }.frame(width: w + 40, height: h))
+            appendAppLog("nb.log", "[Snapshot] compact \(Int(w)) pt: wing \(Int(IslandRestingStyle.wing)) (chosen \(Int(IslandRestingStyle.chosenWing)), content \(Int(IslandRestingStyle.contentNeed))), grid \(!state.gridSlots.isEmpty)")
         case "header":
             // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
             appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))
             appendAppLog("nb.log", "[Snapshot] notch \(Int(state.notchWidth)) pt wide: room for \(IslandHeader.tabRoom(notchWidth: state.notchWidth)) tabs")
-            size = CGSize(width: 640, height: 44)
-            view = AnyView(IslandHeader(state: state).frame(width: 640, height: 44).background(Color.black))
+            let w = IslandConst.openWidth
+            appendAppLog("nb.log", "[Snapshot] open island \(Int(w)) pt")
+            size = CGSize(width: w, height: 44)
+            view = AnyView(ZStack {
+                IslandHeader(state: state).frame(width: w, height: 44).background(Color.black)
+                VStack { Self.housing(state.notchWidth, 32); Spacer(minLength: 0) }
+            }.frame(width: w, height: 44))
         case "clipboard":
             let h = KeepPanels.islandHeight(.clipboard, layout: ClipboardSettings.shared.layout) + (KeepDebug.filterOpen ? KeepPanels.filterRow : 0)
             size = CGSize(width: 640, height: h)
@@ -91,6 +127,11 @@ enum KeepSnapshots {
             restore()
             KeepDebug.filterOpen = false
         }
+    }
+
+    /// Where the camera housing is: what is drawn here cannot be seen on a MacBook.
+    private static func housing(_ width: CGFloat, _ height: CGFloat) -> some View {
+        Rectangle().fill(Color.red.opacity(0.45)).frame(width: width, height: height)
     }
 
     /// The island's black body, its header's height left empty, the card below it.

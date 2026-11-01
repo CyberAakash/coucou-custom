@@ -89,7 +89,9 @@ final class IslandWindowController: NSWindowController {
         let nW = geometry.width
         let nH = geometry.height
 
-        let panelW: CGFloat = 720
+        // coucou-custom fork: Home + every movable page gets a tab beside the notch.
+        IslandConst.openWidth = IslandConst.openWidth(notchWidth: nW, tabs: NotchPage.allCases.count + 1)
+        let panelW: CGFloat = max(720, IslandConst.openWidth + 80)
         let panelH: CGFloat = 560
         let origin = AppState.shared.islandPlacement.panelOrigin(
             screen: screen.frame, visible: screen.visibleFrame, panelSize: CGSize(width: panelW, height: panelH))
@@ -294,8 +296,10 @@ final class IslandWindowController: NSWindowController {
         AppState.shared.notchHeight = notchH
         AppState.shared.hasNotch = hasNotch
         Self.currentScreen = screen
+        IslandConst.openWidth = IslandConst.openWidth(notchWidth: notchW, tabs: NotchPage.allCases.count + 1)
 
-        let size = panel.frame.size
+        var size = panel.frame.size
+        size.width = max(size.width, IslandConst.openWidth + 80)
         let origin = state.islandPlacement.panelOrigin(screen: screen.frame, visible: screen.visibleFrame,
                                                        panelSize: size)
         Self.panelFrame = NSRect(origin: origin, size: size)
@@ -1629,7 +1633,7 @@ final class IslandWindowController: NSWindowController {
         let island = islandPanel.currentIslandFrame(nw: notchW, nh: notchH)
         let panelW = window?.frame.width  ?? 720
         let islandLeft = AppState.shared.islandPlacement.isCorner
-            ? island.minX : (panelW - IslandConst.expandedWidth) / 2
+            ? island.minX : (panelW - IslandConst.openWidth) / 2
         return CGPoint(
             x: loc.x - islandLeft,
             y: island.maxY - loc.y           // AppKit y is from bottom; island y from top
@@ -2515,7 +2519,7 @@ func islandSize(mode: IslandMode, view: IslandView,
         }
         let layout = IslandConst.viewLayouts[view]!
         if view == .question, let h = QuestionLayout.height {
-            return (IslandConst.expandedWidth, h)
+            return (IslandConst.openWidth, h)
         }
         #if !APPSTORE
         // coucou-custom fork: the briefs open as a pill, then as their card (BriefLayout).
@@ -2523,17 +2527,17 @@ func islandSize(mode: IslandMode, view: IslandView,
         // coucou-custom fork: a peek is a pill at notch height.
         if let size = PeekLayout.size(for: view, nw: nw, nh: nh) { return size }
         // coucou-custom fork: the shelf is taller as a grid than as a carousel (Settings → Shelf).
-        if view == .shelf { return (IslandConst.expandedWidth, KeepPanels.islandHeight(.shelf, layout: ShelfSettings.layoutForSize)) }
-        if view == .clipboard { return (IslandConst.expandedWidth, KeepPanels.islandHeight(.clipboard, layout: ClipboardSettings.layoutForSize)) }
-        if view == .tasks { return (IslandConst.expandedWidth, 330) }
+        if view == .shelf { return (IslandConst.openWidth, KeepPanels.islandHeight(.shelf, layout: ShelfSettings.layoutForSize)) }
+        if view == .clipboard { return (IslandConst.openWidth, KeepPanels.islandHeight(.clipboard, layout: ClipboardSettings.layoutForSize)) }
+        if view == .tasks { return (IslandConst.openWidth, 330) }
         // coucou-custom fork: the voice card is as tall as its answer.
         if VoiceCardLayout.applies(to: view) { return (VoiceCardLayout.width, VoiceCardLayout.height) }
         #endif
         // coucou-custom fork: the chat is wider and as tall as its conversation (ChatFit).
         if view == .prompt { return (ChatLayout.width, ChatLayout.height) }
         if view == .overview, let h = MailLayout.detailHeight {
-            return (IslandConst.expandedWidth, h)
+            return (IslandConst.openWidth, h)
         }
-        return (IslandConst.expandedWidth, layout.height)
+        return (IslandConst.openWidth, layout.height)
     }
 }

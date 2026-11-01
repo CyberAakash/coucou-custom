@@ -248,6 +248,17 @@ enum IslandConst {
     static let notchWidth: CGFloat  = IslandScreenGeometry.fallbackNotchWidth
     static let notchHeight: CGFloat = 32
     static let expandedWidth: CGFloat = 640
+    /// coucou-custom fork: the open island's width. On a MacBook the camera housing hides whatever
+    /// is drawn over it, so the island is wide enough for every page's tab left of the notch
+    /// (and the same room on the right): never less than `expandedWidth`. Set by the window
+    /// controller from the measured notch whenever the island lands on a screen.
+    nonisolated(unsafe) static var openWidth: CGFloat = 640
+
+    /// Tab 30 pt + 5 pt between, 14 pt inset, 10 pt kept clear of the notch.
+    static func openWidth(notchWidth: CGFloat, tabs: Int) -> CGFloat {
+        let side = 14 + CGFloat(tabs) * 35 - 5 + 10
+        return min(960, max(expandedWidth, (notchWidth + side * 2).rounded(.up)))
+    }
     static let earRadius: CGFloat   = 14
     static let roundedCorner: CGFloat = 14    // hidden/peek/compact
     static let expandedCorner: CGFloat = 22
