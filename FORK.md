@@ -119,7 +119,7 @@ Notification and AskUserQuestion.
 
 ## Build and install
 `scripts/custom-install.sh` builds the GitHub variant from the current checkout, signs it, quits the running
-copy and installs it as `/Applications/Coucou Custom.app`.
+copy and installs it as `/Applications/Coucou.app` (it was `Coucou Custom.app` until 1 November 2026; the signing identity keeps its name).
 
 It signs with the local identity "Coucou Custom Local Signing" (self-signed, in the login keychain), created once
 per Mac by `scripts/custom-signing-cert.sh`. Keep it: macOS ties Accessibility, microphone and screen-recording

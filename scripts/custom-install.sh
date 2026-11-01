@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds Coucou (GitHub variant) from this checkout and installs it as /Applications/Coucou Custom.app.
+# Builds Coucou (GitHub variant) from this checkout and installs it as /Applications/Coucou.app.
 #   scripts/custom-install.sh                  build (optimized) + install + launch
 #   scripts/custom-install.sh --check-appstore also build the CoucouAppStore scheme first
 #   scripts/custom-install.sh --debug          install an unoptimized Debug build instead
@@ -19,7 +19,7 @@ for arg in "$@"; do
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Coucou Custom.app"
+APP_NAME="Coucou.app"
 DEST="/Applications/$APP_NAME"
 # ".noindex": Spotlight skips the folder, else every build product shows up as another "Coucou".
 BUILD="$ROOT/NotchBuddy/build.noindex"

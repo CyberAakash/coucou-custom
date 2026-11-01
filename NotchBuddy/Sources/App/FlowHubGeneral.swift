@@ -454,7 +454,7 @@ struct HubGeneralPage: View {
         if MacUpdater.disabledInFork {
             HubCard {
                 Text(String(localized: "update.settings.fork",
-                            defaultValue: "Coucou Custom doesn't update itself: the official update would replace it and drop your customizations. Update from your fork: scripts/custom-sync-upstream.sh, then scripts/custom-install.sh."))
+                            defaultValue: "This Coucou doesn't update itself: the official update would replace it and drop your customizations. Update from your fork: scripts/custom-sync-upstream.sh, then scripts/custom-install.sh."))
                     .font(.system(size: 12.5))
                     .foregroundColor(HubTheme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
