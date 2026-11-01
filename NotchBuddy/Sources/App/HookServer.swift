@@ -686,6 +686,12 @@ final class HookServer: @unchecked Sendable {
             agentId = "integration_claude"
             isExternalAgent = false
             hostApp = host.bundleId
+        } else if !(payload["claude_job"] as? String ?? "").isEmpty {
+            // coucou-custom fork: a Claude Code background job runs in no terminal and no app, so
+            // it carries neither; it is still a Claude Code session, finished and stopped like one.
+            // "Open terminal" then opens the default terminal, where the job can be resumed.
+            agentId = "integration_claude"
+            isExternalAgent = false
         } else {
             nbLog("Ignored \(name) from \(termProgram.isEmpty ? bundleId : termProgram) (\(projectName))")
             return
@@ -3810,6 +3816,8 @@ def main():
         payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
         payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
         payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
+        # A Claude Code background job has no terminal; its job folder says what it is (coucou-custom fork).
+        payload.setdefault('claude_job', env.get('CLAUDE_JOB_DIR', ''))
         add_terminal_ids(payload)
         if 'cwd' not in payload or not payload['cwd']:
             paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
@@ -3879,6 +3887,8 @@ def main():
     payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
     payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
     payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
+    # A Claude Code background job has no terminal; its job folder says what it is (coucou-custom fork).
+    payload.setdefault('claude_job', env.get('CLAUDE_JOB_DIR', ''))
     add_terminal_ids(payload)
     if 'cwd' not in payload or not payload['cwd']:
         paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
@@ -4187,6 +4197,8 @@ def main():
         payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
         payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
         payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
+        # A Claude Code background job has no terminal; its job folder says what it is (coucou-custom fork).
+        payload.setdefault('claude_job', env.get('CLAUDE_JOB_DIR', ''))
         if 'cwd' not in payload or not payload['cwd']:
             paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
             if isinstance(paths, list) and paths:
@@ -4254,6 +4266,8 @@ def main():
     payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
     payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
     payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
+    # A Claude Code background job has no terminal; its job folder says what it is (coucou-custom fork).
+    payload.setdefault('claude_job', env.get('CLAUDE_JOB_DIR', ''))
     if 'cwd' not in payload or not payload['cwd']:
         paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
         if isinstance(paths, list) and paths:
