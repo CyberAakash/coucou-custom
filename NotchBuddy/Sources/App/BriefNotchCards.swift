@@ -14,8 +14,10 @@ enum BriefLayout {
     nonisolated(unsafe) private static var phases: [IslandView: BriefPhase] = [:]
 
     static let cardWidth: CGFloat = 560
-    /// The pill reaches this far past the notch on each side.
-    static let pillWing: CGFloat = 100
+    /// The pill reaches this far past the notch on each side: dot 6 + 6, "Weekly brief" (77 pt in its
+    /// font), the 14 pt inset and 10 pt clear of the camera housing (coucou-custom fork; 100 put
+    /// the label's first letters under the notch).
+    static let pillWing: CGFloat = 116
 
     static func isBrief(_ view: IslandView) -> Bool { view == .dailyBrief || view == .weeklyBrief }
 
