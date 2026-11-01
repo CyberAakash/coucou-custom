@@ -106,4 +106,50 @@ enum TaskComposer {
         return hasTime ? "\(day) \(due.formatted(date: .omitted, time: .shortened))" : day
     }
 }
+/// An event typed in the Calendar page's composer: the Tasks reading plus a length
+/// ("for 30 min", "for 2 hours"; an hour when none), all day when no time is given.
+struct ParsedEvent: Equatable {
+    var title: String
+    var start: Date?
+    var end: Date?
+    var allDay: Bool
+    var calendarID: String?
+}
+
+enum CalendarComposer {
+    private static let lengthPattern = try? NSRegularExpression(
+        pattern: "\\bfor (\\d{1,3}(?:[.,]\\d)?)\\s*(minutes?|mins?|m|hours?|hrs?|h)\\b", options: [.caseInsensitive])
+
+    static func parse(_ text: String, calendars: [(id: String, title: String)], now: Date = .now) -> ParsedEvent {
+        var line = text
+        var minutes: Double = 60
+        let ns = text as NSString
+        if let lengthPattern, let m = lengthPattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+           let r = Range(m.range, in: text),
+           let n = Double(ns.substring(with: m.range(at: 1)).replacingOccurrences(of: ",", with: ".")) {
+            let unit = ns.substring(with: m.range(at: 2)).lowercased()
+            minutes = unit.hasPrefix("h") ? n * 60 : n
+            line.replaceSubrange(r, with: " ")
+        }
+        let p = TaskComposer.parse(line, lists: calendars, now: now)
+        guard let start = p.due else {
+            return ParsedEvent(title: p.title, start: nil, end: nil, allDay: false, calendarID: p.listID)
+        }
+        if p.hasTime {
+            return ParsedEvent(title: p.title, start: start, end: start.addingTimeInterval(max(5, minutes) * 60),
+                               allDay: false, calendarID: p.listID)
+        }
+        let day = Calendar.current.startOfDay(for: start)
+        return ParsedEvent(title: p.title, start: day, end: Calendar.current.date(byAdding: .day, value: 1, to: day),
+                           allDay: true, calendarID: p.listID)
+    }
+
+    /// "Tomorrow 1:00 – 2:00 PM", "Friday, all day".
+    static func label(_ e: ParsedEvent) -> String? {
+        guard let start = e.start, let end = e.end else { return nil }
+        if e.allDay { return TaskComposer.label(start, hasTime: false) + ", all day" }
+        let day = TaskComposer.label(start, hasTime: false)
+        return "\(day) \(start.formatted(date: .omitted, time: .shortened)) – \(end.formatted(date: .omitted, time: .shortened))"
+    }
+}
 #endif
