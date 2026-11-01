@@ -199,6 +199,11 @@ struct HubShelfPage: View {
                 HubKeepRow(title: "Previews", detail: "Quick Look thumbnails for images, PDFs and documents, made in the background and kept on disk. Off: file icons only.") {
                     Toggle("", isOn: $settings.previews).toggleStyle(.switch).labelsHidden()
                 }
+                HubDivider()
+                HubKeepRow(title: "Drag a file out", detail: "After a file is dragged out of the notch and dropped in another app, in the Finder or on the desktop. The file itself is never moved by Coucou.") {
+                    Picker("", selection: $settings.dragOut) { ForEach(ShelfDragAction.allCases) { Text($0.label).tag($0) } }
+                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                }
             }
             HubLabel("Keeping")
             HubCard {
