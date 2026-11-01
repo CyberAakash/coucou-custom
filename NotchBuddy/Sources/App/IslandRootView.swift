@@ -697,7 +697,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew || v == .shelf || v == .clipboard || v == .tasks) && active)
+                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew || v == .shelf || v == .clipboard || v == .tasks || v == .calendar) && active)
                         || (v == .overview && active && cornerHome)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
@@ -748,6 +748,7 @@ struct IslandHeader: View {
     @ObservedObject private var shelf = FileShelf.shared     // coucou-custom fork
     @ObservedObject private var clipSettings = ClipboardSettings.shared   // coucou-custom fork
     @ObservedObject private var tasksSettings = TasksSettings.shared      // coucou-custom fork
+    @ObservedObject private var calendarSettings = CalendarSettings.shared   // coucou-custom fork
     #endif
     @State private var gearHovered  = false
     @State private var soundHovered = false
@@ -795,6 +796,12 @@ struct IslandHeader: View {
                 TabButton(icon: "checklist", view: .tasks, state: state)
             }
             #endif
+        case .calendar:
+            #if !APPSTORE
+            if shown && calendarSettings.enabled {
+                TabButton(icon: "calendar", view: .calendar, state: state)
+            }
+            #endif
         }
     }
 
@@ -814,8 +821,9 @@ struct IslandHeader: View {
         #if !APPSTORE
         case .clipboard: return shown && clipSettings.enabled
         case .tasks: return shown && tasksSettings.enabled
+        case .calendar: return shown && calendarSettings.enabled
         #else
-        case .clipboard, .tasks: return false
+        case .clipboard, .tasks, .calendar: return false
         #endif
         case .sessions: return shown && !live.sessions.isEmpty
         }

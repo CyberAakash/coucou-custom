@@ -50,6 +50,11 @@ enum KeepSnapshots {
             KeepDebug.tasksComposerText = options.contains("typing") ? "Call the bank tomorrow 6pm #personal" : nil
             size = CGSize(width: 640, height: 330)
             view = AnyView(islandFrame(height: 330) { TasksView(state: state) })
+        case "calendar":
+            if options.contains("sample") { CalendarStore.shared.debugFill() }
+            KeepDebug.tasksComposerText = options.contains("typing") ? "Lunch with Rita tomorrow 1pm for 45 min" : nil
+            size = CGSize(width: IslandConst.openWidth, height: 400)
+            view = AnyView(islandFrame(height: 400, width: IslandConst.openWidth) { CalendarView(state: state) })
         case "wing":
             // The closed notch's right wing with the task due soon (or the clock).
             size = CGSize(width: 160, height: 37)
@@ -136,7 +141,7 @@ enum KeepSnapshots {
 
     /// The island's black body, its header's height left empty, the card below it.
     @MainActor
-    private static func islandFrame<V: View>(height: CGFloat, @ViewBuilder content: () -> V) -> some View {
+    private static func islandFrame<V: View>(height: CGFloat, width: CGFloat = 640, @ViewBuilder content: () -> V) -> some View {
         ZStack(alignment: .top) {
             Color.black
             VStack(spacing: 0) {
@@ -146,7 +151,7 @@ enum KeepSnapshots {
             }
             .padding(.horizontal, 10)
         }
-        .frame(width: 640, height: height)
+        .frame(width: width, height: height)
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 22, bottomTrailingRadius: 22))
     }
 }
