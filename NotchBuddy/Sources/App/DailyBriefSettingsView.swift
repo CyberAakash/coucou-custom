@@ -386,6 +386,9 @@ private struct BriefSettingsPreview: View {
         if tab == .daily { DailyBriefController.shared.show(place: p) } else { WeeklyBriefController.shared.show(place: p) }
     }
 
+    /// The notch card shrunk to the column; 1 until the column has been measured.
+    private var notchScale: CGFloat { inner > 0 ? min(1, inner / BriefLayout.cardWidth) : 1 }
+
     private var notch: some View {
         let nw = AppState.shared.notchWidth, nh = AppState.shared.notchHeight
         let w = phase == .pill ? nw + BriefLayout.pillWing * 2 : BriefLayout.cardWidth
@@ -399,13 +402,15 @@ private struct BriefSettingsPreview: View {
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: r, bottomTrailingRadius: r, style: .continuous))
         .shadow(color: .black.opacity(phase == .card ? 0.5 : 0), radius: 24, y: 12)
         .frame(width: BriefLayout.cardWidth, height: BriefLayout.cardHeight(nh: nh), alignment: .top)
-        .scaleEffect(min(1, inner / BriefLayout.cardWidth), anchor: .top)
-        .frame(maxWidth: .infinity)
-        .frame(height: BriefLayout.cardHeight(nh: nh) * min(1, inner / BriefLayout.cardWidth) + 40, alignment: .top)
+        .scaleEffect(notchScale, anchor: .top)
+        // The scaled picture is what takes room: the card's own width must never widen the column.
+        .frame(minWidth: 0, maxWidth: .infinity)
+        .frame(height: BriefLayout.cardHeight(nh: nh) * notchScale + 40, alignment: .top)
+        .clipped()
     }
 
     @ViewBuilder private var fullScreen: some View {
-        let s: CGFloat = min(0.9, (inner - 32) / BriefStoryFrame<EmptyView>.size.width)
+        let s: CGFloat = inner > 32 ? min(0.9, (inner - 32) / BriefStoryFrame<EmptyView>.size.width) : 0.9
         if let story {
             Group {
                 if tab == .daily, let b = dailyBrief {
