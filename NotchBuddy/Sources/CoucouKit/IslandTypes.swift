@@ -24,6 +24,7 @@ enum IslandView: String, CaseIterable {
     case shelf        // files dropped on the notch, waiting to be dragged out (coucou-custom fork)
     case peek         // a moment's pill: charger, network, sound output, Caps Lock… (coucou-custom fork)
     case clipboard    // what you copied, kept on this Mac (coucou-custom fork)
+    case tasks        // your Reminders as tasks, with a composer to add them (coucou-custom fork)
 }
 
 // MARK: - Bot State
@@ -294,6 +295,7 @@ enum IslandConst {
         // Shelf: the whole card is the shelf, no Mochi; its height comes from KeepLayout (islandSize)
         .shelf:        ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .clipboard:    ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
+        .tasks:        ViewLayout(height: 330, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         // Peek: drawn by PeekStage at notch height (PeekLayout); no BotPlacement
         .peek:         ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 0,  agentMode: .none),
     ]
