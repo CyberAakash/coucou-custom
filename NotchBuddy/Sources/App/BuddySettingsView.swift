@@ -119,6 +119,10 @@ struct HubBuddyPage: View {
                 BuddyFullScreenCard()
             }
 
+            if shows(.tasks) {
+                HubTasksSettings()
+            }
+
             if shows(.water) {
                 HubLabel("Water")
                 BuddyWaterCard(settings: routineSettings)
@@ -431,7 +435,7 @@ private struct BuddyTip: View {
 /// The Buddy page's sections, for its filter bar: a chip each, and the words a search matches
 /// (the settings each one holds).
 enum BuddySection: String, CaseIterable, Identifiable {
-    case look, wardrobe, assistant, routines, water, behaviour, clicks, moving
+    case look, wardrobe, assistant, routines, tasks, water, behaviour, clicks, moving
 
     var id: String { rawValue }
 
@@ -440,7 +444,7 @@ enum BuddySection: String, CaseIterable, Identifiable {
     static func tabs(for kind: HubBuddyPage.Kind) -> [BuddySection] {
         switch kind {
         case .buddy: return [.look, .wardrobe, .assistant, .behaviour, .clicks]
-        case .routines: return [.routines, .water]
+        case .routines: return [.routines, .tasks, .water]
         }
     }
 
@@ -450,6 +454,7 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .wardrobe: "Wardrobe"
         case .assistant: "Assistant"
         case .routines: "Routines"
+        case .tasks: "Tasks"
         case .water: "Water"
         case .behaviour: "Behaviour"
         case .clicks: "Clicks"
@@ -463,6 +468,7 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .wardrobe: "tshirt"
         case .assistant: "sparkles"
         case .routines: "timer"
+        case .tasks: "checklist"
         case .water: "drop"
         case .behaviour: "face.smiling"
         case .clicks: "cursorarrow.click"
@@ -476,6 +482,7 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .wardrobe: "wardrobe outfit clothes hat cap crown bow schedule seasons always wear nightcap"
         case .assistant: "assistant chat act tools ask mochi reminder timer slash commands"
         case .routines: "routines focus pomodoro session breaks long short breathing breathe calm launch greeting hello alert alerts sound start full screen fullscreen moment notch card popup where show"
+        case .tasks: "tasks task reminders reminder apple lists list colour color to-do todo composer new due notch"
         case .water: "water drink glass goal hydration nudge every between days ml litre"
         case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep card hud popup drag distance gap"
         case .clicks: "clicks click double triple many gesture action shortcut open app link"

@@ -74,6 +74,11 @@ final class BuddyRoutineController: ObservableObject {
         guard !started else { return }
         started = true
         reminders = BuddyReminders.sorted(settings.reminders)
+        // coucou-custom fork: with Reminders allowed, timed tasks there are the reminders
+        // (voice, the Buddy's menu, the panel and the Time's up card all use them).
+        TasksStore.shared.$items.combineLatest(TasksStore.shared.$access).receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in MainActor.assumeIsolated { self?.syncFromReminders() } }
+            .store(in: &cancellables)
         // Water and the plan follow Settings at once.
         settings.$waterEnabled.dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.resetWater() } }
@@ -100,6 +105,11 @@ final class BuddyRoutineController: ObservableObject {
     func addReminder(_ text: String, due: Date) -> BuddyReminder? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, reminders.count < BuddyReminders.maxCount else { return nil }
+        if usesReminders {
+            guard let full = TasksStore.shared.add(title: String(t.prefix(200)), due: due, hasTime: true,
+                                                   listID: TasksStore.shared.newTaskList?.id) else { return nil }
+            return BuddyReminder(id: shortID(full), text: String(t.prefix(200)), due: due)
+        }
         let r = BuddyReminder(text: String(t.prefix(200)), due: due)
         reminders = BuddyReminders.sorted(reminders + [r])
         saveReminders()
@@ -112,6 +122,13 @@ final class BuddyRoutineController: ObservableObject {
 
     @discardableResult
     func removeReminder(_ id: String) -> Bool {
+        if usesReminders, let full = taskIDs[id.lowercased()] {
+            // In Reminders a reminder is ticked, never deleted from here.
+            inNotch.remove(id.lowercased())
+            dropAlerts { $0 == .reminder(id: id.lowercased()) }
+            TasksStore.shared.setDone(full, true)
+            return true
+        }
         let before = reminders.count
         reminders.removeAll { $0.id == id.lowercased() }
         inNotch.remove(id.lowercased())
@@ -123,6 +140,16 @@ final class BuddyRoutineController: ObservableObject {
     @discardableResult
     func snoozeReminder(_ id: String, minutes: Int = BuddyReminders.snoozeMinutes) -> BuddyReminder? {
         guard let i = reminders.firstIndex(where: { $0.id == id.lowercased() }) else { return nil }
+        if usesReminders, let full = taskIDs[id.lowercased()] {
+            let due = Date.now.addingTimeInterval(TimeInterval(max(1, minutes) * 60))
+            inNotch.remove(id.lowercased())
+            dropAlerts { $0 == .reminder(id: id.lowercased()) }
+            TasksStore.shared.setDue(full, due, hasTime: true)
+            var r = reminders[i]
+            r.due = due
+            r.snoozes += 1
+            return r
+        }
         reminders[i].due = Date.now.addingTimeInterval(TimeInterval(max(1, minutes) * 60))
         reminders[i].snoozes += 1
         let r = reminders[i]
@@ -144,8 +171,56 @@ final class BuddyRoutineController: ObservableObject {
     }
 
     private func saveReminders() {
-        settings.reminders = reminders
+        if !usesReminders { settings.reminders = reminders }
         scheduleDue()
+    }
+
+    // MARK: Reminders as the store (coucou-custom fork)
+
+    /// Timed tasks in Apple Reminders are the reminders once Coucou may read them.
+    var usesReminders: Bool { TasksStore.shared.access == .granted && TasksSettings.shared.enabled }
+
+    /// Short id (what voice and the tools quote) → the reminder's EventKit identifier.
+    private var taskIDs: [String: String] = [:]
+    /// Reminders that came due long before this launch are overdue tasks on the Tasks page,
+    /// not a flood of alerts at start.
+    private let launchedAt = Date.now
+
+    private func shortID(_ full: String) -> String {
+        String(full.lowercased().filter { $0.isLetter || $0.isNumber }.prefix(8))
+    }
+
+    private func syncFromReminders() {
+        guard usesReminders else { return }
+        migrateOldReminders()
+        let horizon = launchedAt.addingTimeInterval(-3600)
+        var ids: [String: String] = [:]
+        let mapped: [BuddyReminder] = TasksStore.shared.items.compactMap { item in
+            guard item.hasTime, let due = item.due, due >= horizon else { return nil }
+            let short = shortID(item.id)
+            ids[short] = item.id
+            return BuddyReminder(id: short, text: item.title, due: due)
+        }
+        taskIDs = ids
+        let sorted = BuddyReminders.sorted(mapped)
+        if sorted != reminders { reminders = sorted }
+        // Alerts for reminders ticked or moved elsewhere go.
+        dropAlerts { kind in if case .reminder(let id) = kind { ids[id] == nil } else { false } }
+        scheduleDue()
+    }
+
+    /// Once: Coucou's own pending reminders move into the default Reminders list.
+    private func migrateOldReminders() {
+        let key = "coucouTasksMigratedReminders"
+        guard !UserDefaults.standard.bool(forKey: key), TasksStore.reallyGranted else { return }
+        let old = settings.reminders
+        guard !old.isEmpty else { UserDefaults.standard.set(true, forKey: key); return }
+        let list = TasksStore.shared.newTaskList?.id
+        // Each one leaves Coucou's list only once Reminders has it; a failure stays to try again.
+        let left = old.filter { TasksStore.shared.add(title: $0.text, due: $0.due, hasTime: true, listID: list) == nil }
+        settings.reminders = left
+        if left.isEmpty { UserDefaults.standard.set(true, forKey: key) }
+        appendAppLog("nb.log", "[Tasks] moved \(old.count - left.count) of \(old.count) Coucou reminders into Reminders")
     }
 
     // MARK: - Focus Buddy
@@ -412,8 +487,12 @@ final class BuddyRoutineController: ObservableObject {
         if case .reminder(let id) = alert.kind {
             inNotch.remove(id)
             BuddyDiaryStore.record { $0.remindersDone += 1 }
-            reminders.removeAll { $0.id == id }
-            saveReminders()
+            if usesReminders, let full = taskIDs[id] {
+                TasksStore.shared.setDone(full, true)
+            } else {
+                reminders.removeAll { $0.id == id }
+                saveReminders()
+            }
         }
         updateTick()
     }
@@ -424,8 +503,13 @@ final class BuddyRoutineController: ObservableObject {
     func retire(_ alert: BuddyAlert) {
         alerts.removeAll { $0.id == alert.id }
         if case .reminder(let id) = alert.kind {
-            reminders.removeAll { $0.id == id }
-            saveReminders()
+            if usesReminders {
+                // The task stays open in Reminders; it is not raised again this launch.
+                inNotch.insert(id)
+            } else {
+                reminders.removeAll { $0.id == id }
+                saveReminders()
+            }
         }
         updateTick()
     }
@@ -514,6 +598,7 @@ final class BuddyRoutineController: ObservableObject {
         }).union(inNotch)
         for r in reminders where r.due <= now && !alerted.contains(r.id) {
             let late = now.timeIntervalSince(r.due) > 120
+            appendAppLog("buddy.log", "reminder: due \(r.id)\(late ? " (missed)" : "")\(usesReminders ? " from Reminders" : "")")
             raise(BuddyAlert(kind: .reminder(id: r.id), title: r.text,
                              detail: late ? "Missed at \(r.due.formatted(date: .omitted, time: .shortened))" : "Reminder"),
                   sound: "question")

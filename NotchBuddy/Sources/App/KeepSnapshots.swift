@@ -50,6 +50,12 @@ enum KeepSnapshots {
             KeepDebug.tasksComposerText = options.contains("typing") ? "Call the bank tomorrow 6pm #personal" : nil
             size = CGSize(width: 640, height: 330)
             view = AnyView(islandFrame(height: 330) { TasksView(state: state) })
+        case "wing":
+            // The closed notch's right wing with the task due soon (or the clock).
+            size = CGSize(width: 160, height: 37)
+            view = AnyView(HStack {
+                if let due = TaskDueSoon.shared.next { TaskDueWing(due: due) } else { CompactClock() }
+            }.frame(width: 160, height: 37).background(Color.black))
         case "header":
             // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
             appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))
