@@ -64,13 +64,19 @@ enum KeepKind: String, CaseIterable, Identifiable, Codable {
 
 /// Grid or carousel, per page (the shelf, the clipboard).
 enum KeepLayout: String, CaseIterable, Identifiable {
-    case grid, carousel
+    case grid, rows, carousel
     var id: String { rawValue }
 
-    var label: String { self == .grid ? "Grid" : "Carousel" }
+    var label: String {
+        switch self {
+        case .grid: "Grid"
+        case .rows: "Carousel by day"
+        case .carousel: "Carousel"
+        }
+    }
 
-    /// The island's height for a page in this layout: the grid needs two rows.
-    var islandHeight: CGFloat { self == .grid ? 330 : 240 }
+    /// The island's height for a page in this layout: the grid and the day rows need two rows.
+    var islandHeight: CGFloat { self == .carousel ? 240 : 330 }
 
     /// Posted when a setting changes a page's layout, so an open island follows.
     static let changed = Notification.Name("coucou.keepLayoutChanged")
@@ -138,6 +144,7 @@ final class ShelfSettings: ObservableObject {
     static let persistKey = "coucouShelfPersist"
     static let defaultAppsKey = "coucouShelfDefaultApps"
     static let dragOutKey = "coucouShelfDragOut"
+    static let splitKey = "coucouShelfSplit"
 
     private let ud = UserDefaults.standard
 
@@ -158,6 +165,8 @@ final class ShelfSettings: ObservableObject {
     @Published var defaultApps: [String: String] { didSet { ud.set(defaultApps, forKey: Self.defaultAppsKey) } }
     /// After a file was dragged out of the notch and dropped somewhere else.
     @Published var dragOut: ShelfDragAction { didSet { ud.set(dragOut.rawValue, forKey: Self.dragOutKey) } }
+    /// Cards grouped under Just now / Today / Yesterday… in the notch.
+    @Published var splitByTime: Bool { didSet { ud.set(splitByTime, forKey: Self.splitKey) } }
 
     private init() {
         enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -169,6 +178,7 @@ final class ShelfSettings: ObservableObject {
         persist = ud.object(forKey: Self.persistKey) as? Bool ?? true
         defaultApps = ud.dictionary(forKey: Self.defaultAppsKey) as? [String: String] ?? [:]
         dragOut = ShelfDragAction(rawValue: ud.string(forKey: Self.dragOutKey) ?? "") ?? .keep
+        splitByTime = ud.object(forKey: Self.splitKey) as? Bool ?? true
     }
 
     /// Read without the main actor, for `islandSize`.

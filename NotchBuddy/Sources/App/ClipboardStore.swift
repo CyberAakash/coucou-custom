@@ -57,6 +57,7 @@ final class ClipboardSettings: ObservableObject {
     static let enterPastesKey = "coucouClipEnterPastes"
     static let pausedUntilKey = "coucouClipPausedUntil"
     static let dragOutKey = "coucouClipDragOut"
+    static let splitKey = "coucouClipSplit"
 
     /// Always skipped, whatever the list says.
     static let alwaysSkipped = ["com.apple.Passwords", "com.apple.keychainaccess"]
@@ -82,6 +83,8 @@ final class ClipboardSettings: ObservableObject {
     @Published var pausedUntil: Date? { didSet { ud.set(pausedUntil, forKey: Self.pausedUntilKey) } }
     /// What dragging a card out of the notch does.
     @Published var dragOut: ClipDragAction { didSet { ud.set(dragOut.rawValue, forKey: Self.dragOutKey) } }
+    /// Cards grouped under Pinned / Just now / Today / Yesterday… in the notch.
+    @Published var splitByTime: Bool { didSet { ud.set(splitByTime, forKey: Self.splitKey) } }
 
     private init() {
         enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -94,6 +97,7 @@ final class ClipboardSettings: ObservableObject {
         enterPastes = ud.object(forKey: Self.enterPastesKey) as? Bool ?? true
         pausedUntil = ud.object(forKey: Self.pausedUntilKey) as? Date
         dragOut = ClipDragAction(rawValue: ud.string(forKey: Self.dragOutKey) ?? "") ?? .copy
+        splitByTime = ud.object(forKey: Self.splitKey) as? Bool ?? true
     }
 
     nonisolated static var layoutForSize: KeepLayout {
