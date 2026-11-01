@@ -14,6 +14,10 @@ struct ClipboardView: View {
     @ObservedObject private var store = ClipboardStore.shared
     @ObservedObject private var settings = ClipboardSettings.shared
     @StateObject private var toast = KeepToastModel()
+    /// The card under the pointer while it is dragged, and how far it has gone.
+    @State private var dragging: (id: UUID, offset: CGSize)?
+    /// The page's frame in the window: a drag that ends outside it has left the notch.
+    @State private var pageFrame: CGRect = .zero
     @State private var query = ""
     @State private var kinds: Set<KeepKind> = []
     @State private var filterOpen = false
@@ -52,7 +56,8 @@ struct ClipboardView: View {
                     carousel
                 }
                 Spacer(minLength: 0)
-                KeepHints(hints: [("↩", settings.enterPastes ? "Paste" : "Copy"), ("⌘↩", "Copy"), ("⌘.", "Pin"), ("⌫", "Delete")], trailing: trailingHint)
+                KeepHints(hints: [("↩", settings.enterPastes ? "Paste" : "Copy"), ("⌘↩", "Copy"), ("⌘.", "Pin"), ("⌫", "Delete")]
+                          + (settings.dragOut == .none ? [] : [("Drag out", settings.dragOut.short)]), trailing: trailingHint)
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -62,6 +67,11 @@ struct ClipboardView: View {
                 VStack { Spacer(); KeepToast(text: text).padding(.bottom, 24) }
             }
         }
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { pageFrame = g.frame(in: .global) }
+                .onChange(of: g.frame(in: .global)) { _, f in pageFrame = f }
+        })
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: filterOpen)
         .onChange(of: filterOpen) { _, on in KeepPanels.setFilter(on, for: .clipboard) }
         .onChange(of: active) { _, on in
@@ -135,6 +145,34 @@ struct ClipboardView: View {
             ClipPreview(item: item, height: previewHeight)
         }
         .contextMenu { ClipContextMenu(item: item, state: state, toast: toast) }
+        // Dragged out of the notch: the quick action (Settings → Clipboard → Drag a card out).
+        // The card follows the pointer; released inside, it springs back and nothing happens.
+        .offset(dragging?.id == item.id ? dragging!.offset : .zero)
+        .scaleEffect(dragging?.id == item.id ? 1.04 : 1)
+        .shadow(color: .black.opacity(dragging?.id == item.id ? 0.5 : 0), radius: 12, y: 6)
+        .zIndex(dragging?.id == item.id ? 1 : 0)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                .onChanged { v in
+                    guard settings.dragOut != .none else { return }
+                    dragging = (item.id, v.translation)
+                }
+                .onEnded { v in
+                    let out = dragging != nil && !pageFrame.insetBy(dx: -4, dy: -4).contains(v.location)
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragging = nil }
+                    if out { dragOut(item) }
+                }
+        )
+    }
+
+    private func dragOut(_ item: ClipItem) {
+        switch settings.dragOut {
+        case .copy: store.copy(item); toast.say("Copied")
+        case .paste: toast.say(store.paste(item) ? "Pasted into the app in front" : "Copied · Accessibility is needed to paste for you")
+        case .shelf: store.putOnShelf(item); toast.say("On the shelf")
+        case .delete: store.delete(item.id); toast.say("Deleted")
+        case .none: break
+        }
     }
 
     private var emptyState: some View {

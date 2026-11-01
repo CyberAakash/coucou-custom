@@ -56,6 +56,7 @@ final class ClipboardSettings: ObservableObject {
     static let skippedKey = "coucouClipSkippedApps"
     static let enterPastesKey = "coucouClipEnterPastes"
     static let pausedUntilKey = "coucouClipPausedUntil"
+    static let dragOutKey = "coucouClipDragOut"
 
     /// Always skipped, whatever the list says.
     static let alwaysSkipped = ["com.apple.Passwords", "com.apple.keychainaccess"]
@@ -79,6 +80,8 @@ final class ClipboardSettings: ObservableObject {
     @Published var enterPastes: Bool { didSet { ud.set(enterPastes, forKey: Self.enterPastesKey) } }
     /// Recording is paused until then (nil: not paused; .distantFuture: until resumed by hand).
     @Published var pausedUntil: Date? { didSet { ud.set(pausedUntil, forKey: Self.pausedUntilKey) } }
+    /// What dragging a card out of the notch does.
+    @Published var dragOut: ClipDragAction { didSet { ud.set(dragOut.rawValue, forKey: Self.dragOutKey) } }
 
     private init() {
         enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -90,6 +93,7 @@ final class ClipboardSettings: ObservableObject {
         skippedApps = ud.stringArray(forKey: Self.skippedKey) ?? ["com.1password.1password", "com.bitwarden.desktop"]
         enterPastes = ud.object(forKey: Self.enterPastesKey) as? Bool ?? true
         pausedUntil = ud.object(forKey: Self.pausedUntilKey) as? Date
+        dragOut = ClipDragAction(rawValue: ud.string(forKey: Self.dragOutKey) ?? "") ?? .copy
     }
 
     nonisolated static var layoutForSize: KeepLayout {
@@ -110,6 +114,31 @@ final class ClipboardSettings: ObservableObject {
     func skips(_ bundle: String?) -> Bool {
         guard let bundle else { return false }
         return Self.alwaysSkipped.contains(bundle) || skippedApps.contains(bundle)
+    }
+}
+
+/// What a card dragged out of the notch does (coucou-custom fork): the quick action, chosen in Settings.
+enum ClipDragAction: String, CaseIterable, Identifiable {
+    case copy, paste, shelf, delete, none
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .copy: "Copies it"
+        case .paste: "Pastes it into the app in front"
+        case .shelf: "Puts it on the shelf"
+        case .delete: "Deletes it"
+        case .none: "Nothing"
+        }
+    }
+    /// The word in the notch's hint row.
+    var short: String {
+        switch self {
+        case .copy: "Copy"
+        case .paste: "Paste"
+        case .shelf: "To shelf"
+        case .delete: "Delete"
+        case .none: "Nothing"
+        }
     }
 }
 
