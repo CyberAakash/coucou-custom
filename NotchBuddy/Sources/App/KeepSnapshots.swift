@@ -35,6 +35,7 @@ enum KeepSnapshots {
         let shelfLayout = ShelfSettings.shared.layout, clipLayout = ClipboardSettings.shared.layout
         if options.contains("carousel") { ShelfSettings.shared.layout = .carousel; ClipboardSettings.shared.layout = .carousel }
         if options.contains("grid") { ShelfSettings.shared.layout = .grid; ClipboardSettings.shared.layout = .grid }
+        if options.contains("rows") { ShelfSettings.shared.layout = .rows; ClipboardSettings.shared.layout = .rows }
         KeepDebug.filterOpen = options.contains("filter")
         let restore = { ShelfSettings.shared.layout = shelfLayout; ClipboardSettings.shared.layout = clipLayout }
         let view: AnyView

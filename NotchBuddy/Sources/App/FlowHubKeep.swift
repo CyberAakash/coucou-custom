@@ -191,9 +191,13 @@ struct HubShelfPage: View {
         VStack(alignment: .leading, spacing: 22) {
             HubLabel("In the notch")
             HubCard {
-                HubKeepRow(title: "Layout", detail: "Grid shows two rows and grows the notch to 330 pt. Carousel keeps the notch at 240 pt and scrolls sideways, newest first.") {
+                HubKeepRow(title: "Layout", detail: "Grid: four columns, two rows showing (the notch grows to 330 pt). Carousel by day: one sideways row per day, same height. Carousel: one row, 240 pt.") {
                     Picker("", selection: $settings.layout) { ForEach(KeepLayout.allCases) { Text($0.label).tag($0) } }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
+                }
+                HubDivider()
+                HubKeepRow(title: "Split by time", detail: "Headings for Just now, Today, Yesterday and the days before; in the carousel, a label between the groups.") {
+                    Toggle("", isOn: $settings.splitByTime).toggleStyle(.switch).labelsHidden()
                 }
                 HubDivider()
                 HubKeepRow(title: "Previews", detail: "Quick Look thumbnails for images, PDFs and documents, made in the background and kept on disk. Off: file icons only.") {
@@ -491,9 +495,13 @@ struct HubClipboardPage: View {
             }
             HubLabel("In the notch")
             HubCard {
-                HubKeepRow(title: "Layout", detail: "Carousel keeps the notch at 240 pt, newest first, grouped by time. Grid shows two rows and grows the notch to 330 pt.") {
+                HubKeepRow(title: "Layout", detail: "Carousel: one row, newest first, 240 pt. Carousel by day: one sideways row per day (the notch grows to 330 pt). Grid: four columns, two rows showing.") {
                     Picker("", selection: $settings.layout) { ForEach(KeepLayout.allCases) { Text($0.label).tag($0) } }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
+                }
+                HubDivider()
+                HubKeepRow(title: "Split by time", detail: "Headings for Just now, Today, Yesterday and the days before; in the carousel, a label between the groups.") {
+                    Toggle("", isOn: $settings.splitByTime).toggleStyle(.switch).labelsHidden()
                 }
                 HubDivider()
                 HubKeepRow(title: "Shortcut", detail: "Opens the notch on the Clipboard page: Settings → Shortcuts → Open the clipboard (⌘⇧V by default).") { EmptyView() }

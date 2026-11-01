@@ -399,6 +399,7 @@ struct KeepLayoutToggle: View {
     var body: some View {
         HStack(spacing: 1) {
             option(.grid, "square.grid.2x2.fill", "Grid")
+            option(.rows, "rectangle.grid.1x2.fill", "Carousel by day")
             option(.carousel, "rectangle.split.3x1.fill", "Carousel")
         }
         .padding(2)
@@ -456,6 +457,18 @@ struct KeepSectionLabel: View {
             .fixedSize()
             .rotationEffect(.degrees(-90))
             .frame(width: 12)
+    }
+}
+
+/// "TODAY": the heading over a group of cards in the grid and the day rows.
+struct KeepRowLabel: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 8, weight: .bold))
+            .tracking(1)
+            .foregroundColor(Color(hex: "#6B7079"))
+            .padding(.leading, 2)
     }
 }
 

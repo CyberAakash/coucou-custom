@@ -33,7 +33,7 @@ struct ShelfView: View {
 
     /// How tall the cards' area is: the filter panel, when open, takes a row from it.
     /// The cards keep their height: the island grows by the filter row instead (KeepPanels).
-    private var cardsHeight: CGFloat { settings.layout == .grid ? 212 : 118 }
+    private var cardsHeight: CGFloat { settings.layout == .carousel ? 118 : 212 }
 
     var body: some View {
         ZStack {
@@ -51,6 +51,8 @@ struct ShelfView: View {
                     emptyState
                 } else if settings.layout == .grid {
                     grid
+                } else if settings.layout == .rows {
+                    rows
                 } else {
                     carousel
                 }
@@ -94,22 +96,52 @@ struct ShelfView: View {
 
     // MARK: Layouts
 
+    /// Four columns; split by time, each group under its heading.
     private var grid: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                ForEach(visible) { item in card(item, width: nil, height: 102, previewHeight: 50) }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(sections, id: \.label) { group in
+                    if !group.label.isEmpty { KeepRowLabel(text: group.label) }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                        ForEach(group.items) { item in card(item, width: nil, height: 102, previewHeight: 50) }
+                    }
+                }
             }
             .padding(.bottom, 2)
         }
         .frame(height: cardsHeight)
     }
 
+    /// One sideways row per group, under its heading; the rows scroll down.
+    private var rows: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(sections, id: \.label) { group in
+                    if !group.label.isEmpty { KeepRowLabel(text: group.label) }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 7) {
+                            ForEach(group.items) { item in card(item, width: 118, height: 102, previewHeight: 50) }
+                        }
+                        .scrollTargetLayout()
+                    }
+                    .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
+                }
+            }
+            .padding(.bottom, 2)
+        }
+        .frame(height: cardsHeight)
+    }
+
+    /// The groups to show: by time, or everything as one unlabelled group.
+    private var sections: [(label: String, items: [ShelfItem])] {
+        settings.splitByTime ? groups : [(label: "", items: visible)]
+    }
+
     private var carousel: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 7) {
                 ForEach(groups, id: \.label) { group in
-                    KeepSectionLabel(text: group.label)
-                        .frame(height: cardsHeight)
+                    if settings.splitByTime { KeepSectionLabel(text: group.label).frame(height: cardsHeight) }
                     ForEach(group.items) { item in card(item, width: 118, height: cardsHeight, previewHeight: 56) }
                 }
             }
