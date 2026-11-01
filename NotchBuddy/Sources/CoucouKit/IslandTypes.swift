@@ -26,6 +26,7 @@ enum IslandView: String, CaseIterable {
     case clipboard    // what you copied, kept on this Mac (coucou-custom fork)
     case tasks        // your Reminders as tasks, with a composer to add them (coucou-custom fork)
     case calendar     // the week and the day from the Mac's calendars (coucou-custom fork)
+    case meeting      // a meeting with a link starts: Join, In 5 min, Dismiss (coucou-custom fork)
 }
 
 // MARK: - Bot State
@@ -309,6 +310,7 @@ enum IslandConst {
         .clipboard:    ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .tasks:        ViewLayout(height: 330, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .calendar:     ViewLayout(height: 400, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
+        .meeting:      ViewLayout(height: 150, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         // Peek: drawn by PeekStage at notch height (PeekLayout); no BotPlacement
         .peek:         ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 0,  agentMode: .none),
     ]

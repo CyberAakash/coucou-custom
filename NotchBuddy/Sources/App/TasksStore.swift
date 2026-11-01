@@ -336,14 +336,20 @@ final class TaskDueSoon: ObservableObject {
         let title: String
         let due: Date
         let color: Color
+        /// An event's name, shown before its time ("Stand-up 10:30"); a task shows its time alone.
+        var label: String? = nil
     }
 
     @Published private(set) var next: Due?
     private var timer: Timer?
     private var itemsWatch: AnyCancellable?
+    private var eventsWatch: AnyCancellable?
 
     private init() {
         itemsWatch = TasksStore.shared.$items.receive(on: DispatchQueue.main).sink { _ in
+            MainActor.assumeIsolated { TaskDueSoon.shared.update() }
+        }
+        eventsWatch = CalendarStore.shared.$events.receive(on: DispatchQueue.main).sink { _ in
             MainActor.assumeIsolated { TaskDueSoon.shared.update() }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
@@ -354,20 +360,42 @@ final class TaskDueSoon: ObservableObject {
 
     func update() {
         let store = TasksStore.shared
+        let now = Date.now
+        // The next calendar event inside the minutes chosen in Settings → Calendar.
+        let cal = CalendarSettings.shared
+        let event: Due? = (cal.enabled && cal.wing && CalendarStore.shared.access == .granted)
+            ? CalendarStore.shared.nextEvent(now: now).flatMap { e in
+                guard e.start > now, e.start.timeIntervalSince(now) <= TimeInterval(cal.wingMinutes * 60) else { return nil }
+                return Due(title: e.title, due: e.start, color: CalendarStore.shared.calendar(e.calendarID)?.color ?? .blue,
+                           label: Self.short(e.title))
+            }
+            : nil
         guard TasksSettings.shared.enabled, store.access == .granted else {
-            if next != nil { next = nil }
+            if next != event { next = event }
             return
         }
-        let now = Date.now
         let shown = Set(store.shownLists.map(\.id))
-        let soon = store.items
+        let task = store.items
             .filter { $0.hasTime && shown.contains($0.listID) }
             .compactMap { item -> Due? in
                 guard let due = item.due, due > now, due.timeIntervalSince(now) <= Self.lead else { return nil }
                 return Due(title: item.title, due: due, color: store.list(item.listID)?.color ?? .blue)
             }
             .min { $0.due < $1.due }
+        // The sooner of the two; at the same minute the task comes first.
+        let soon: Due?
+        switch (task, event) {
+        case let (t?, e?): soon = e.due.timeIntervalSince(t.due) < -59 ? e : t
+        case let (t?, nil): soon = t
+        default: soon = event
+        }
         if soon != next { next = soon }
+    }
+
+    /// An event's name for the wing: its first words, at most 16 characters.
+    static func short(_ title: String) -> String {
+        guard title.count > 16 else { return title }
+        return String(title.prefix(15)).trimmingCharacters(in: .whitespaces) + "…"
     }
 }
 
@@ -386,6 +414,9 @@ struct TaskDueWing: View {
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(due.color).frame(width: 7, height: 7)
+            if let label = due.label {
+                Text(label).font(.system(size: 11, weight: .semibold)).foregroundColor(Color(hex: "#E1E3E6"))
+            }
             Text(Self.clock.string(from: due.due))
                 .font(.system(size: 11, weight: .bold).monospacedDigit())
                 .foregroundColor(Color(hex: "#E1E3E6"))

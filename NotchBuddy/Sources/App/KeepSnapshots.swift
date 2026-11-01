@@ -55,6 +55,15 @@ enum KeepSnapshots {
             KeepDebug.tasksComposerText = options.contains("typing") ? "Lunch with Rita tomorrow 1pm for 45 min" : nil
             size = CGSize(width: IslandConst.openWidth, height: 400)
             view = AnyView(islandFrame(height: 400, width: IslandConst.openWidth) { CalendarView(state: state) })
+        case "meeting":
+            // The Join card for a sample meeting starting now (Mochi is the island's, not drawn here).
+            CalendarStore.shared.debugFill()
+            let now = Date.now
+            MeetingWatcher.shared.debugShow(CalEvent(id: "m", title: "IM stand-up", start: now, end: now.addingTimeInterval(1800),
+                                                     allDay: false, calendarID: "w", location: nil,
+                                                     meeting: URL(string: "https://zoho.zoom.us/j/123456789"), attendees: 6))
+            size = CGSize(width: IslandConst.openWidth, height: 150)
+            view = AnyView(islandFrame(height: 150, width: IslandConst.openWidth) { MeetingCard() })
         case "wing":
             // The closed notch's right wing with the task due soon (or the clock).
             size = CGSize(width: 160, height: 37)
@@ -80,7 +89,7 @@ enum KeepSnapshots {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UserDefaults.standard.set(clockWas, forKey: IslandClock.enabledKey) }
             IslandRestingStyle.contentNeed = CompactSideContent.need(
                 gridShown: !state.gridSlots.isEmpty, clockOn: UserDefaults.standard.bool(forKey: IslandClock.enabledKey),
-                seconds: UserDefaults.standard.bool(forKey: IslandClock.secondsKey), dueSoon: TaskDueSoon.shared.next != nil)
+                seconds: UserDefaults.standard.bool(forKey: IslandClock.secondsKey), dueLabel: TaskDueSoon.shared.next.map { $0.label ?? "" })
             let (w, h) = IslandRestingStyle.compactSize(nw: state.notchWidth, nh: state.notchHeight)
             size = CGSize(width: w + 40, height: h)
             view = AnyView(ZStack {
@@ -91,7 +100,7 @@ enum KeepSnapshots {
                     Self.housing(state.notchWidth, h)
                 }.frame(width: w, height: h)
             }.frame(width: w + 40, height: h))
-            appendAppLog("nb.log", "[Snapshot] compact \(Int(w)) pt: wing \(Int(IslandRestingStyle.wing)) (chosen \(Int(IslandRestingStyle.chosenWing)), content \(Int(IslandRestingStyle.contentNeed))), grid \(!state.gridSlots.isEmpty)")
+            appendAppLog("nb.log", "[Snapshot] compact \(Int(w)) pt: wing \(Int(IslandRestingStyle.wing)) (chosen \(Int(IslandRestingStyle.chosenWing)), content \(Int(IslandRestingStyle.contentNeed))), grid \(!state.gridSlots.isEmpty), mode \(state.mode.rawValue), corner \(state.islandPlacement.isCorner)")
         case "header":
             // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
             appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))

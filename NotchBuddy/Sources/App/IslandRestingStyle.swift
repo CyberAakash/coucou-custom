@@ -68,12 +68,16 @@ enum IslandRestingStyle {
     /// The wing drawn: the chosen one, wider when its content needs it.
     static var wing: CGFloat { max(chosenWing, contentNeed) }
 
+    /// Beside a text, the mini Mochis' middle sits this far from the island's right edge (their
+    /// grid is 28 pt wide), and the text's right edge this far, 8 pt before them.
+    static let gridEdge: CGFloat = 24
+    static let textEdge: CGFloat = 46
+
     /// The wing a text of this width needs at the right edge: alone, centred in the wing; beside
-    /// the mini Mochis, left of them (`CompactSideContent` places it at inset + 38). 8 pt stay
-    /// clear of the notch.
+    /// the mini Mochis, ending at `textEdge`. 8 pt stay clear of the notch.
     static func need(textWidth t: CGFloat, besideGrid: Bool) -> CGFloat {
         guard t > 0 else { return 0 }
-        return besideGrid ? (92 + t).rounded(.up) : (t + 16).rounded(.up)
+        return besideGrid ? (textEdge + t + 8).rounded(.up) : (t + 16).rounded(.up)
     }
 
     static var extraHeight: CGFloat {

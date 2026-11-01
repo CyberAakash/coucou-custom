@@ -13,6 +13,7 @@ enum HubPage: String, CaseIterable, Identifiable {
     case brief   // coucou-custom fork: Settings → Daily brief
     case shelf   // coucou-custom fork: Keep → Shelf (manage the files, its settings)
     case clipboard   // coucou-custom fork: Keep → Clipboard (what you copied, its settings)
+    case calendar    // coucou-custom fork: Settings → Calendar (calendars, the wing, the Join card)
     case mailOverview, mailRules, mailBanned, mailVIP
 
     var id: String { rawValue }
@@ -25,7 +26,7 @@ enum HubPage: String, CaseIterable, Identifiable {
     /// on the desktop and in the menu bar, what Coucou connects to, then Flow.
     static let sidebarGroups: [(title: String, pages: [HubPage])] = [
         (String(localized: "hub.section.notch"), [.general, .agents, .chat, .voice, .shortcuts]),
-        ("Desktop", [.buddy, .routines, .runner, .brief]),
+        ("Desktop", [.buddy, .routines, .calendar, .runner, .brief]),
         ("Keep", [.shelf, .clipboard, .notes]),
         ("Connections", [.pills, .integrations]),
         ("Mail", mailPages),
@@ -70,6 +71,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .brief:        return String(localized: "Briefs")
         case .shelf:        return "Shelf"
         case .clipboard:    return "Clipboard"
+        case .calendar:     return "Calendar"
         case .dictation:  return String(localized: "hub.page.dictation")
         case .notes:      return String(localized: "hub.page.notes")
         case .insights:   return String(localized: "hub.page.insights")
@@ -106,6 +108,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .brief:        return "sun.horizon"
         case .shelf:        return "tray.full"
         case .clipboard:    return "list.clipboard"
+        case .calendar:     return "calendar"
         case .mailOverview: return "tray"
         case .mailRules:    return "line.3.horizontal.decrease"
         case .mailBanned:   return "nosign"
@@ -288,6 +291,7 @@ struct FlowHubView: View {
         case .general:    HubGeneralPage()   // coucou-custom fork: in the window's style
         case .shelf:      HubShelfPage()   // coucou-custom fork
         case .clipboard:  HubClipboardPage()   // coucou-custom fork
+        case .calendar:   HubCalendarPage()    // coucou-custom fork
         case .mailOverview: HubMailOverviewPage()
         case .mailRules:    HubMailRulesPage()
         case .mailBanned:   HubMailBannedPage()
