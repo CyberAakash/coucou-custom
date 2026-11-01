@@ -55,7 +55,8 @@ struct ShelfView: View {
                     carousel
                 }
                 Spacer(minLength: 0)
-                KeepHints(hints: [("↩", "Open"), ("Space", "Quick Look"), ("⌫", "Remove"), ("⌘click", "Select more")], trailing: trailingHint)
+                KeepHints(hints: [("↩", "Open"), ("Space", "Quick Look"), ("⌫", "Remove"), ("⌘click", "Select more")]
+                          + (settings.dragOut == .keep ? [] : [("Drag out", settings.dragOut.short)]), trailing: trailingHint)
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -79,6 +80,11 @@ struct ShelfView: View {
         .onAppear {
             if active { searching = true }
             if KeepDebug.filterOpen { filterOpen = true }
+        }
+        .onChange(of: shelf.note) { _, n in
+            guard let n else { return }
+            toast.say(n)
+            shelf.note = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .shelfLanded)) { note in
             let n = note.object as? Int ?? 1

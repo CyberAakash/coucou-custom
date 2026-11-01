@@ -102,6 +102,26 @@ enum KeepRetention: String, CaseIterable, Identifiable {
     }
 }
 
+/// What happens to a file after it was dragged out of the notch and dropped elsewhere (coucou-custom fork).
+enum ShelfDragAction: String, CaseIterable, Identifiable {
+    case keep, remove, copy
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .keep: "Keeps it on the shelf"
+        case .remove: "Removes it from the shelf"
+        case .copy: "Copies it, and keeps it"
+        }
+    }
+    var short: String {
+        switch self {
+        case .keep: "Keep"
+        case .remove: "Remove"
+        case .copy: "Copy"
+        }
+    }
+}
+
 // MARK: - Settings
 
 /// Settings → Shelf → Settings. UserDefaults-backed so the nonisolated `islandSize` can read the layout.
@@ -117,6 +137,7 @@ final class ShelfSettings: ObservableObject {
     static let maxItemsKey = "coucouShelfMax"
     static let persistKey = "coucouShelfPersist"
     static let defaultAppsKey = "coucouShelfDefaultApps"
+    static let dragOutKey = "coucouShelfDragOut"
 
     private let ud = UserDefaults.standard
 
@@ -135,6 +156,8 @@ final class ShelfSettings: ObservableObject {
     @Published var persist: Bool { didSet { ud.set(persist, forKey: Self.persistKey) } }
     /// Extension → the application's path, for Open. Set from "Open with ▸ Set the default" or the Shelf page.
     @Published var defaultApps: [String: String] { didSet { ud.set(defaultApps, forKey: Self.defaultAppsKey) } }
+    /// After a file was dragged out of the notch and dropped somewhere else.
+    @Published var dragOut: ShelfDragAction { didSet { ud.set(dragOut.rawValue, forKey: Self.dragOutKey) } }
 
     private init() {
         enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -145,6 +168,7 @@ final class ShelfSettings: ObservableObject {
         maxItems = ud.object(forKey: Self.maxItemsKey) as? Int ?? 24
         persist = ud.object(forKey: Self.persistKey) as? Bool ?? true
         defaultApps = ud.dictionary(forKey: Self.defaultAppsKey) as? [String: String] ?? [:]
+        dragOut = ShelfDragAction(rawValue: ud.string(forKey: Self.dragOutKey) ?? "") ?? .keep
     }
 
     /// Read without the main actor, for `islandSize`.
@@ -180,7 +204,13 @@ final class FileShelf: ObservableObject {
     @Published var selected: Set<UUID> = []
     /// A file is being dragged out: the island stays open for the drag (fsm.isHeldOpen).
     @Published var dragging = false
+    /// A line for the page's toast after a drag-out action.
+    @Published var note: String?
     private var dragReset: DispatchWorkItem?
+    private var dragPoll: Timer?
+    private var draggedItem: ShelfItem?
+    /// The window the drag started in: a drop outside it has left the notch (or the Coucou window).
+    private var dragWindowFrame: CGRect?
     /// The file of the drag in progress: dropped back on the island, it is left alone.
     private(set) var draggedPath: String?
     private var pruneTimer: Timer?
@@ -330,17 +360,50 @@ final class FileShelf: ObservableObject {
     func beginDrag(_ item: ShelfItem) {
         dragging = true
         draggedPath = item.path
+        draggedItem = item
+        dragWindowFrame = NSApp.currentEvent?.window?.frame
         dragReset?.cancel()
         let reset = DispatchWorkItem { [weak self] in self?.endDrag() }
         dragReset = reset
-        // A drag ends with no callback here; a few seconds covers the drop in another app.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: reset)
+        // A system drag ends with no callback here: the mouse button tells. Released outside
+        // the window it started in, the file was dropped elsewhere: the drag-out action runs.
+        // The long timer only covers a drag that never reports its button.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: reset)
+        dragPoll?.invalidate()
+        dragPoll = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.dragging else { self?.dragPoll?.invalidate(); return }
+                guard NSEvent.pressedMouseButtons == 0 else { return }
+                self.dragFinished(at: NSEvent.mouseLocation)
+            }
+        }
+    }
+
+    private func dragFinished(at point: CGPoint) {
+        let item = draggedItem
+        let out = dragWindowFrame.map { !$0.insetBy(dx: -8, dy: -8).contains(point) } ?? true
+        endDrag()
+        guard out, let item, items.contains(where: { $0.id == item.id }) else { return }
+        switch ShelfSettings.shared.dragOut {
+        case .keep: break
+        case .remove:
+            remove(item)
+            note = "Dragged out · removed from the shelf"
+        case .copy:
+            copy([item])
+            note = "Dragged out · copied"
+        }
+        appendAppLog("nb.log", "[Shelf] dragged out: \(item.name) → \(ShelfSettings.shared.dragOut.rawValue)")
     }
 
     func endDrag() {
         dragReset?.cancel()
+        dragPoll?.invalidate()
+        dragPoll = nil
         dragging = false
         draggedPath = nil
+        draggedItem = nil
+        dragWindowFrame = nil
     }
 
     /// True when these are the shelf's own file coming back from a drag that started on it:
