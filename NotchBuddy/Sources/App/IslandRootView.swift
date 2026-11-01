@@ -1016,6 +1016,9 @@ extension IslandContainer {
 /// while Coucou listens, thinks or talks (GitHub build only).
 struct CompactSideContent: View {
     @ObservedObject var state: AppState
+    #if !APPSTORE
+    @ObservedObject private var dueSoon = TaskDueSoon.shared   // coucou-custom fork: a task due soon
+    #endif
     let islandWidth: CGFloat
     let islandHeight: CGFloat
 
@@ -1042,9 +1045,22 @@ struct CompactSideContent: View {
                     // coucou-custom fork: the time, at the grid's place when it is empty, else beside it
                     // (a minimal wing has room for one of the two).
                     if !hasGrid || IslandRestingStyle.wing >= CGFloat(IslandRestingStyle.Wing.standard.rawValue) {
+                        // coucou-custom fork: a task due within 15 minutes takes the clock's place.
+                        #if !APPSTORE
+                        if let due = dueSoon.next {
+                            TaskDueWing(due: due)
+                                .position(x: islandWidth - (hasGrid ? inset + 38 : inset), y: islandHeight / 2)
+                                .transition(.opacity)
+                        } else {
+                            CompactClock()
+                                .position(x: islandWidth - (hasGrid ? inset + 38 : inset), y: islandHeight / 2)
+                                .animation(.easeInOut(duration: 0.25), value: hasGrid)
+                        }
+                        #else
                         CompactClock()
                             .position(x: islandWidth - (hasGrid ? inset + 38 : inset), y: islandHeight / 2)
                             .animation(.easeInOut(duration: 0.25), value: hasGrid)
+                        #endif
                     }
                 }
             }

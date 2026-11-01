@@ -858,7 +858,8 @@ final class BuddyController {
                         s.addItem(BuddyMenuItem("Remove") { r.removeReminder(rem.id) })
                     }
                 }
-                m.addItem(BuddyMenuItem("Clear reminders") { r.clearReminders() })
+                // With Reminders as the store, clearing would tick every task there: not offered.
+                if !r.usesReminders { m.addItem(BuddyMenuItem("Clear reminders") { r.clearReminders() }) }
             }
         }
 

@@ -1,5 +1,6 @@
 #if !APPSTORE
 import AppKit
+import Combine
 import EventKit
 import SwiftUI
 
@@ -95,6 +96,9 @@ final class TasksStore: ObservableObject {
         }
         if access == .granted { reload() }
     }
+
+    /// What macOS says, whatever the page shows (the Debug sample fakes access).
+    static var reallyGranted: Bool { EKEventStore.authorizationStatus(for: .reminder) == .fullAccess }
 
     private static func currentAccess() -> Access {
         switch EKEventStore.authorizationStatus(for: .reminder) {
@@ -273,11 +277,14 @@ final class TasksStore: ObservableObject {
         }
         items = Self.sorted([
             TaskItem(id: "1", title: "Send the build to the testers", due: now.addingTimeInterval(-3 * 3600), hasTime: true, listID: "w", done: false),
-            TaskItem(id: "2", title: "Review the Briefs preview", due: now.addingTimeInterval(2 * 3600), hasTime: true, listID: "w", done: false),
+            TaskItem(id: "2", title: "Review the Briefs preview", due: now.addingTimeInterval(10 * 60), hasTime: true, listID: "w", done: false),
+            TaskItem(id: "5", title: "Stretch for a minute", due: now.addingTimeInterval(40), hasTime: true, listID: "p", done: false),
             TaskItem(id: "3", title: "Call the bank about the card", due: at(9, 0, dayOffset: 1), hasTime: true, listID: "p", done: false),
             TaskItem(id: "4", title: "Milk, eggs, coffee beans", due: nil, hasTime: false, listID: "g", done: false),
         ])
         doneToday = 3
+        TaskDueSoon.shared.update()
+        appendAppLog("nb.log", "[Tasks] sample: due soon \(TaskDueSoon.shared.next.map { "\($0.title) at \($0.due.formatted(date: .omitted, time: .shortened))" } ?? "none")")
     }
     #endif
 
@@ -286,6 +293,75 @@ final class TasksStore: ObservableObject {
         if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.reminders") {
             NSWorkspace.shared.openApplication(at: app, configuration: .init(), completionHandler: nil)
         }
+    }
+}
+/// The next timed task due within 15 minutes, for the closed notch's right wing (in the clock's
+/// place until it is due; the Time's up card takes over then).
+@MainActor
+final class TaskDueSoon: ObservableObject {
+    static let shared = TaskDueSoon()
+    static let lead: TimeInterval = 15 * 60
+
+    struct Due: Equatable {
+        let title: String
+        let due: Date
+        let color: Color
+    }
+
+    @Published private(set) var next: Due?
+    private var timer: Timer?
+    private var itemsWatch: AnyCancellable?
+
+    private init() {
+        itemsWatch = TasksStore.shared.$items.receive(on: DispatchQueue.main).sink { _ in
+            MainActor.assumeIsolated { TaskDueSoon.shared.update() }
+        }
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            MainActor.assumeIsolated { TaskDueSoon.shared.update() }
+        }
+        timer?.tolerance = 5
+    }
+
+    func update() {
+        let store = TasksStore.shared
+        guard TasksSettings.shared.enabled, store.access == .granted else {
+            if next != nil { next = nil }
+            return
+        }
+        let now = Date.now
+        let shown = Set(store.shownLists.map(\.id))
+        let soon = store.items
+            .filter { $0.hasTime && shown.contains($0.listID) }
+            .compactMap { item -> Due? in
+                guard let due = item.due, due > now, due.timeIntervalSince(now) <= Self.lead else { return nil }
+                return Due(title: item.title, due: due, color: store.list(item.listID)?.color ?? .blue)
+            }
+            .min { $0.due < $1.due }
+        if soon != next { next = soon }
+    }
+}
+
+/// The right wing's due time: the list's colour and the time ("5:30").
+struct TaskDueWing: View {
+    let due: TaskDueSoon.Due
+
+    /// "3:32" on a 12-hour Mac, "15:32" on a 24-hour one: the wing has no room for AM/PM.
+    static let clock: DateFormatter = {
+        let f = DateFormatter()
+        let twelve = (DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? "").contains("a")
+        f.dateFormat = twelve ? "h:mm" : "H:mm"
+        return f
+    }()
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(due.color).frame(width: 7, height: 7)
+            Text(Self.clock.string(from: due.due))
+                .font(.system(size: 11, weight: .bold).monospacedDigit())
+                .foregroundColor(Color(hex: "#E1E3E6"))
+        }
+        .fixedSize()
+        .help("\(due.title) at \(due.due.formatted(date: .omitted, time: .shortened))")
     }
 }
 #endif
