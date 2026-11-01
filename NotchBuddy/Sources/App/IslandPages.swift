@@ -10,7 +10,7 @@ import SwiftUI
 /// The open notch's pages that can be moved and hidden (Settings → General → Pages); Home is
 /// not one of them: the notch opens on it, so it is always first and always there.
 enum NotchPage: String, CaseIterable, Identifiable, Codable {
-    case chat, shelf, clipboard, sessions
+    case chat, shelf, clipboard, sessions, tasks
     var id: String { rawValue }
 
     var view: IslandView {
@@ -19,6 +19,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: .shelf
         case .clipboard: .clipboard
         case .sessions: .sessions
+        case .tasks: .tasks
         }
     }
 
@@ -28,6 +29,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: "Shelf"
         case .clipboard: "Clipboard"
         case .sessions: "Sessions"
+        case .tasks: "Tasks"
         }
     }
 
@@ -37,6 +39,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: "tray.full.fill"
         case .clipboard: "list.clipboard.fill"
         case .sessions: "rectangle.stack.fill"
+        case .tasks: "checklist"
         }
     }
 
@@ -46,6 +49,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: "Files dropped on the notch. Hidden, the + tab takes its place for uploads."
         case .clipboard: "What you copied. Hiding the page keeps recording; turn recording off on the Clipboard page."
         case .sessions: "Every agent session; shows only while one is running."
+        case .tasks: "Your Reminders: add with a day, a time and #list, tick them off."
         }
     }
 }
@@ -105,8 +109,9 @@ enum IslandPages {
         case .shelf: return FileShelf.enabled
         case .clipboard: return ClipboardSettings.shared.enabled
         case .sessions: return !LiveSessions.shared.sessions.isEmpty
+        case .tasks: return TasksSettings.shared.enabled
         #else
-        case .shelf, .clipboard, .sessions: return false
+        case .shelf, .clipboard, .sessions, .tasks: return false
         #endif
         }
     }
@@ -115,7 +120,7 @@ enum IslandPages {
     static func page(of view: IslandView) -> IslandView? {
         switch view {
         case .overview, .empty: return .overview
-        case .prompt, .shelf, .clipboard, .sessions: return view
+        case .prompt, .shelf, .clipboard, .sessions, .tasks: return view
         default: return nil
         }
     }
@@ -223,6 +228,7 @@ struct PageBar: View {
         case .shelf: return "Shelf"
         case .clipboard: return "Clipboard"
         case .sessions: return "Sessions"
+        case .tasks: return "Tasks"
         default: return String(localized: "Home")
         }
     }

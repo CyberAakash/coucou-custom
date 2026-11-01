@@ -697,7 +697,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew || v == .shelf || v == .clipboard) && active)
+                    let isTall = v == .prompt || ((v == .mail || v == .sessions || v == .question || v == .whatsNew || v == .shelf || v == .clipboard || v == .tasks) && active)
                         || (v == .overview && active && cornerHome)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
@@ -747,6 +747,7 @@ struct IslandHeader: View {
     #if !APPSTORE
     @ObservedObject private var shelf = FileShelf.shared     // coucou-custom fork
     @ObservedObject private var clipSettings = ClipboardSettings.shared   // coucou-custom fork
+    @ObservedObject private var tasksSettings = TasksSettings.shared      // coucou-custom fork
     #endif
     @State private var gearHovered  = false
     @State private var soundHovered = false
@@ -788,6 +789,28 @@ struct IslandHeader: View {
             if !live.sessions.isEmpty && shown {
                 TabButton(icon: "rectangle.stack.fill", view: .sessions, state: state)
             }
+        case .tasks:
+            #if !APPSTORE
+            if shown && tasksSettings.enabled {
+                TabButton(icon: "checklist", view: .tasks, state: state)
+            }
+            #endif
+        }
+    }
+
+    /// Whether a page draws a tab now (the shelf's slot always does: the shelf, or the + upload tab).
+    private func inHeader(_ page: NotchPage) -> Bool {
+        let shown = arrangement.isShown(page)
+        switch page {
+        case .chat: return shown
+        case .shelf: return true
+        #if !APPSTORE
+        case .clipboard: return shown && clipSettings.enabled
+        case .tasks: return shown && tasksSettings.enabled
+        #else
+        case .clipboard, .tasks: return false
+        #endif
+        case .sessions: return shown && !live.sessions.isEmpty
         }
     }
 
@@ -801,7 +824,9 @@ struct IslandHeader: View {
             HStack(spacing: 5) {
                 TabButton(icon: "house.fill", view: .overview, state: state)
                 // coucou-custom fork: the other tabs in the order set in Settings → General → Pages.
-                ForEach(arrangement.order) { page in tab(page) }
+                // At most four after Home: more would reach the camera housing; the dots and
+                // ← → still go to every page.
+                ForEach(Array(arrangement.order.filter(inHeader).prefix(4))) { page in tab(page) }
             }
             .padding(.leading, 14)
 

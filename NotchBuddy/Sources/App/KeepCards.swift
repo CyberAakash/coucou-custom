@@ -156,6 +156,10 @@ struct KeepQuickLook: NSViewRepresentable {
 
 /// For checking the look from a terminal (KeepSnapshots): the pages open their filter when set.
 enum KeepDebug {
+    #if DEBUG
+    /// The Tasks page's snapshot: text typed in its composer.
+    nonisolated(unsafe) static var tasksComposerText: String?
+    #endif
     nonisolated(unsafe) static var filterOpen = false
 }
 

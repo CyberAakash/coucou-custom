@@ -45,6 +45,11 @@ enum KeepSnapshots {
             let h = KeepPanels.islandHeight(.shelf, layout: ShelfSettings.shared.layout) + (KeepDebug.filterOpen ? KeepPanels.filterRow : 0)
             size = CGSize(width: 640, height: h)
             view = AnyView(islandFrame(height: h) { ShelfView(state: state) })
+        case "tasks":
+            if options.contains("sample") { TasksStore.shared.debugFill() }
+            KeepDebug.tasksComposerText = options.contains("typing") ? "Call the bank tomorrow 6pm #personal" : nil
+            size = CGSize(width: 640, height: 330)
+            view = AnyView(islandFrame(height: 330) { TasksView(state: state) })
         case "header":
             // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
             appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))

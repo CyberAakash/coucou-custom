@@ -161,6 +161,7 @@ targets:
         NSContactsUsageDescription: "Coucou looks up an email address when you ask it, by voice, to prepare an email."
         NSFocusStatusUsageDescription: "Coucou stays quiet about new WhatsApp messages while a Focus is on."
         NSCalendarsFullAccessUsageDescription: "Coucou shows today's events in your Daily brief, when you turn on its Today ahead section."
+        NSRemindersFullAccessUsageDescription: "Coucou shows your Reminders as tasks in the notch, and adds, ticks and moves them when you ask."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleLocalizations:
