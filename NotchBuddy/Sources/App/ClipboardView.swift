@@ -106,15 +106,20 @@ struct ClipboardView: View {
 
     // MARK: Layouts
 
-    /// Four columns; split by time, each group under its heading.
+    /// Every card in one grid of four columns, filling each row; split by time, the first card of
+    /// each group carries the group's name, so the grid never breaks into per-day rows (that is
+    /// "Carousel by day").
     private var grid: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(sections, id: \.label) { group in
-                    if !group.label.isEmpty { KeepRowLabel(text: group.label) }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                        ForEach(group.items) { item in card(item, width: nil, height: 102, previewHeight: 50) }
-                    }
+        let starts = Dictionary(uniqueKeysWithValues: (settings.splitByTime ? groups : []).compactMap { g in
+            g.items.first.map { ($0.id, g.label) }
+        })
+        return ScrollView(.vertical, showsIndicators: false) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                ForEach(visible) { item in
+                    card(item, width: nil, height: 102, previewHeight: 50)
+                        .overlay(alignment: .topLeading) {
+                            if let label = starts[item.id] { KeepDayTag(text: label) }
+                        }
                 }
             }
             .padding(.bottom, 2)

@@ -460,6 +460,22 @@ struct KeepSectionLabel: View {
     }
 }
 
+/// The group's name on the first card of the group in the grid: "TODAY".
+struct KeepDayTag: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 7.5, weight: .heavy))
+            .tracking(0.8)
+            .foregroundColor(Color(hex: "#0B0C0E"))
+            .padding(.horizontal, 6).padding(.vertical, 1.5)
+            .background(Capsule().fill(Color(hex: "#F5F6F8").opacity(0.92)))
+            // On the card's top edge, above its preview, so no text is covered.
+            .padding(.leading, 8).padding(.top, 1)
+            .allowsHitTesting(false)
+    }
+}
+
 /// "TODAY": the heading over a group of cards in the grid and the day rows.
 struct KeepRowLabel: View {
     let text: String
