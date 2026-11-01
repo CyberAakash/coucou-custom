@@ -1050,15 +1050,13 @@ struct CompactSideContent: View {
                     #endif
                 } else if !state.islandPlacement.isCorner {
                     // In a corner the tile holds Mochi alone: no room for the mini Mochis.
-                    let hasGrid = !state.gridSlots.isEmpty
                     let inset = IslandRestingStyle.gridInset
-                    // coucou-custom fork: with a text beside them the minis keep to the outer edge and
-                    // the text ends 8 pt before them (laid out by its right edge, whatever its width);
-                    // alone, each is centred in the wing. The wing grows to fit (IslandRestingStyle.need).
-                    let besideText = hasGrid && hasText
+                    // coucou-custom fork: the mini Mochis sit in the left wing beside Mochi
+                    // (IslandRestingStyle.gridOnLeft); the right wing is for what Coucou tells:
+                    // the time, or a task or meeting due soon, centred, the wing growing to fit.
                     CompactMiniGrid(state: state)
                         .scaleEffect(IslandRestingLayout(width: islandWidth, height: islandHeight).miniGridScale)
-                        .position(x: islandWidth - (besideText ? IslandRestingStyle.gridEdge : inset), y: islandHeight / 2)
+                        .position(x: IslandRestingStyle.gridLeftX, y: islandHeight / 2)
                         .transition(.opacity)
                     Group {
                         #if !APPSTORE
@@ -1068,10 +1066,8 @@ struct CompactSideContent: View {
                         #endif
                     }
                     .fixedSize()
-                    .frame(width: hasGrid ? nil : inset * 2)
-                    .padding(.trailing, hasGrid ? IslandRestingStyle.textEdge : 0)
+                    .frame(width: inset * 2)
                     .frame(width: islandWidth, height: islandHeight, alignment: .trailing)
-                    .animation(.easeInOut(duration: 0.25), value: hasGrid)
                 }
             }
         }
@@ -1083,14 +1079,6 @@ struct CompactSideContent: View {
 
     // MARK: Room for the right wing's text (coucou-custom fork)
 
-    /// The clock is on, or a task or an event is due soon.
-    private var hasText: Bool {
-        #if !APPSTORE
-        return clockOn || dueSoon.next != nil
-        #else
-        return clockOn
-        #endif
-    }
 
     @AppStorage(IslandClock.enabledKey) private var clockOn = false
     @AppStorage(IslandClock.secondsKey) private var clockSeconds = false
@@ -1111,9 +1099,11 @@ struct CompactSideContent: View {
         #else
         let due: String? = nil
         #endif
-        let need = Self.need(gridShown: !state.gridSlots.isEmpty, clockOn: clockOn, seconds: clockSeconds, dueLabel: due)
-        guard abs(need - IslandRestingStyle.contentNeed) > 0.5 else { return }
+        let need = Self.need(gridShown: false, clockOn: clockOn, seconds: clockSeconds, dueLabel: due)
+        let gridLeft = !state.gridSlots.isEmpty && !state.islandPlacement.isCorner
+        guard abs(need - IslandRestingStyle.contentNeed) > 0.5 || gridLeft != IslandRestingStyle.gridOnLeft else { return }
         IslandRestingStyle.contentNeed = need
+        IslandRestingStyle.gridOnLeft = gridLeft
         NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil)
     }
 
