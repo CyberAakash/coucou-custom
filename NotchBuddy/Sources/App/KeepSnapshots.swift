@@ -87,8 +87,9 @@ enum KeepSnapshots {
             let clockWas = UserDefaults.standard.object(forKey: IslandClock.enabledKey)
             if options.contains("clock") { UserDefaults.standard.set(true, forKey: IslandClock.enabledKey) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UserDefaults.standard.set(clockWas, forKey: IslandClock.enabledKey) }
+            IslandRestingStyle.gridOnLeft = !state.gridSlots.isEmpty
             IslandRestingStyle.contentNeed = CompactSideContent.need(
-                gridShown: !state.gridSlots.isEmpty, clockOn: UserDefaults.standard.bool(forKey: IslandClock.enabledKey),
+                gridShown: false, clockOn: UserDefaults.standard.bool(forKey: IslandClock.enabledKey),
                 seconds: UserDefaults.standard.bool(forKey: IslandClock.secondsKey), dueLabel: TaskDueSoon.shared.next.map { $0.label ?? "" })
             let (w, h) = IslandRestingStyle.compactSize(nw: state.notchWidth, nh: state.notchHeight)
             size = CGSize(width: w + 40, height: h)
@@ -97,6 +98,9 @@ enum KeepSnapshots {
                 ZStack {
                     Color.black
                     CompactSideContent(state: state, islandWidth: w, islandHeight: h)
+                    // Where Mochi is drawn (by the island, not here): his 20 pt body.
+                    Circle().fill(Color.white).frame(width: 20, height: 20)
+                        .position(x: IslandRestingStyle.mochiX, y: h / 2)
                     Self.housing(state.notchWidth, h)
                 }.frame(width: w, height: h)
             }.frame(width: w + 40, height: h))

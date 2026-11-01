@@ -65,8 +65,18 @@ enum IslandRestingStyle {
         return CGFloat(Wing(rawValue: stored)?.rawValue ?? Wing.standard.rawValue)
     }
 
+    /// The mini Mochis sit in the left wing beside Mochi (coucou-custom fork): the right wing is
+    /// for what Coucou tells (the time, a task or a meeting due, a peek). Set by `CompactSideContent`.
+    nonisolated(unsafe) static var gridOnLeft = false
+
+    /// With the minis: Mochi's middle near the outer edge, the minis' middle beside him, and the
+    /// wing that holds both 8 pt clear of the notch (Mochi ≤ 20 pt and his drawing's margin, the grid 28 pt).
+    static let mochiEdge: CGFloat = 22
+    static let gridLeftX: CGFloat = 56
+    static let leftNeed: CGFloat = 78
+
     /// The wing drawn: the chosen one, wider when its content needs it.
-    static var wing: CGFloat { max(chosenWing, contentNeed) }
+    static var wing: CGFloat { max(chosenWing, contentNeed, gridOnLeft ? leftNeed : 0) }
 
     /// Beside a text, the mini Mochis' middle sits this far from the island's right edge (their
     /// grid is 28 pt wide), and the text's right edge this far, 8 pt before them.
@@ -80,6 +90,9 @@ enum IslandRestingStyle {
         return besideGrid ? (textEdge + t + 8).rounded(.up) : (t + 16).rounded(.up)
     }
 
+    /// The right wing holds text alone now: centred in the wing.
+    static func need(textWidth t: CGFloat) -> CGFloat { need(textWidth: t, besideGrid: false) }
+
     static var extraHeight: CGFloat {
         CGFloat(ExtraHeight(rawValue: UserDefaults.standard.integer(forKey: extraHeightKey))?.rawValue ?? 0)
     }
@@ -89,8 +102,8 @@ enum IslandRestingStyle {
         (nw + wing * 2, nh + extraHeight)
     }
 
-    /// Mochi's middle on the left wing.
-    static var mochiX: CGFloat { wing / 2 }
+    /// Mochi's middle on the left wing: centred, or at the outer edge with the minis beside him.
+    static var mochiX: CGFloat { gridOnLeft ? mochiEdge : wing / 2 }
 
     /// The mini Mochis' middle, measured from the island's right edge.
     static var gridInset: CGFloat { wing / 2 }

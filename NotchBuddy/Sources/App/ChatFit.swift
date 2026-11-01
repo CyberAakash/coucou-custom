@@ -12,7 +12,9 @@ import SwiftUI
 enum ChatLayout {
     nonisolated(unsafe) static var height: CGFloat = 200
     /// The chat is wider than the other expanded views (panel is 720).
-    static let width: CGFloat = 700
+    /// At least the open island's width (coucou-custom fork): narrower, the island shrank on the chat
+    /// and its tabs reached the camera housing.
+    static var width: CGFloat { max(700, IslandConst.openWidth) }
 }
 
 struct ChatMessagesHeightKey: PreferenceKey {
