@@ -124,6 +124,8 @@ final class IslandWindowController: NSWindowController {
         AppState.shared.notchWidth  = notchW
         AppState.shared.notchHeight = notchH
         AppState.shared.hasNotch = hasNotch
+        IslandRestingStyle.screenWidth = screen.frame.width   // coucou-custom fork: for the Auto wing
+        IslandRestingStyle.logAuto()
 
         let contentSize = panel.contentRect(forFrameRect: panel.frame).size
 
@@ -301,6 +303,10 @@ final class IslandWindowController: NSWindowController {
         // notchWidth/hasNotch are not @Published: tell the views to resize the island.
         NotificationCenter.default.post(name: .islandScreenChanged, object: nil)
         state.objectWillChange.send()
+        // An Auto wing follows the screen's width (coucou-custom fork).
+        IslandRestingStyle.screenWidth = screen.frame.width
+        IslandRestingStyle.logAuto()
+        NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil)
     }
 
     /// Follow-the-mouse mode: hop to the cursor's screen while the island is not open,

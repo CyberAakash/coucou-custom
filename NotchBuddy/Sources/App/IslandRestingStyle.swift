@@ -12,10 +12,12 @@ enum IslandRestingStyle {
     static let extraHeightKey = "coucouRestingExtraHeight"
 
     enum Wing: Int, CaseIterable, Identifiable {
-        case minimal = 44, standard = 80, wide = 120
+        /// -1: from the width of the island's screen (`autoWing`).
+        case auto = -1, minimal = 44, standard = 80, wide = 120
         var id: Int { rawValue }
         var label: String {
             switch self {
+            case .auto: return "Auto"
             case .minimal: return "Minimal"
             case .standard: return "Standard"
             case .wide: return "Wide"
@@ -35,8 +37,27 @@ enum IslandRestingStyle {
         }
     }
 
+    /// The island's screen's width, kept by the window controller whenever the island lands on a
+    /// screen: `wing` is read where the size is computed, off the main actor.
+    nonisolated(unsafe) static var screenWidth: CGFloat = 1512
+
+    /// Auto: 3.5 % of the screen's width, 44…140 pt, in steps of 4: 53 pt on a 14″ MacBook Pro,
+    /// 90 at 2560, 120 at 3440, 140 from 4000.
+    static var autoWing: CGFloat {
+        let raw = (screenWidth * 0.035 / 4).rounded() * 4
+        return min(140, max(44, raw))
+    }
+
+    /// One line in nb.log when the wing is Auto: which width it picked for which screen.
+    static func logAuto() {
+        guard UserDefaults.standard.integer(forKey: wingKey) == Wing.auto.rawValue else { return }
+        appendAppLog("nb.log", "[Island] auto wing \(Int(autoWing)) pt for a \(Int(screenWidth)) pt wide screen")
+    }
+
     static var wing: CGFloat {
-        CGFloat(Wing(rawValue: UserDefaults.standard.integer(forKey: wingKey))?.rawValue ?? Wing.standard.rawValue)
+        let stored = UserDefaults.standard.integer(forKey: wingKey)
+        if stored == Wing.auto.rawValue { return autoWing }
+        return CGFloat(Wing(rawValue: stored)?.rawValue ?? Wing.standard.rawValue)
     }
 
     static var extraHeight: CGFloat {
