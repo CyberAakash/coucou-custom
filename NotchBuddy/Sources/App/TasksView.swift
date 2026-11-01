@@ -103,15 +103,13 @@ struct TasksView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 5) {
-                        ForEach(TaskGroup.allCases, id: \.self) { group in
-                            let rows = visible.filter { TaskGroup.of($0) == group }
-                            if !rows.isEmpty {
-                                Text(group.label)
-                                    .font(.system(size: 8, weight: .heavy)).tracking(1)
-                                    .foregroundColor(group == .overdue ? Color(hex: "#F4505E") : Color(hex: "#6B7079"))
-                                    .padding(.leading, 2).padding(.top, 3)
-                                ForEach(rows) { row($0) }
-                            }
+                        // By deadline: one section per day (TaskGroup.sections).
+                        ForEach(TaskGroup.sections(visible), id: \.label) { section in
+                            Text(section.label)
+                                .font(.system(size: 8, weight: .heavy)).tracking(1)
+                                .foregroundColor(section.overdue ? Color(hex: "#F4505E") : Color(hex: "#6B7079"))
+                                .padding(.leading, 2).padding(.top, 3)
+                            ForEach(section.items) { row($0) }
                         }
                     }
                     .padding(.bottom, 2)
@@ -197,8 +195,8 @@ struct TasksView: View {
                 ? due.formatted(date: .omitted, time: .shortened)
                 : TaskComposer.label(due, hasTime: item.hasTime))
         }
-        if group == .today { return item.hasTime ? due.formatted(date: .omitted, time: .shortened) : "Today" }
-        return TaskComposer.label(due, hasTime: item.hasTime)
+        // The section already says the day: the row says the time, or "All day".
+        return item.hasTime ? due.formatted(date: .omitted, time: .shortened) : "All day"
     }
 
     @ViewBuilder private func menu(_ item: TaskItem) -> some View {
