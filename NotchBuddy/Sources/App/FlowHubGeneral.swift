@@ -55,6 +55,10 @@ struct HubGeneralPage: View {
             HubLabel(String(localized: "hub.general.notch", defaultValue: "Notch"))
             notchCard
 
+            // coucou-custom fork: the open notch's pages, in order.
+            HubLabel("Pages")
+            HubPagesCard()
+
             HubLabel(String(localized: "hub.general.alerts", defaultValue: "When it opens by itself"))
             alertsCard
 
@@ -235,7 +239,7 @@ struct HubGeneralPage: View {
             HubDivider()
             // coucou-custom fork: the page bar.
             HubRow(title: "Page bar",
-                   detail: "Dots along the bottom of the open notch: home, chat, shelf, sessions. ← and → turn the page.") {
+                   detail: "Dots along the bottom of the open notch, one per page in the order set under Pages. ← and → turn the page.") {
                 Toggle("", isOn: $pageBar).toggleStyle(.switch).labelsHidden()
             }
             if pageBar {
@@ -666,6 +670,55 @@ private struct HubSpotlightCard: View {
         colorHex = SpotlightSettings.defaultColor
         moving = true
         breathe = true
+    }
+}
+
+// MARK: - Pages (coucou-custom fork)
+
+/// The open notch's pages: Home first and always there, the others dragged into order and
+/// switched on or off. The header's tabs and the page dots follow the same order.
+private struct HubPagesCard: View {
+    @ObservedObject private var arrangement = PageArrangement.shared
+
+    var body: some View {
+        HubCard {
+            Text("The tabs at the top of the open notch and the dots along its bottom, left to right. Drag a page to move it.")
+                .font(.system(size: 12.5)).foregroundColor(HubTheme.body).fixedSize(horizontal: false, vertical: true)
+            row(symbol: "house.fill", title: "Home", detail: "The notch opens here, so it stays first.", on: true, fixed: true)
+                .padding(.leading, 22)
+            HubReorderList(items: $arrangement.order) { page in
+                row(symbol: page.symbol, title: page.title, detail: page.detail, on: arrangement.isShown(page), fixed: false) { shown in
+                    withAnimation(BriefLayout.spring) { arrangement.set(page, shown: shown) }
+                }
+            }
+            if arrangement.order != NotchPage.allCases || !arrangement.hidden.isEmpty {
+                HStack {
+                    Spacer()
+                    Button("Reset to the default order") { withAnimation(BriefLayout.spring) { arrangement.reset() } }
+                        .buttonStyle(HubButtonStyle())
+                }
+            }
+        }
+    }
+
+    private func row(symbol: String, title: String, detail: String, on: Bool, fixed: Bool,
+                     toggle: ((Bool) -> Void)? = nil) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+                .foregroundColor(on ? HubTheme.accent : HubTheme.muted)
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill((on ? HubTheme.accent : HubTheme.muted).opacity(0.14)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13.5, weight: .medium))
+                Text(detail).font(.system(size: 12)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if fixed {
+                Text("Always first").font(.system(size: 12)).foregroundColor(HubTheme.muted)
+            } else if let toggle {
+                BriefSwitch(isOn: Binding(get: { on }, set: toggle), tint: HubTheme.accent)
+            }
+        }
     }
 }
 #endif

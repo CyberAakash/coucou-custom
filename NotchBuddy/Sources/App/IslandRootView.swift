@@ -743,6 +743,7 @@ struct IslandContentView: View {
 struct IslandHeader: View {
     @ObservedObject var state: AppState
     @ObservedObject private var live = LiveSessions.shared   // coucou-custom fork
+    @ObservedObject private var arrangement = PageArrangement.shared   // coucou-custom fork: the pages' order
     #if !APPSTORE
     @ObservedObject private var shelf = FileShelf.shared     // coucou-custom fork
     @ObservedObject private var clipSettings = ClipboardSettings.shared   // coucou-custom fork
@@ -750,6 +751,45 @@ struct IslandHeader: View {
     @State private var gearHovered  = false
     @State private var soundHovered = false
     @State private var closeHovered = false
+
+    /// One movable page's tab; the shelf's place shows the upstream "+" upload tab when the
+    /// shelf is off or hidden, so uploads stay one click away.
+    @ViewBuilder private func tab(_ page: NotchPage) -> some View {
+        let shown = arrangement.isShown(page)
+        switch page {
+        case .chat:
+            if shown {
+                TabButton(icon: "bubble.left.fill", view: .prompt, state: state, preAction: {
+                    #if !APPSTORE
+                    if state.promptContext == nil {
+                        state.promptContext = WindowContextCapture.captureActive(from: state.lastExternalApp)
+                    }
+                    #endif
+                })
+            }
+        case .shelf:
+            #if !APPSTORE
+            if FileShelf.enabled && shown {
+                TabButton(icon: shelf.items.isEmpty ? "tray" : "tray.full.fill", view: .shelf, state: state)
+            } else {
+                TabButton(icon: "plus", view: .upload, state: state)
+            }
+            #else
+            TabButton(icon: "plus", view: .upload, state: state)
+            #endif
+        case .clipboard:
+            #if !APPSTORE
+            if clipSettings.enabled && shown {
+                TabButton(icon: clipSettings.recording ? "list.clipboard.fill" : "list.clipboard", view: .clipboard, state: state)
+            }
+            #endif
+        case .sessions:
+            // Only while an agent session is known.
+            if !live.sessions.isEmpty && shown {
+                TabButton(icon: "rectangle.stack.fill", view: .sessions, state: state)
+            }
+        }
+    }
 
     /// Pending approval or mail draft: the island refuses to fold (fsm.isHeldOpen), so the
     /// close cross is not shown.
@@ -760,31 +800,8 @@ struct IslandHeader: View {
             // Left: tab capsules
             HStack(spacing: 5) {
                 TabButton(icon: "house.fill", view: .overview, state: state)
-                TabButton(icon: "bubble.left.fill", view: .prompt, state: state, preAction: {
-                    #if !APPSTORE
-                    if state.promptContext == nil {
-                        state.promptContext = WindowContextCapture.captureActive(from: state.lastExternalApp)
-                    }
-                    #endif
-                })
-                #if !APPSTORE
-                // The file shelf (coucou-custom fork) takes the "+" tab's place: full when files wait.
-                if FileShelf.enabled {
-                    TabButton(icon: shelf.items.isEmpty ? "tray" : "tray.full.fill", view: .shelf, state: state)
-                } else {
-                    TabButton(icon: "plus", view: .upload, state: state)
-                }
-                // The clipboard (coucou-custom fork): filled while recording.
-                if clipSettings.enabled {
-                    TabButton(icon: clipSettings.recording ? "list.clipboard.fill" : "list.clipboard", view: .clipboard, state: state)
-                }
-                #else
-                TabButton(icon: "plus", view: .upload, state: state)
-                #endif
-                // Sessions (coucou-custom fork): only while an agent session is known.
-                if !live.sessions.isEmpty {
-                    TabButton(icon: "rectangle.stack.fill", view: .sessions, state: state)
-                }
+                // coucou-custom fork: the other tabs in the order set in Settings → General → Pages.
+                ForEach(arrangement.order) { page in tab(page) }
             }
             .padding(.leading, 14)
 
