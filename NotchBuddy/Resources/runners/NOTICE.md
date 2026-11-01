@@ -1,4 +1,4 @@
-# Runners bundled with Coucou Custom
+# Runners bundled with this Coucou
 
 `runcat/` holds the eight built-in runners of RunCat Neo (Cat, Dog, Slime, Drop, Coffee, Newton's
 Cradle, Engine, Mochi), copied unchanged from
