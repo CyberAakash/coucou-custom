@@ -229,7 +229,7 @@ struct SessionTracker {
                 s.finalMessage = message
             }
             let background = (payload["background_tasks"] as? [[String: Any]] ?? [])
-                .filter { ($0["status"] as? String) == "running" }
+                .filter { ($0["status"] as? String) == "running" && !Self.isWatch($0) }
             s.otherBackgroundTasks = background.filter { ($0["type"] as? String) != "subagent" }.count
             s.status = background.isEmpty && s.runningSubagents == 0 ? .finished : .background
             s.currentStep = nil
@@ -285,6 +285,13 @@ struct SessionTracker {
     }
 
     // MARK: Helpers
+
+    /// A watch (an artifact watch, for instance) listens until the session closes: it is not work
+    /// still going on, and counting it held back every Finished card of a session that kept one
+    /// open (coucou-custom fork).
+    static func isWatch(_ task: [String: Any]) -> Bool {
+        (task["type"] as? String ?? "").lowercased().contains("watch")
+    }
 
     /// Ends one subagent; a turn that only waited on background work is then finished.
     private func endSubagent(at i: Int, now: Date, in s: inout Session) {

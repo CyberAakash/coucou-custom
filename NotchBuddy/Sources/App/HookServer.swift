@@ -866,6 +866,12 @@ final class HookServer: @unchecked Sendable {
                 }
             }
             RecapStore.shared.stop(sessionId: recapSessionId)
+            // coucou-custom fork: what the session still has running, by type, so a held-back
+            // Finished card can be explained from the log.
+            let runningTypes = (payload["background_tasks"] as? [[String: Any]] ?? [])
+                .filter { ($0["status"] as? String) == "running" }
+                .map { ($0["type"] as? String ?? "?") + (SessionTracker.isWatch($0) ? " (watch, ignored)" : "") }
+            if !runningTypes.isEmpty { nbLog("[Notch] Stop \(sessionId.prefix(8)): running \(runningTypes.joined(separator: ", "))") }
             let working = sessions.workingCount(pill: agentId)
             if working > 0 { nbLog("Stop \(sessionId.prefix(8)) — \(working) other session(s) still working on \(agentId)") }
             // coucou-custom fork: a Stop that leaves background agents running is not the end
