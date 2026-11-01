@@ -166,39 +166,33 @@ enum IslandPages {
     }
 }
 
-/// Turns scroll events into page steps: one step per gesture, after enough sideways travel.
-/// The wheel (vertical) counts only on the home page, where nothing scrolls.
+/// Page steps from the trackpad and the mouse (coucou-custom fork): a three-finger swipe turns the
+/// page anywhere (macOS sends it when System Settings → Trackpad → More Gestures → Swipe between
+/// pages uses three fingers); a two-finger scroll never does, it scrolls what is under it (the
+/// shelf's and clipboard's carousels, lists); a mouse wheel turns it on the home page only.
 @MainActor
 final class PageWheel {
-    private var travel: CGFloat = 0
-    private var stepped = false
-    private static let threshold: CGFloat = 36
-
     /// True when the event was used for a page change (the caller swallows it).
     func handle(_ event: NSEvent, state: AppState) -> Bool {
         guard IslandPages.enabled, IslandPages.wheelEnabled, state.mode == .expanded,
               IslandPages.page(of: state.view) != nil else { return false }
-        // A new gesture starts the count again; momentum after a step is ignored.
-        if event.phase == .began { travel = 0; stepped = false }
-        if event.phase == .ended || event.phase == .cancelled { travel = 0; stepped = false; return false }
-        if event.momentumPhase != [] { return false }
-        guard !stepped else { return true }
-        var dx = event.scrollingDeltaX
-        if abs(dx) < abs(event.scrollingDeltaY) {
-            // Vertical: the wheel on the home page, where nothing scrolls down.
-            guard state.view == .overview || state.view == .empty else { return false }
-            dx = event.scrollingDeltaY
-        } else if state.view == .shelf || state.view == .clipboard {
-            // The cards scroll (sideways as a carousel, down as a grid): a swipe there is for them.
-            return false
-        }
-        travel += dx
-        guard abs(travel) >= Self.threshold, let next = IslandPages.step(travel < 0 ? 1 : -1, from: state) else {
-            return false
-        }
-        stepped = event.hasPreciseScrollingDeltas   // a trackpad gesture steps once; wheel clicks step each
-        travel = 0
-        IslandPages.go(to: next, state: state, how: event.hasPreciseScrollingDeltas ? "swipe" : "wheel")
+        // A trackpad's scroll (precise deltas) is the content's.
+        guard !event.hasPreciseScrollingDeltas,
+              state.view == .overview || state.view == .empty,
+              abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), event.scrollingDeltaY != 0,
+              let next = IslandPages.step(event.scrollingDeltaY < 0 ? 1 : -1, from: state) else { return false }
+        IslandPages.go(to: next, state: state, how: "wheel")
+        return true
+    }
+
+    /// A three-finger swipe: fingers to the left go to the next page, to the right to the previous
+    /// one (deltaX is +1 for a swipe to the left).
+    func handleSwipe(_ event: NSEvent, state: AppState) -> Bool {
+        guard IslandPages.enabled, IslandPages.wheelEnabled, state.mode == .expanded,
+              IslandPages.page(of: state.view) != nil, event.deltaX != 0 else { return false }
+        appendAppLog("nb.log", "[Pages] three-finger swipe deltaX \(event.deltaX)")
+        guard let next = IslandPages.step(event.deltaX > 0 ? 1 : -1, from: state) else { return false }
+        IslandPages.go(to: next, state: state, how: "swipe")
         return true
     }
 }
