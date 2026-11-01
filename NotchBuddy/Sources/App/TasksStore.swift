@@ -43,6 +43,34 @@ enum TaskGroup: String, CaseIterable {
         }
     }
 
+    /// The page's sections, by deadline: Overdue, Today, Tomorrow, each of the next days by name,
+    /// then later ones by date, then No time; inside one, by time (the store's order).
+    static func sections(_ items: [TaskItem], now: Date = .now, calendar: Calendar = .current) -> [(label: String, overdue: Bool, items: [TaskItem])] {
+        var out: [(label: String, overdue: Bool, items: [TaskItem])] = []
+        func add(_ label: String, overdue: Bool, _ item: TaskItem) {
+            if let i = out.firstIndex(where: { $0.label == label }) { out[i].items.append(item) }
+            else { out.append((label, overdue, [item])) }
+        }
+        let today = calendar.startOfDay(for: now)
+        for item in items where item.due != nil {
+            let due = item.due!
+            if of(item, now: now, calendar: calendar) == .overdue { add("OVERDUE", overdue: true, item); continue }
+            let days = calendar.dateComponents([.day], from: today, to: calendar.startOfDay(for: due)).day ?? 0
+            let label: String
+            switch days {
+            case ...0: label = "TODAY"
+            case 1: label = "TOMORROW"
+            case 2...6: label = due.formatted(.dateTime.weekday(.wide).day().month(.wide)).uppercased()
+            default: label = due.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year()).uppercased()
+            }
+            add(label, overdue: false, item)
+        }
+        let undated = items.filter { $0.due == nil }
+        if !undated.isEmpty { out.append(("NO TIME", false, undated)) }
+        // Overdue first, then by day (the items arrive sorted by deadline).
+        return out
+    }
+
     static func of(_ item: TaskItem, now: Date = .now, calendar: Calendar = .current) -> TaskGroup {
         guard let due = item.due else { return .noTime }
         if item.hasTime ? due < now : calendar.startOfDay(for: due) < calendar.startOfDay(for: now) { return .overdue }
@@ -281,6 +309,8 @@ final class TasksStore: ObservableObject {
             TaskItem(id: "5", title: "Stretch for a minute", due: now.addingTimeInterval(40), hasTime: true, listID: "p", done: false),
             TaskItem(id: "3", title: "Call the bank about the card", due: at(9, 0, dayOffset: 1), hasTime: true, listID: "p", done: false),
             TaskItem(id: "4", title: "Milk, eggs, coffee beans", due: nil, hasTime: false, listID: "g", done: false),
+            TaskItem(id: "6", title: "Renew the passport", due: at(11, 0, dayOffset: 3), hasTime: true, listID: "p", done: false),
+            TaskItem(id: "7", title: "Quarterly review deck", due: at(0, 0, dayOffset: 10), hasTime: false, listID: "w", done: false),
         ])
         doneToday = 3
         TaskDueSoon.shared.update()
