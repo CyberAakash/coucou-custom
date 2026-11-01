@@ -260,6 +260,7 @@ struct KeepCardPress: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .offset(y: hovered && !configuration.isPressed ? -1 : 0)
             .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+            .pointer()
     }
 }
 
@@ -286,7 +287,7 @@ struct KeepSearchField: View {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundColor(Color(hex: "#6B7079"))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointer()
             }
         }
         .padding(.horizontal, 9)
@@ -327,7 +328,7 @@ struct KeepFilterButton: View {
                     .fill(kinds.isEmpty ? Color.white.opacity(open || hovered ? 0.1 : 0.07) : Color(hex: "#F5F6F8").opacity(0.16))
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointer()
         .onHover { hovered = $0 }
         .animation(.easeOut(duration: 0.15), value: open)
     }
@@ -357,7 +358,7 @@ struct KeepFilterPanel: View {
             }
             if !kinds.isEmpty {
                 Button("Clear") { withAnimation(.easeOut(duration: 0.15)) { kinds = [] } }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointer()
                     .font(.system(size: compact ? 10.5 : 12, weight: .medium))
                     .foregroundColor(Color(hex: "#8E939C"))
                     .padding(.leading, 4)
@@ -386,7 +387,7 @@ struct KeepChip: View {
                 .frame(height: size > 11 ? 26 : 20)
                 .background(Capsule().fill(on ? Color(hex: "#F5F6F8") : Color.white.opacity(hovered ? 0.1 : 0.06)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointer()
         .onHover { hovered = $0 }
         .animation(.easeOut(duration: 0.15), value: on)
     }
@@ -412,7 +413,7 @@ struct KeepLayoutToggle: View {
                 .frame(width: 22, height: 16)
                 .background(Capsule().fill(layout == value ? Color(hex: "#F5F6F8") : Color.clear))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointer()
         .help(help)
     }
 }
@@ -555,7 +556,7 @@ struct KeepActionButton: View {
             .frame(width: 58)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointer()
         .onHover { hovered = $0 }
         .help(label)
     }

@@ -88,7 +88,7 @@ struct ClipboardView: View {
             .frame(height: 26)
             .background(Capsule().fill(Color.white.opacity(0.06)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointer()
         .help(settings.recording ? "Pause recording" : "Resume recording")
     }
 

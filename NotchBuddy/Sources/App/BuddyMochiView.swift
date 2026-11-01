@@ -45,7 +45,7 @@ struct BuddyMochiView: View {
     var companions: BuddyCompanions? = nil
 
     var body: some View {
-        let pace = MochiFrameClock.pacing(cap: MochiFrameClock.mainFPS,
+        let pace = MochiFrameClock.pacing(cap: viewState.isHovered ? MochiFrameClock.mainFPS : MochiFrameClock.restFPS,
                                           display: viewState.displayFPS > 0 ? viewState.displayFPS : MochiFrameClock.displayFPS)
         TimelineView(.animation(minimumInterval: pace.interval, paused: viewState.paused)) { timeline in
             Canvas { base, _ in

@@ -201,24 +201,35 @@ private struct BuddyHeroCard: View {
         HubCard(padding: 20) {
             VStack(alignment: .leading, spacing: 16) {
                 // The stage: the Buddy and its companions, as they look on the desktop.
-                preview.view
-                    .frame(width: preview.canvas.width, height: preview.canvas.height)
-                    .id(preview.revision)
-                    .contentShape(Rectangle())
-                    .onTapGesture { preview.hello() }
-                    .onContinuousHover { phase in
-                        if case .active(let p) = phase { preview.look(at: p) } else { preview.look(at: nil) }
+                // Drawn at its real size and scaled to the card: with six companions the stage is
+                // wider than the preview column.
+                Color.clear
+                    .aspectRatio(preview.canvas.width / preview.canvas.height, contentMode: .fit)
+                    .overlay {
+                        GeometryReader { g in
+                            preview.view
+                                .frame(width: preview.canvas.width, height: preview.canvas.height)
+                                .id(preview.revision)
+                                .contentShape(Rectangle())
+                                .onTapGesture { preview.hello() }
+                                .onContinuousHover { phase in
+                                    if case .active(let p) = phase { preview.look(at: p) } else { preview.look(at: nil) }
+                                }
+                                .help("Click to say hi")
+                                .scaleEffect(min(1, g.size.width / preview.canvas.width), anchor: .topLeading)
+                                .frame(width: g.size.width, height: g.size.height, alignment: .topLeading)
+                        }
                     }
-                    .help("Click to say hi")
+                    .frame(maxWidth: preview.canvas.width)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.25)))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
 
-                HStack(spacing: 10) {
-                    Text(settings.enabled ? "On your desktop, above your windows on every Space. Click it here to say hi." : "Hidden: turn it on in the banner above.")
-                        .font(.system(size: 12.5)).foregroundColor(HubTheme.secondary)
-                    Spacer(minLength: 8)
+                Text(settings.enabled ? "On your desktop, above your windows on every Space. Click it here to say hi." : "Hidden: turn it on in the banner above.")
+                    .font(.system(size: 12.5)).foregroundColor(HubTheme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
                     Button("Say hi") { BuddyController.shared.wave(); preview.hello() }
                         .buttonStyle(HubButtonStyle())
                         .disabled(!settings.enabled)
@@ -339,7 +350,7 @@ private struct BuddyColorPicker: View {
                     .strokeBorder(hex.isEmpty ? HubBuddyPage.tint : Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointer()
 
             ColorPicker("", selection: Binding(
                 get: { Color(hex: hex.isEmpty ? "#C9D6EA" : hex) },
@@ -494,7 +505,7 @@ private struct BuddySearchField: View {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundColor(HubTheme.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointer()
             }
         }
         .padding(.horizontal, 12)
