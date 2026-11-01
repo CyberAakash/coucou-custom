@@ -8,23 +8,40 @@ struct MochiVoiceRows: View {
     @ObservedObject private var voice = MochiVoice.shared
     @State private var character = MochiCharacter.current
 
+    @AppStorage(VoiceSettings.wakePhraseKey) private var wakePhrase: String = ""
+    private var busy: Bool {
+        switch voice.state { case .downloading, .loading: return true; default: return false }
+    }
+
     var body: some View {
         switch voice.state {
         case .missing:
             HStack(spacing: 12) {
-                HubNote(text: String(localized: "hub.mochi.missing", defaultValue: "Mochi's voice (Kokoro, about 300 MB) is not downloaded yet. The Mac voice is used until then."), warning: true)
+                HubNote(text: String(localized: "hub.mochi.missing", defaultValue: "Mochi's voice (Kokoro, about 400 MB) is not downloaded yet. The Mac voice is used until then."), warning: true)
                 Button(String(localized: "hub.mochi.download", defaultValue: "Download")) { voice.prepare() }
                     .buttonStyle(HubButtonStyle(primary: true))
             }
+        case .downloading(let fraction):
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: fraction).tint(HubTheme.accent).frame(width: 260)
+                HubNote(text: String(format: String(localized: "hub.mochi.downloading", defaultValue: "Downloading Mochi's voice… %d%% of 395 MB"), Int(fraction * 100)))
+            }
         case .loading:
-            HubNote(text: String(localized: "hub.mochi.loading", defaultValue: "Downloading and preparing Mochi's voice… the first time takes a minute."))
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                HubNote(text: String(localized: "hub.mochi.loading", defaultValue: "Preparing Mochi's voice for the Neural Engine… about a minute and a half the first time, a few seconds after."))
+            }
         case .failed(let why):
             HStack(spacing: 12) {
                 HubNote(text: "\(String(localized: "hub.mochi.failed", defaultValue: "Mochi's voice could not load")): \(why)", warning: true)
                 Button(String(localized: "hub.mochi.retry", defaultValue: "Retry")) { voice.prepare() }.buttonStyle(HubButtonStyle())
             }
         case .ready:
-            EmptyView()
+            HStack(spacing: 12) {
+                HubStatusPill(text: String(localized: "hub.mochi.ready", defaultValue: "On this Mac"), tone: .on)
+                Spacer()
+                Button(String(localized: "hub.mochi.remove", defaultValue: "Remove (395 MB)")) { voice.remove() }.buttonStyle(HubButtonStyle())
+            }
         }
         HubRow(title: String(localized: "hub.mochi.preset", defaultValue: "Character")) {
             Picker("", selection: Binding(
@@ -54,8 +71,13 @@ struct MochiVoiceRows: View {
         HubRow(title: "") {
             Button {
                 sayHi()
-            } label: { Label(String(localized: "hub.mochi.say-hi", defaultValue: "Say hi"), systemImage: "speaker.wave.2.fill") }
-            .buttonStyle(HubButtonStyle(primary: true))
+            } label: {
+                Label(busy ? String(localized: "hub.mochi.preparing", defaultValue: "Preparing…")
+                           : String(localized: "hub.mochi.say-hi", defaultValue: "Say hi"),
+                      systemImage: "speaker.wave.2.fill")
+            }
+            .buttonStyle(HubButtonStyle(primary: !busy))
+            .disabled(busy)
         }
     }
 
@@ -76,9 +98,10 @@ struct MochiVoiceRows: View {
 
     private func apply(_ c: MochiCharacter) { character = c; save() }
     private func save() { MochiCharacter.current = character }
+    /// One sample, in the wake phrase you chose; while the voice downloads or warms up it plays
+    /// once it is ready instead of once per click.
     private func sayHi() {
-        VoiceSpeaker.shared.speak(String(localized: "hub.mochi.sample", defaultValue: "Hi, I'm Mochi! Say hey Mochi whenever you need me."),
-                                  locale: Locale(identifier: "en-US"))
+        voice.speakSample(VoiceSettings.sampleSentence(wakePhrase: wakePhrase), locale: Locale(identifier: "en-US"))
     }
 }
 #endif

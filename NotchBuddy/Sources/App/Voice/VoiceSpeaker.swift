@@ -32,6 +32,11 @@ final class VoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDe
     /// Called ~150 ms after the last queued sentence finishes.
     var onDidFinish: (() -> Void)?
 
+    /// Settings → Voice plays a sample of values not saved yet (fork): the Mac voice reads
+    /// these instead of the saved ones while they are set.
+    var previewGender: String?
+    var previewPitch: Double?
+
     override init() {
         super.init()
         synth.delegate = self
@@ -115,9 +120,9 @@ final class VoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDe
 
     private func speakSystem(_ text: String, locale: Locale?) {
         let utt = AVSpeechUtterance(string: text)
-        let gender = VoiceSettings.elevenGender
+        let gender = previewGender ?? VoiceSettings.elevenGender
         // Pitch per voice type (Settings → Voice): the male voice a bit higher sounds younger.
-        utt.pitchMultiplier = Float(VoiceSettings.pitch(for: gender))
+        utt.pitchMultiplier = Float(previewPitch ?? VoiceSettings.pitch(for: gender))
         utt.rate = AVSpeechUtteranceDefaultSpeechRate * 1.1
         utt.voice = Self.bestVoice(for: locale, gender: gender)
         currentUtterance = utt

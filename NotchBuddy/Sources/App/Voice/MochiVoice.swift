@@ -58,13 +58,22 @@ struct MochiCharacter: Codable, Equatable {
 final class MochiVoice: ObservableObject {
     static let shared = MochiVoice()
 
-    enum State: Equatable { case missing, loading, ready, failed(String) }
+    /// `downloading`: fraction of the bundle on disk. `loading`: compiled and warmed for the
+    /// Neural Engine (the first time takes about a minute and a half, then a few seconds).
+    enum State: Equatable { case missing, downloading(Double), loading, ready, failed(String) }
     @Published private(set) var state: State = .missing
+    /// Settings → Voice previews a character before it is saved: used instead of the saved one.
+    var previewCharacter: MochiCharacter?
 
     static var isActive: Bool { VoiceSettings.ttsEngine == "mochi" }
+    /// Loaded and warm: a sample plays at once. `state == .ready` only says the files are here.
+    var isReady: Bool { manager != nil }
 
     private var manager: KokoroAneManager?
     private var loading: Task<KokoroAneManager, Error>?
+    /// One sample sentence waits for the engine instead of one per click (each click used to queue
+    /// a sentence that played a minute and a half later).
+    private var pendingSample: (text: String, locale: Locale)?
 
     private init() {
         if Self.installed { state = .ready }   // loads on first use
@@ -72,18 +81,44 @@ final class MochiVoice: ObservableObject {
 
     /// The pinned Kokoro bundle lives beside Parakeet's models, in Coucou's own folder.
     nonisolated static var directory: URL { Parakeet.modelsRoot.appendingPathComponent("kokoro-82m-coreml", isDirectory: true) }
+    /// The bundle is complete once its voices folder exists: FluidAudio writes it last.
     nonisolated static var installed: Bool {
-        FileManager.default.fileExists(atPath: directory.appendingPathComponent("ANE-v3").path)
+        let fm = FileManager.default
+        guard let v3 = try? fm.contentsOfDirectory(at: directory.appendingPathComponent("ANE-v3"), includingPropertiesForKeys: nil) else { return false }
+        return v3.contains { fm.fileExists(atPath: $0.appendingPathComponent("en/voices").path) }
     }
+    /// Bytes of the English ANE-v3 bundle, measured on 2026-10-24: FluidAudio reports no
+    /// progress for it, so the folder is weighed while it downloads.
+    nonisolated static let bundleBytes: Int64 = 394_559_625
 
-    /// Downloads (first time, about 300 MB) and loads the model.
+    private var character: MochiCharacter { previewCharacter ?? MochiCharacter.current }
+
+    /// Downloads (first time, about 400 MB) and loads the model.
     func prepare() {
         Task { _ = try? await self.engine() }
     }
 
+    /// Loads an installed voice ahead of the first answer (never downloads).
+    func preload() {
+        guard Self.installed, manager == nil, loading == nil else { return }
+        prepare()
+    }
+
+    /// Speaks a sample now, or as soon as the voice is ready (one sample, the latest asked).
+    func speakSample(_ text: String, locale: Locale) {
+        if isReady {
+            VoiceSpeaker.shared.speak(text, locale: locale)
+        } else {
+            pendingSample = (text, locale)
+            prepare()
+        }
+    }
+
     func remove() {
+        loading?.cancel()
         manager = nil
         loading = nil
+        pendingSample = nil
         try? FileManager.default.removeItem(at: Self.directory)
         state = .missing
     }
@@ -91,36 +126,70 @@ final class MochiVoice: ObservableObject {
     private func engine() async throws -> KokoroAneManager {
         if let manager { return manager }
         if let loading { return try await loading.value }
-        state = Self.installed ? .loading : .missing
+        let base = character.base
         let task = Task<KokoroAneManager, Error> {
-            let m = KokoroAneManager(variant: .english, defaultVoice: MochiCharacter.current.base,
-                                     directory: Parakeet.modelsRoot, version: .v3)
-            try await m.initialize(preloadVoices: [MochiCharacter.current.base])
+            let m = KokoroAneManager(variant: .english, defaultVoice: base, directory: Parakeet.modelsRoot, version: .v3)
+            try await m.initialize(preloadVoices: [base])
             // Core ML compiles each length bucket on its first use (measured 2.5–5 s), so a
             // short and a long phrase are spoken silently now rather than on the first answer.
             for warm in ["Hi.", "Hi, I'm Mochi! I found three things for you today, want me to open the first one?"] {
-                _ = try? await m.synthesize(text: warm, voice: MochiCharacter.current.base)
+                _ = try? await m.synthesize(text: warm, voice: base)
             }
             return m
         }
         loading = task
+        let watcher = watchDownload(until: task)
         do {
             let m = try await task.value
+            watcher.cancel()
             manager = m
             state = .ready
             appendAppLog("nb.log", "[Voice] Mochi voice ready")
+            if let sample = pendingSample {
+                pendingSample = nil
+                VoiceSpeaker.shared.speak(sample.text, locale: sample.locale)
+            }
             return m
         } catch {
+            watcher.cancel()
             loading = nil
+            pendingSample = nil
             state = .failed(error.localizedDescription)
             appendAppLog("nb.log", "[Voice] Mochi voice failed: \(error.localizedDescription)")
             throw error
         }
     }
 
+    /// Weighs the bundle folder twice a second while it downloads, then reports the loading phase.
+    private func watchDownload(until task: Task<KokoroAneManager, Error>) -> Task<Void, Never> {
+        state = Self.installed ? .loading : .downloading(0)
+        return Task { @MainActor [weak self] in
+            while !Task.isCancelled, let self, self.state != .ready {
+                if case .failed = self.state { return }
+                if Self.installed {
+                    if self.state != .loading { self.state = .loading }
+                } else {
+                    let bytes = await Task.detached { Self.folderBytes(Self.directory) }.value
+                    let fraction = min(0.99, Double(bytes) / Double(Self.bundleBytes))
+                    if case .downloading(let shown) = self.state, fraction <= shown { } else { self.state = .downloading(fraction) }
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
+
+    nonisolated private static func folderBytes(_ url: URL) -> Int64 {
+        guard let it = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else { return 0 }
+        var total: Int64 = 0
+        for case let f as URL in it {
+            if let size = (try? f.resourceValues(forKeys: [.fileSizeKey]))?.fileSize { total += Int64(size) }
+        }
+        return total
+    }
+
     /// WAV for one sentence in Mochi's character, or nil (model missing, error) → Mac voice.
     func audio(for text: String) async -> Data? {
-        let character = MochiCharacter.current
+        let character = self.character
         let t0 = Date()
         do {
             let engine = try await engine()

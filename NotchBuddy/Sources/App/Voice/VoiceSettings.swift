@@ -76,11 +76,34 @@ enum VoiceSettings {
     }
     static var answerLocale: Locale { Locale(identifier: language == "fr" ? "fr-FR" : "en-US") }
 
-    /// Language Coucou LISTENS to: "auto" (the Mac's dictation language, default), "en" or "fr".
-    /// Independent from the answer language: speak French, hear English.
+    /// Languages offered in Settings → Voice → "You speak" (fork). English is the only one live
+    /// in this first cut; Tamil and Tanglish are shown so the choice is visible, and wait for a
+    /// recogniser that hears them well.
+    struct ListenLanguage: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let available: Bool
+    }
+    static let listenLanguages: [ListenLanguage] = [
+        ListenLanguage(id: "en", name: "English", available: true),
+        ListenLanguage(id: "ta", name: "தமிழ்", available: false),
+        ListenLanguage(id: "ta-en", name: "Tanglish", available: false),
+    ]
+
+    /// Language Coucou LISTENS to. Anything saved earlier ("auto", "fr", "en-IN") or not yet
+    /// available reads as English, so the recogniser always gets a language it has.
     static var listenLanguage: String {
-        get { UserDefaults.standard.string(forKey: "voiceListenLanguage") ?? "auto" }
+        get {
+            let v = UserDefaults.standard.string(forKey: "voiceListenLanguage") ?? "en"
+            return listenLanguages.contains { $0.id == v && $0.available } ? v : "en"
+        }
         set { UserDefaults.standard.set(newValue, forKey: "voiceListenLanguage") }
+    }
+
+    /// What Mochi says when you test the voice: with the wake phrase you chose, not "OK Coucou".
+    static func sampleSentence(wakePhrase: String) -> String {
+        let phrase = wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "Hi, I'm Mochi! Say \(phrase.isEmpty ? "OK Coucou" : phrase) whenever you need me."
     }
 
     /// Coucou already offered to answer in the language you speak (asked once).
