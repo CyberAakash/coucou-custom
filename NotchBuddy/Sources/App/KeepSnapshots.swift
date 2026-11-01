@@ -59,6 +59,7 @@ enum KeepSnapshots {
         case "header":
             // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
             appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))
+            appendAppLog("nb.log", "[Snapshot] notch \(Int(state.notchWidth)) pt wide: room for \(IslandHeader.tabRoom(notchWidth: state.notchWidth)) tabs")
             size = CGSize(width: 640, height: 44)
             view = AnyView(IslandHeader(state: state).frame(width: 640, height: 44).background(Color.black))
         case "clipboard":
