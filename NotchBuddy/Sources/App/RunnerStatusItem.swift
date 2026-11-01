@@ -370,7 +370,7 @@ final class RunnerStatusItem: NSObject {
                      "mac buckets=\(brief.mac?.buckets.count ?? -1)", "plan=\(brief.plan != nil)", "events=\(brief.events.count)",
                      "readStreak=\(brief.readStreak) week=\(brief.weekRead)"]
             + BuddyOutfit.allCases.map { "headroom \($0.rawValue)=\(String(format: "%.3f", BuddyHeadroom.top($0)))" }
-        debugWrite(BuddyFullScreenCard().frame(width: 760).padding(20).background(Color(hex: "#0E0F11")), "fullscreen-card.png")
+        debugWrite(BuddyAlertPlaces(kinds: RoutineMomentKind.allCases).frame(width: 760).padding(20).background(Color(hex: "#0E0F11")), "fullscreen-card.png")
         debugWrite(MenuBarPanelView(close: {}, resize: { _ in }).content.frame(width: MenuBarPanelView.width).background(Color(hex: "#1C1D21"))
             .environment(\.colorScheme, .dark), "panel-render.png")
         debugWrite(PanelFooter(close: {}).frame(width: MenuBarPanelView.width).background(Color(hex: "#1C1D21"))

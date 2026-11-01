@@ -23,7 +23,8 @@ struct BuddyAssistantCard: View {
     }
 }
 
-struct BuddyRoutinesCard: View {
+/// Settings → Routines → Focus: the session, its breaks, and starting one now.
+struct BuddyFocusCard: View {
     @ObservedObject var settings: BuddyRoutineSettings
     @ObservedObject var routines = BuddyRoutineController.shared
 
@@ -40,8 +41,60 @@ struct BuddyRoutinesCard: View {
                 }
             }
             HubDivider()
+            HubRow(title: "Start now", detail: "Also in the Buddy's right-click menu, the chat and by voice.") {
+                Button("Start focus") { routines.startFocus() }.buttonStyle(HubButtonStyle())
+                    .disabled(routines.focus != nil)
+            }
+        }
+    }
+}
+
+/// Settings → Routines → Breathing.
+struct BuddyBreathingCard: View {
+    @ObservedObject var settings: BuddyRoutineSettings
+    @ObservedObject var routines = BuddyRoutineController.shared
+
+    var body: some View {
+        HubCard {
             HubRow(title: "Breathing full screen", detail: "The Buddy walks to the middle of the screen, which dims, and breathes with you in an orb; it walks back after. Drag it away to go on in a card by it. Off: the card only.") {
                 BriefSwitch(isOn: $settings.breathingFullScreen, tint: HubBuddyPage.tint)
+            }
+            HubDivider()
+            HubRow(title: "Start now", detail: "Also in the Buddy's right-click menu, the chat (\"help me calm down\") and by voice.") {
+                Button("Breathe") { routines.startBreathing(settings.lastBreathing, autoStart: false) }.buttonStyle(HubButtonStyle())
+                    .disabled(routines.breathing != nil)
+            }
+        }
+    }
+}
+
+/// Settings → Routines → Timers: how to start one (they have no settings of their own).
+struct BuddyTimersCard: View {
+    var body: some View {
+        HubCard {
+            HubRow(title: "Timers", detail: "Start one from the Buddy's right-click menu, the chat (\"set a timer for 10 minutes\") or by voice. The Buddy counts down and says when it is done.") {
+                EmptyView()
+            }
+        }
+    }
+}
+
+/// Settings → Routines → Alerts: what every routine's alert shares.
+struct BuddyAlertsCard: View {
+    @ObservedObject var settings: BuddyRoutineSettings
+    @ObservedObject private var moments = RoutineMomentSettings.shared
+    @ObservedObject private var buddy = BuddySettings.shared
+
+    var body: some View {
+        HubCard {
+            Text("Each routine's tab says where its alerts show. Buddy card: on the Buddy, with its buttons. Notch: in the notch. Full screen: over the whole screen, Mochi in the middle; Return and Esc work on it when Coucou has the keyboard, never taking it from what you type.")
+                .font(.system(size: 12.5)).foregroundColor(HubTheme.body).fixedSize(horizontal: false, vertical: true)
+            if !buddy.enabled {
+                HubNote(text: "The Buddy is hidden: what is set to its card shows in the notch until you show it again.")
+            }
+            HubDivider()
+            HubRow(title: "Alert sound", detail: "When a reminder or a timer is due, and when a focus session or a break ends.") {
+                BriefSwitch(isOn: $settings.alertSound, tint: HubBuddyPage.tint)
             }
             HubDivider()
             HubRow(title: "Launch greeting", detail: "Launch Buddy: it says hello when Coucou starts.") {
@@ -52,42 +105,18 @@ struct BuddyRoutinesCard: View {
                 }
             }
             HubDivider()
-            HubRow(title: "Alert sound", detail: "When a reminder or a timer is due, and when a focus session or a break ends.") {
-                BriefSwitch(isOn: $settings.alertSound, tint: HubBuddyPage.tint)
+            HubRow(title: "A start stays", detail: "Focus starts and timer starts.") {
+                BriefComboBox(options: RoutineMomentSettings.startChoices.map { BriefComboOption(value: $0, title: "\($0) s", symbol: "timer") },
+                              selection: $moments.startSeconds, tint: HubBuddyPage.tint, symbol: "timer", width: 200,
+                              custom: { BriefInput.seconds(from: $0).flatMap { $0 <= 30 ? $0 : nil } }, customTitle: { "\($0) s" },
+                              placeholder: "Search, or type seconds")
             }
             HubDivider()
-            HubRow(title: "Start now", detail: "Also in the Buddy's right-click menu.") {
+            HubRow(title: "Screen behind", detail: "How dark it goes behind a full-screen alert.") {
                 HStack(spacing: 8) {
-                    Button("Focus") { routines.startFocus() }.buttonStyle(HubButtonStyle())
-                        .disabled(routines.focus != nil)
-                    Button("Breathe") { routines.startBreathing(settings.lastBreathing, autoStart: false) }.buttonStyle(HubButtonStyle())
-                        .disabled(routines.breathing != nil)
-                    Button("Test reminder") {
-                        routines.addReminder("Test reminder", due: .now.addingTimeInterval(5))
-                    }
-                    .buttonStyle(HubButtonStyle())
-                }
-            }
-            if !routines.reminders.isEmpty {
-                HubDivider()
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Reminders").font(.system(size: 13, weight: .semibold)).foregroundColor(HubTheme.text)
-                    ForEach(routines.reminders) { r in
-                        HStack(spacing: 10) {
-                            Image(systemName: "bell").font(.system(size: 11)).foregroundColor(HubTheme.secondary)
-                            Text(r.due.formatted(date: Calendar.current.isDateInToday(r.due) ? .omitted : .abbreviated, time: .shortened))
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundColor(HubTheme.body)
-                            Text(r.text).font(.system(size: 13)).foregroundColor(HubTheme.text).lineLimit(1)
-                            Spacer(minLength: 8)
-                            Button { routines.removeReminder(r.id) } label: {
-                                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(HubTheme.secondary)
-                            .help("Remove")
-                        }
-                    }
+                    Slider(value: $moments.dim, in: 0.2...0.85).frame(width: 150)
+                    Text(MetricsFormat.percent(moments.dim)).font(.system(size: 12).monospacedDigit()).foregroundColor(HubTheme.secondary)
+                        .frame(width: 40, alignment: .trailing)
                 }
             }
         }
