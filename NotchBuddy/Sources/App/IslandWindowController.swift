@@ -78,6 +78,7 @@ final class IslandWindowController: NSWindowController {
     // Island-local key monitor (active only when island is key window)
     private var localKeyMonitor: Any?
     private var pageWheelMonitor: Any?                 // coucou-custom fork: the page bar
+    private var pageSwipeMonitor: Any?                 // coucou-custom fork: three-finger swipes sent to the app in front
     private var fullScreenCheckedAt: TimeInterval = 0  // coucou-custom fork: hide in full screen
     private var hiddenForFullScreen = false
     private let pageWheel = PageWheel()
@@ -938,12 +939,29 @@ final class IslandWindowController: NSWindowController {
 
     /// coucou-custom fork: a sideways swipe (or the wheel on the home page) turns the page.
     private func startPageWheelMonitor() {
+        // A swipe is a gesture: macOS gives it to the app in front, which the notch never is (it
+        // does not take focus). So the island hears it both ways, and takes it when the pointer is
+        // over the island's panel.
         pageWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .swipe]) { [weak self] event in
-            guard let self, event.window === self.islandPanel else { return event }
-            let used = event.type == .swipe ? self.pageWheel.handleSwipe(event, state: self.state)
-                                            : self.pageWheel.handle(event, state: self.state)
-            return used ? nil : event
+            guard let self else { return event }
+            if event.type == .swipe {
+                guard self.pointerOverIsland() else { return event }
+                return self.pageWheel.handleSwipe(event, state: self.state, from: "Coucou") ? nil : event
+            }
+            guard event.window === self.islandPanel else { return event }
+            return self.pageWheel.handle(event, state: self.state) ? nil : event
         }
+        pageSwipeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .swipe) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, self.pointerOverIsland() else { return }
+                _ = self.pageWheel.handleSwipe(event, state: self.state, from: "app in front")
+            }
+        }
+    }
+
+    /// The pointer is over the island's panel (the area around the notch the island draws in).
+    private func pointerOverIsland() -> Bool {
+        islandPanel.frame.contains(NSEvent.mouseLocation)
     }
 
     @discardableResult
