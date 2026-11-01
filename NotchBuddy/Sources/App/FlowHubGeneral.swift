@@ -244,8 +244,8 @@ struct HubGeneralPage: View {
             }
             if pageBar {
                 HubDivider()
-                HubRow(title: "Swipe or scroll between pages",
-                       detail: "A sideways swipe on the trackpad turns the page anywhere; the mouse wheel does on the home page.") {
+                HubRow(title: "Swipe between pages",
+                       detail: "Three fingers left or right turn the page (when System Settings → Trackpad → More Gestures → Swipe between pages uses three fingers); two fingers scroll the page's cards. A mouse wheel turns it on the home page.") {
                     Toggle("", isOn: $pageWheel).toggleStyle(.switch).labelsHidden()
                 }
             }

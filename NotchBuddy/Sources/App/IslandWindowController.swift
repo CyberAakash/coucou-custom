@@ -938,9 +938,11 @@ final class IslandWindowController: NSWindowController {
 
     /// coucou-custom fork: a sideways swipe (or the wheel on the home page) turns the page.
     private func startPageWheelMonitor() {
-        pageWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+        pageWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .swipe]) { [weak self] event in
             guard let self, event.window === self.islandPanel else { return event }
-            return self.pageWheel.handle(event, state: self.state) ? nil : event
+            let used = event.type == .swipe ? self.pageWheel.handleSwipe(event, state: self.state)
+                                            : self.pageWheel.handle(event, state: self.state)
+            return used ? nil : event
         }
     }
 
