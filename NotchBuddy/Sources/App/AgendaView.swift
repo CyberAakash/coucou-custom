@@ -70,6 +70,14 @@ struct AgendaView: View {
     @State private var hoverRow: String?
     /// The task whose Later choices are open in its row (they stay when the pointer leaves).
     @State private var laterRow: String?
+    /// A swipe across a row: which row, how far, and the trackpad's state while it lasts.
+    @State private var swipeID: String?
+    @State private var swipeX: CGFloat = 0
+    @State private var swipeCandidate: String?
+    @State private var swipeTracking = false
+    @State private var swipeEndedAt: Date?
+    @State private var swipeMonitor: Any?
+    private static let swipeThreshold: CGFloat = 110
 
     private var tasksOn: Bool { taskSettings.enabled && tasks.access == .granted }
     private var eventsOn: Bool { calSettings.enabled && calendar.access == .granted }
@@ -106,6 +114,7 @@ struct AgendaView: View {
         // `debug.agendaType` "line" puts a line in the composer; `debug.agendaSubmit` adds it.
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaTest"))) { note in
             let action = note.object as? String ?? ""
+            if action == "setup" { tasks.debugUnfreeze(); calendar.debugUnfreeze() }
             tasks.debugTest(action)
             calendar.debugTest(action)
             if action == "teardown" {
@@ -119,6 +128,12 @@ struct AgendaView: View {
             text = note.object as? String ?? ""
         }
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaSubmit"))) { _ in
+            // Never into real lists: frozen sample data, or a #coucou line that does not reach the test list.
+            let target = kind == .task ? parsedTask.listID.flatMap(tasks.list)?.title : parsedEvent.calendarID.flatMap(calendar.calendar)?.title
+            guard !tasks.debugIsFrozen, !calendar.debugIsFrozen, !text.contains("#coucou") || target == "Coucou test" else {
+                appendAppLog("nb.log", "[Agenda] submit refused: '\(text)' would go to \(target ?? "the default list")")
+                return
+            }
             appendAppLog("nb.log", "[Agenda] submit '\(text)' as \(kind)")
             add()
         }
@@ -143,6 +158,28 @@ struct AgendaView: View {
         // `debug.composerEdit` "standup" | "" | "help": the template editor open in the next hub snapshot.
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.composerEdit"))) { note in
             KeepDebug.composerEditing = note.object as? String
+        }
+        // `debug.agendaHoverTitle` "title": that row as under the pointer; `debug.agendaScroll`
+        // "12,12,12": a two-finger sideways scroll (began, changed…, ended) posted to Coucou alone.
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaHoverTitle"))) { note in
+            let title = note.object as? String ?? ""
+            if let t = tasks.items.first(where: { $0.title == title }) { hoverRow = "t" + t.id }
+            else if let e = calendar.events.first(where: { $0.title == title }) { hoverRow = "e" + e.id }
+            appendAppLog("nb.log", "[Agenda] debug hover \(hoverRow ?? "none")")
+        }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaScroll"))) { note in
+            let steps = (note.object as? String ?? "").split(separator: ",").compactMap { Int32($0) }
+            let phases: [Int64] = [1] + Array(repeating: 2, count: steps.count) + [4]   // began, changed…, ended
+            let deltas: [Int32] = [0] + steps + [0]
+            for (i, (phase, dx)) in zip(phases, deltas).enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * Double(i)) {
+                    guard let ev = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: dx, wheel3: 0) else { return }
+                    ev.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                    ev.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+                    ev.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
+                    ev.postToPid(getpid())
+                }
+            }
         }
         // `debug.agendaDeleteTask` "title": deletes the open tasks with exactly that title (a key test's leftover).
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDeleteTask"))) { note in
@@ -170,11 +207,22 @@ struct AgendaView: View {
         }
         #endif
         .onAppear {
+            if swipeMonitor == nil {
+                swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { e in handleScroll(e) ? nil : e }
+            }
+        }
+        .onDisappear {
+            if let m = swipeMonitor { NSEvent.removeMonitor(m); swipeMonitor = nil }
+        }
+        .onAppear {
             #if DEBUG
             if let sample = KeepDebug.tasksComposerText { text = sample }
             if KeepDebug.agendaTasksOnly { filter = .tasks; showUndated = true }
             hoverRow = KeepDebug.agendaHover
             laterRow = KeepDebug.agendaLater
+            if let sw = KeepDebug.agendaSwipe?.split(separator: "_"), sw.count == 2, let x = Double(sw[1]) {
+                swipeID = String(sw[0]); swipeX = x
+            }
             // After the sample text's own change has closed any menu.
             DispatchQueue.main.async {
                 switch KeepDebug.agendaOpen {
@@ -507,6 +555,10 @@ struct AgendaView: View {
     // MARK: Rows
 
     private func eventRow(_ e: CalEvent) -> some View {
+        swipeWrap("e" + e.id) { eventRowContent(e) }
+    }
+
+    private func eventRowContent(_ e: CalEvent) -> some View {
         let now = Date.now
         let cal = calendar.calendar(e.calendarID)
         let color = cal?.color ?? .blue
@@ -583,6 +635,10 @@ struct AgendaView: View {
     }
 
     private func taskRow(_ t: TaskItem, overdue: Bool) -> some View {
+        swipeWrap("t" + t.id) { taskRowContent(t, overdue: overdue) }
+    }
+
+    private func taskRowContent(_ t: TaskItem, overdue: Bool) -> some View {
         let list = tasks.list(t.listID)
         let when: String = {
             guard let due = t.due else { return "" }
@@ -660,6 +716,145 @@ struct AgendaView: View {
             Divider()
             Button("Open in Reminders") { tasks.openReminders() }
             Button("Delete", role: .destructive) { deleteTask(t) }
+        }
+    }
+
+    // MARK: Swipes
+
+    /// The action a swipe on this row would do, as Settings chose (right for x > 0).
+    private func swipeAction(_ id: String, right: Bool) -> AgendaSwipe {
+        let task = id.hasPrefix("t")
+        switch (task, right) {
+        case (true, true): return composerSettings.taskRight
+        case (true, false): return composerSettings.taskLeft
+        case (false, true): return composerSettings.eventRight
+        case (false, false): return composerSettings.eventLeft
+        }
+    }
+
+    /// The row on top of its action's colour: a swipe (two fingers) or a drag (a mouse) slides it.
+    private func swipeWrap<Row: View>(_ id: String, @ViewBuilder _ row: () -> Row) -> some View {
+        let x = swipeID == id ? swipeX : 0
+        let action = swipeAction(id, right: x > 0)
+        let armed = abs(x) >= Self.swipeThreshold
+        return ZStack {
+            if x != 0, action != .none {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(action.color.opacity(armed ? 1 : 0.55))
+                    .overlay(alignment: x > 0 ? .leading : .trailing) {
+                        HStack(spacing: 6) {
+                            Image(systemName: action.symbol).font(.system(size: 11, weight: .heavy))
+                            Text(action == .open ? openTitle(id) : action.title).font(.system(size: 11.5, weight: .heavy))
+                        }
+                        .foregroundColor(.white.opacity(armed ? 1 : 0.75))
+                        .scaleEffect(armed ? 1.06 : 1)
+                        .padding(.horizontal, 14)
+                    }
+                    .transition(.opacity)
+            }
+            // Rows are see-through at rest: a solid card under one that slides, so the colour is behind it.
+            row()
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color(hex: "#1B1C20")).opacity(x == 0 ? 0 : 1))
+                .offset(x: x)
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: armed)
+        .gesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { g in
+                    guard abs(g.translation.width) > abs(g.translation.height) else { return }
+                    swipeID = id
+                    swipeX = rubber(g.translation.width)
+                }
+                .onEnded { _ in if swipeID == id { finishSwipe() } }
+        )
+    }
+
+    /// Past twice the threshold the row resists, as a scroll view's edge does.
+    private func rubber(_ x: CGFloat) -> CGFloat {
+        let limit = Self.swipeThreshold * 2
+        guard abs(x) > limit else { return x }
+        return (x > 0 ? 1 : -1) * (limit + (abs(x) - limit) * 0.25)
+    }
+
+    private func openTitle(_ id: String) -> String {
+        calendar.events.first { "e" + $0.id == id }?.meeting != nil ? "Join" : "Open"
+    }
+
+    /// A two-finger scroll over a row: sideways it is the row's swipe (and swallowed), up and
+    /// down it stays the list's. Returns true when the event was used.
+    private func handleScroll(_ e: NSEvent) -> Bool {
+        // Only on the Agenda as shown, rows under the pointer, no sheet over them.
+        guard e.hasPreciseScrollingDeltas, active, !helpOpen, !detailsOpen else { return false }
+        // The fling after a swipe: swallowed for a moment, so the list does not drift.
+        if e.momentumPhase != [] { return swipeEndedAt.map { Date.now.timeIntervalSince($0) < 0.8 } ?? false }
+        // Natural scrolling: the content follows the fingers either way.
+        let dx = e.isDirectionInvertedFromDevice ? e.scrollingDeltaX : -e.scrollingDeltaX
+        if e.phase.contains(.began) || e.phase.contains(.mayBegin) {
+            swipeCandidate = hoverRow
+            swipeTracking = false
+            return false
+        }
+        if e.phase.contains(.changed) {
+            if !swipeTracking {
+                guard let id = swipeCandidate, abs(e.scrollingDeltaX) > abs(e.scrollingDeltaY), abs(dx) > 1.5 else {
+                    if abs(e.scrollingDeltaY) > abs(e.scrollingDeltaX) { swipeCandidate = nil }
+                    return false
+                }
+                swipeTracking = true
+                swipeID = id
+                swipeX = 0
+            }
+            swipeX = rubber(swipeX + dx)
+            return true
+        }
+        if e.phase.contains(.ended) || e.phase.contains(.cancelled) {
+            guard swipeTracking else { return false }
+            swipeTracking = false
+            swipeCandidate = nil
+            swipeEndedAt = .now
+            finishSwipe()
+            return true
+        }
+        return false
+    }
+
+    /// Far enough: slides out and acts. Not far enough, or nothing chosen: springs back.
+    private func finishSwipe() {
+        guard let id = swipeID else { return }
+        let right = swipeX > 0
+        let action = swipeAction(id, right: right)
+        guard abs(swipeX) >= Self.swipeThreshold, action != .none else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { swipeX = 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if swipeX == 0 { swipeID = nil } }
+            return
+        }
+        withAnimation(.easeIn(duration: 0.18)) { swipeX = right ? 700 : -700 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            perform(action, on: id)
+            swipeID = nil
+            swipeX = 0
+        }
+    }
+
+    private func perform(_ action: AgendaSwipe, on id: String) {
+        appendAppLog("nb.log", "[Agenda] swipe \(action.rawValue)")
+        if let t = tasks.items.first(where: { "t" + $0.id == id }) {
+            let choice: (String) -> (title: String, short: String, due: Date, hasTime: Bool)? = { name in laterChoices.first { $0.short == name } }
+            switch action {
+            case .done: complete(t)
+            case .hour: if let c = choice("1 hour") { later(t, to: c.due, hasTime: c.hasTime, title: c.title) }
+            case .tomorrow: if let c = choice("Tomorrow") { later(t, to: c.due, hasTime: c.hasTime, title: c.title) }
+            case .nextWeek: if let c = choice("Next week") { later(t, to: c.due, hasTime: c.hasTime, title: c.title) }
+            case .delete: deleteTask(t)
+            case .open, .copyLink, .none: break
+            }
+        } else if let e = calendar.events.first(where: { "e" + $0.id == id }) {
+            switch action {
+            case .open: if e.meeting != nil { calendar.join(e) } else { calendar.openCalendarApp(at: e.start) }
+            case .copyLink:
+                if let url = e.meeting { copy(url.absoluteString, what: "Meeting link") } else { say("No meeting link on this event", undo: nil) }
+            default: break
+            }
         }
     }
 

@@ -171,6 +171,8 @@ enum KeepDebug {
     /// The Agenda's snapshot: the row shown hovered ("t2", "e3"…).
     nonisolated(unsafe) static var agendaHover: String?
     nonisolated(unsafe) static var agendaLater: String?
+    /// The Agenda's snapshot: a row mid-swipe ("t2_130", "e3_-140").
+    nonisolated(unsafe) static var agendaSwipe: String?
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }

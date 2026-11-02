@@ -294,6 +294,10 @@ final class CalendarStore: ObservableObject {
     private var debugFrozen = false
 
     /// Save tests only: a "Coucou test" calendar made, read back in nb.log, and removed with its events.
+    /// A sample render froze the store on sample data: save tests need the real one.
+    var debugIsFrozen: Bool { debugFrozen }
+    func debugUnfreeze() { debugFrozen = false; reload() }
+
     func debugTest(_ action: String) {
         let name = "Coucou test"
         let mine = store.calendars(for: .event).filter { $0.title == name }

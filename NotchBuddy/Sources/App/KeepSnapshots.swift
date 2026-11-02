@@ -63,6 +63,7 @@ enum KeepSnapshots {
             KeepDebug.agendaTasksOnly = options.contains("tasks")
             KeepDebug.agendaHover = options.first { $0.hasPrefix("hover=") }.map { String($0.dropFirst(6)) }
             KeepDebug.agendaLater = options.first { $0.hasPrefix("later=") }.map { String($0.dropFirst(6)) }
+            KeepDebug.agendaSwipe = options.first { $0.hasPrefix("swipe=") }.map { String($0.dropFirst(6)) }
             size = CGSize(width: IslandConst.openWidth, height: 420)
             view = AnyView(islandFrame(height: 420, width: IslandConst.openWidth) { AgendaView(state: state) })
         case "eventalert":
