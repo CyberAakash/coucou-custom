@@ -57,8 +57,12 @@ struct ShelfView: View {
                     carousel
                 }
                 Spacer(minLength: 0)
-                KeepHints(hints: [("↩", "Open"), ("Space", "Quick Look"), ("⌫", "Remove"), ("⌘click", "Select more")]
-                          + (settings.dragOut == .keep ? [] : [("Drag out", settings.dragOut.short)]), trailing: trailingHint)
+                if shelf.selected.count > 1 {
+                    KeepSelectionBar(count: shelf.selected.count, actions: bulkActions) { shelf.selected = [] }
+                } else {
+                    KeepHints(hints: [("↩", "Open"), ("Space", "Quick Look"), ("⌫", "Remove"), ("⌘click", "Select more")]
+                              + (settings.dragOut == .keep ? [] : [("Drag out", settings.dragOut.short)]), trailing: trailingHint)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -170,7 +174,9 @@ struct ShelfView: View {
         return KeepCard(name: item.name, detail: detail(item), badge: badge(item), selected: selected, width: width, height: height,
                         onTap: { shelf.select(item, adding: false) },
                         onDoubleTap: { shelf.open(item) },
-                        onCommandTap: { shelf.select(item, adding: true) }) {
+                        onCommandTap: { shelf.select(item, adding: true) },
+                        quickActions: quickActions(item),
+                        checked: shelf.selected.count > 1 && selected) {
             KeepFilePreview(url: item.url, size: CGSize(width: 140, height: previewHeight), showsThumbnail: settings.previews)
         }
         .onDrag {
@@ -196,6 +202,27 @@ struct ShelfView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: cardsHeight)
+    }
+
+    /// The icons on a card under the pointer.
+    private func quickActions(_ item: ShelfItem) -> [KeepQuickAction] {
+        [KeepQuickAction(symbol: "arrow.up.forward.app", help: "Open") { shelf.open(item) },
+         KeepQuickAction(symbol: "doc.on.doc", help: "Copy") { shelf.copy([item]); toast.say("Copied") },
+         KeepQuickAction(symbol: "folder", help: "Show in Finder") { shelf.showInFinder([item]) },
+         KeepQuickAction(symbol: "trash", help: "Remove from the shelf", destructive: true) {
+             shelf.remove(item); toast.say("Removed · the file stays where it is")
+         }]
+    }
+
+    /// What the selection bar does to every selected file.
+    private var bulkActions: [KeepQuickAction] {
+        let items = shelf.selectedItems
+        return [KeepQuickAction(symbol: "arrow.up.forward.app", help: "Open") { items.forEach(shelf.open) },
+                KeepQuickAction(symbol: "doc.on.doc", help: "Copy") { shelf.copy(items); toast.say("\(items.count) files copied") },
+                KeepQuickAction(symbol: "folder", help: "Finder") { shelf.showInFinder(items) },
+                KeepQuickAction(symbol: "trash", help: "Remove", destructive: true) {
+                    shelf.remove(Set(items.map(\.id))); toast.say("\(items.count) removed from the shelf")
+                }]
     }
 
     /// The count lives here, not in the search field.

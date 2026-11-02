@@ -188,7 +188,10 @@ final class PageWheel {
     /// A three-finger swipe: fingers to the left go to the next page, to the right to the previous
     /// one (deltaX is +1 for a swipe to the left).
     func handleSwipe(_ event: NSEvent, state: AppState, from: String) -> Bool {
-        appendAppLog("nb.log", "[Pages] three-finger swipe from \(from): deltaX \(event.deltaX), \(state.mode.rawValue) \(state.view.rawValue)")
+        // The gesture's in-between frames carry no direction: only the ones that do are noted.
+        if event.deltaX != 0 {
+            appendAppLog("nb.log", "[Pages] three-finger swipe from \(from): deltaX \(event.deltaX), \(state.mode.rawValue) \(state.view.rawValue)")
+        }
         guard IslandPages.enabled, IslandPages.wheelEnabled, state.mode == .expanded,
               IslandPages.page(of: state.view) != nil, event.deltaX != 0 else { return false }
         guard let next = IslandPages.step(event.deltaX > 0 ? 1 : -1, from: state) else { return false }

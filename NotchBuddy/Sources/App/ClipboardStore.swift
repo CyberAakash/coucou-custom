@@ -369,6 +369,19 @@ final class ClipboardStore: ObservableObject {
         lastChange = board.changeCount
     }
 
+    /// Several items as one text, a line each (images and files left out): kept off the history,
+    /// as Coucou's own copies are (coucou-custom fork: the notch's multi-selection).
+    func copyText(_ items: [ClipItem]) -> Int {
+        let texts = items.filter { $0.kind != .image && $0.kind != .file }.map(\.text)
+        guard !texts.isEmpty else { return 0 }
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(texts.joined(separator: "\n"), forType: .string)
+        ownChange = board.changeCount
+        lastChange = board.changeCount
+        return texts.count
+    }
+
     /// Copies, then sends ⌘V to the app in front (⌃V in a terminal). False without the
     /// Accessibility permission: the item then stays on the clipboard for a paste by hand.
     @discardableResult

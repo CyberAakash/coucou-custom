@@ -37,6 +37,9 @@ enum KeepSnapshots {
         if options.contains("grid") { ShelfSettings.shared.layout = .grid; ClipboardSettings.shared.layout = .grid }
         if options.contains("rows") { ShelfSettings.shared.layout = .rows; ClipboardSettings.shared.layout = .rows }
         KeepDebug.filterOpen = options.contains("filter")
+        KeepDebug.forceHover = options.contains("hover")
+        KeepDebug.selectFirstThree = options.contains("multi")
+        if options.contains("multi") && parts[0] == "shelf" { FileShelf.shared.selected = Set(FileShelf.shared.items.prefix(3).map(\.id)) }
         let restore = { ShelfSettings.shared.layout = shelfLayout; ClipboardSettings.shared.layout = clipLayout }
         let view: AnyView
         let size: CGSize
@@ -144,6 +147,9 @@ enum KeepSnapshots {
             window.orderOut(nil)
             restore()
             KeepDebug.filterOpen = false
+            KeepDebug.forceHover = false
+            KeepDebug.selectFirstThree = false
+            if options.contains("multi") { FileShelf.shared.selected = [] }
         }
     }
 
