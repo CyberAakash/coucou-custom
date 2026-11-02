@@ -66,6 +66,10 @@ struct AgendaView: View {
     @State private var skipPieces: Set<AgendaExtras.Piece> = []
     @FocusState private var composing: Bool
     @State private var undo: UndoNote?
+    /// The row under the pointer: it lifts and shows its quick actions.
+    @State private var hoverRow: String?
+    /// The task whose Later choices are open in its row (they stay when the pointer leaves).
+    @State private var laterRow: String?
 
     private var tasksOn: Bool { taskSettings.enabled && tasks.access == .granted }
     private var eventsOn: Bool { calSettings.enabled && calendar.access == .granted }
@@ -169,6 +173,8 @@ struct AgendaView: View {
             #if DEBUG
             if let sample = KeepDebug.tasksComposerText { text = sample }
             if KeepDebug.agendaTasksOnly { filter = .tasks; showUndated = true }
+            hoverRow = KeepDebug.agendaHover
+            laterRow = KeepDebug.agendaLater
             // After the sample text's own change has closed any menu.
             DispatchQueue.main.async {
                 switch KeepDebug.agendaOpen {
@@ -531,6 +537,19 @@ struct AgendaView: View {
                 if !sub.isEmpty { Text(sub).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1) }
             }
             Spacer(minLength: 6)
+            let hovered = hoverRow == "e" + e.id
+            if hovered, let url = e.meeting {
+                quickIcon("link", "Copy the meeting link") { copy(url.absoluteString, what: "Meeting link") }
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+            if hovered && !canJoin {
+                Button(e.meeting != nil ? "Join" : "Open") { e.meeting != nil ? calendar.join(e) : calendar.openCalendarApp(at: e.start) }
+                    .buttonStyle(.plain).pointer()
+                    .font(.system(size: 11, weight: .bold)).foregroundColor(Color(hex: "#F5F6F8"))
+                    .padding(.horizontal, 13).frame(height: 26)
+                    .background(Capsule().fill(Color.white.opacity(0.12)))
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
             if canJoin {
                 Button("Join") { calendar.join(e) }
                     .buttonStyle(.plain).pointer()
@@ -542,20 +561,19 @@ struct AgendaView: View {
         .padding(.trailing, 10)
         .frame(minHeight: 36)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(live || canJoin ? Color(hex: "#0A84FF").opacity(0.12) : Color.white.opacity(0.05)))
+            .fill(live || canJoin ? Color(hex: "#0A84FF").opacity(0.12) : Color.white.opacity(hoverRow == "e" + e.id ? 0.09 : 0.05)))
         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .opacity(past ? 0.5 : 1)
+        .modifier(RowLift(on: hoverRow == "e" + e.id))
+        .opacity(past && hoverRow != "e" + e.id ? 0.5 : 1)
         .contentShape(Rectangle())
+        .onHover { over in withAnimation(.easeOut(duration: 0.15)) { hoverRow = over ? "e" + e.id : (hoverRow == "e" + e.id ? nil : hoverRow) } }
         .onTapGesture { calendar.openCalendarApp(at: e.start) }
         .pointer()
         .contextMenu {
             if e.meeting != nil { Button("Join") { calendar.join(e) } }
             Button("Open in Calendar") { calendar.openCalendarApp(at: e.start) }
             if let url = e.meeting {
-                Button("Copy meeting link") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(url.absoluteString, forType: .string)
-                }
+                Button("Copy meeting link") { copy(url.absoluteString, what: "Meeting link") }
             }
         }
     }
@@ -577,26 +595,51 @@ struct AgendaView: View {
         let sub = [when.isEmpty ? nil : when, t.place, list?.title].compactMap { $0 }.joined(separator: " · ")
         // Reminders' priority numbers: 1–4 high, 5 medium, 6–9 low.
         let marks = t.priority == 0 ? 0 : (t.priority < 5 ? 3 : (t.priority == 5 ? 2 : 1))
+        let choosing = laterRow == t.id
+        let hovered = hoverRow == "t" + t.id || choosing
         return HStack(spacing: 10) {
-            Button { complete(t) } label: {
-                Circle().strokeBorder(overdue ? Color(hex: "#F4505E") : (list?.color ?? Color(hex: "#6B7079")), lineWidth: 1.6)
-                    .frame(width: 13, height: 13).contentShape(Circle())
-            }
-            .buttonStyle(.plain).pointer().help("Done")
+            // The list's colour (red when missed): done and the rest are on hover and on a swipe.
+            Circle().fill(overdue ? Color(hex: "#F4505E") : (list?.color ?? Color(hex: "#6B7079")))
+                .frame(width: 8, height: 8).frame(width: 13)
             Text(t.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
             if marks > 0 {
                 Text(String(repeating: "!", count: marks)).font(.system(size: 11, weight: .heavy)).foregroundColor(Color(hex: "#F4505E"))
                     .help(["", "Low", "Medium", "High"][marks] + " priority")
             }
             Spacer(minLength: 6)
-            if t.repeats { repeatIcon }
-            Text(sub).font(.system(size: 10, weight: .medium))
-                .foregroundColor(overdue ? Color(hex: "#F4505E") : Color(hex: "#8E939C")).lineLimit(1).fixedSize()
+            if choosing {
+                HStack(spacing: 4) {
+                    ForEach(laterChoices, id: \.title) { c in
+                        Button(c.short) { laterRow = nil; later(t, to: c.due, hasTime: c.hasTime, title: c.title) }
+                            .buttonStyle(.plain).pointer().help(c.title)
+                            .font(.system(size: 10.5, weight: .semibold)).foregroundColor(Color(hex: "#FDE68A"))
+                            .padding(.horizontal, 9).frame(height: 24)
+                            .background(Capsule().fill(Color(hex: "#F59E0B").opacity(0.16)))
+                    }
+                    quickIcon("xmark", "Close") { laterRow = nil }
+                }
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else if hovered {
+                HStack(spacing: 4) {
+                    quickIcon("checkmark", "Done", tint: Color(hex: "#4ADE80"), fill: Color(hex: "#30D158").opacity(0.18)) { complete(t) }
+                    quickIcon("clock", "Later") { withAnimation(.easeOut(duration: 0.15)) { laterRow = t.id } }
+                    quickIcon("trash", "Delete", tint: Color(hex: "#F4A3AA")) { deleteTask(t) }
+                }
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else {
+                if t.repeats { repeatIcon }
+                Text(sub).font(.system(size: 10, weight: .medium))
+                    .foregroundColor(overdue ? Color(hex: "#F4505E") : Color(hex: "#8E939C")).lineLimit(1).fixedSize()
+                    .transition(.opacity)
+            }
         }
-        .padding(.leading, 13).padding(.trailing, 10)
-        .frame(minHeight: 30)
+        .padding(.leading, 13).padding(.trailing, hovered ? 5 : 10)
+        .frame(minHeight: 32)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(overdue ? Color(hex: "#F4505E").opacity(0.08) : Color.clear))
+            .fill(overdue ? Color(hex: "#F4505E").opacity(hovered ? 0.14 : 0.08) : Color.white.opacity(hovered ? 0.07 : 0)))
+        .modifier(RowLift(on: hovered))
+        .contentShape(Rectangle())
+        .onHover { over in withAnimation(.easeOut(duration: 0.15)) { hoverRow = over ? "t" + t.id : (hoverRow == "t" + t.id ? nil : hoverRow) } }
         .contextMenu {
             Menu("Move to list") {
                 ForEach(tasks.lists) { l in
@@ -616,11 +659,54 @@ struct AgendaView: View {
             }
             Divider()
             Button("Open in Reminders") { tasks.openReminders() }
-            Button("Delete", role: .destructive) {
-                let restore = tasks.delete(t.id)
-                say("Deleted · \(t.title)", undo: restore)
-            }
+            Button("Delete", role: .destructive) { deleteTask(t) }
         }
+    }
+
+    // MARK: Quick actions
+
+    private func deleteTask(_ t: TaskItem) {
+        let restore = tasks.delete(t.id)
+        say("Deleted · \(t.title)", undo: restore)
+    }
+
+    /// The times "Later" offers, from now: this evening only while it is still ahead.
+    private var laterChoices: [(title: String, short: String, due: Date, hasTime: Bool)] {
+        let cal = Calendar.current, now = Date.now
+        let today = cal.startOfDay(for: now)
+        func at(_ h: Int, dayOffset: Int) -> Date {
+            cal.date(bySettingHour: h, minute: 0, second: 0, of: cal.date(byAdding: .day, value: dayOffset, to: today) ?? today) ?? now
+        }
+        var out: [(title: String, short: String, due: Date, hasTime: Bool)] = [("In an hour", "1 hour", now.addingTimeInterval(3600), true)]
+        if cal.component(.hour, from: now) < 18 { out.append(("This evening, 7 PM", "Evening", at(19, dayOffset: 0), true)) }
+        out.append(("Tomorrow, 9 AM", "Tomorrow", at(9, dayOffset: 1), true))
+        let toMonday = (9 - cal.component(.weekday, from: now)) % 7
+        out.append(("Next week, Monday 9 AM", "Next week", at(9, dayOffset: toMonday == 0 ? 7 : toMonday), true))
+        return out
+    }
+
+    /// Moves a task to a later time, with Undo back to its time before.
+    private func later(_ t: TaskItem, to due: Date, hasTime: Bool, title: String) {
+        let before = (due: t.due, hasTime: t.hasTime)
+        tasks.setDue(t.id, due, hasTime: hasTime)
+        say("Moved · \(title)") { tasks.setDue(t.id, before.due, hasTime: before.hasTime) }
+    }
+
+    private func quickIcon(_ symbol: String, _ help: String, tint: Color = Color(hex: "#C5C8CD"), fill: Color = Color.white.opacity(0.08),
+                           _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundColor(tint)
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(fill))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).pointer().help(help)
+    }
+
+    private func copy(_ string: String, what: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+        say("\(what) copied", undo: nil)
     }
 
     private func complete(_ t: TaskItem) {
@@ -1410,6 +1496,15 @@ struct AgendaView: View {
         .background(Capsule().fill(Color(hex: "#24262B")))
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
         .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
+    }
+}
+/// A row under the pointer: a soft shadow and a hair of scale, so it reads as the one you act on.
+private struct RowLift: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: .black.opacity(on ? 0.35 : 0), radius: on ? 8 : 0, y: on ? 3 : 0)
+            .scaleEffect(on ? 1.006 : 1)
     }
 }
 #endif

@@ -168,6 +168,9 @@ enum KeepDebug {
     nonisolated(unsafe) static var agendaOpen: String?
     /// Settings → Agenda → Composer's snapshot: a template's editor open ("" a new one, "help" with a bad name).
     nonisolated(unsafe) static var composerEditing: String?
+    /// The Agenda's snapshot: the row shown hovered ("t2", "e3"…).
+    nonisolated(unsafe) static var agendaHover: String?
+    nonisolated(unsafe) static var agendaLater: String?
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }
