@@ -959,9 +959,17 @@ final class IslandWindowController: NSWindowController {
         }
     }
 
-    /// The pointer is over the island's panel (the area around the notch the island draws in).
+    /// The pointer is over the island itself.
     private func pointerOverIsland() -> Bool {
-        islandPanel.frame.contains(NSEvent.mouseLocation)
+        islandRectOnScreen().insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation)
+    }
+
+    /// The island as drawn now, in screen points. Not the panel's frame: the panel is much larger
+    /// than the island (room for its widest card), and a click in its empty part is outside.
+    private func islandRectOnScreen() -> CGRect {
+        let (w, h) = islandSize(mode: state.mode, view: state.view, nw: notchW, nh: notchH)
+        let height = state.mode == .expanded && state.view == .prompt ? ChatLayout.height : h
+        return Self.islandScreenRect(size: CGSize(width: w, height: height))
     }
 
     @discardableResult
@@ -1187,7 +1195,7 @@ final class IslandWindowController: NSWindowController {
             guard let self, IslandClickOutside.enabled, self.state.mode == .expanded,
                   self.state.pendingApproval == nil, self.state.pendingQuestion == nil,
                   !self.voiceHoldsOpen,
-                  self.window?.frame.contains(NSEvent.mouseLocation) == false else { return }
+                  !self.islandRectOnScreen().contains(NSEvent.mouseLocation) else { return }
             if self.alertCardShowing {
                 appendAppLog("nb.log", "[Notch] card kept: click elsewhere")
                 return

@@ -216,7 +216,8 @@ struct IslandContainer: View {
                 .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive || briefActive || peekActive)
             }
 
-            CountdownBar(state: state, islandW: islandWidth)
+            // coucou-custom fork: no countdown line before the notch closes by itself (it read as a
+            // loader); the notch still closes after Settings → General → Close after.
 
             // Under the island while the pointer is on Mochi: how the Mac is doing.
             VitalsHoverLine(islandW: islandWidth, islandH: islandHeight)
