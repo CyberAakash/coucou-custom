@@ -14,6 +14,8 @@ struct ClipboardView: View {
     @ObservedObject private var store = ClipboardStore.shared
     @ObservedObject private var settings = ClipboardSettings.shared
     @StateObject private var toast = KeepToastModel()
+    /// ⌘click: more than one card chosen (the selection bar acts on all of them).
+    @State private var multi: Set<UUID> = []
     /// The card under the pointer while it is dragged, and how far it has gone.
     @State private var dragging: (id: UUID, offset: CGSize)?
     /// The page's frame in the window: a drag that ends outside it has left the notch.
@@ -58,8 +60,12 @@ struct ClipboardView: View {
                     carousel
                 }
                 Spacer(minLength: 0)
-                KeepHints(hints: [("↩", settings.enterPastes ? "Paste" : "Copy"), ("⌘↩", "Copy"), ("⌘.", "Pin"), ("⌫", "Delete")]
-                          + (settings.dragOut == .none ? [] : [("Drag out", settings.dragOut.short)]), trailing: trailingHint)
+                if multi.count > 1 {
+                    KeepSelectionBar(count: multi.count, actions: bulkActions) { multi = [] }
+                } else {
+                    KeepHints(hints: [("↩", settings.enterPastes ? "Paste" : "Copy"), ("⌘↩", "Copy"), ("⌘.", "Pin"), ("⌫", "Delete"), ("⌘click", "Select more")]
+                              + (settings.dragOut == .none ? [] : [("Drag out", settings.dragOut.short)]), trailing: trailingHint)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -80,6 +86,9 @@ struct ClipboardView: View {
             if on { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { searching = true } } else { query = ""; filterOpen = false }
         }
         .onAppear {
+            #if DEBUG
+            if KeepDebug.selectFirstThree { multi = Set(visible.prefix(3).map(\.id)) }
+            #endif
             if active { searching = true }
             if KeepDebug.filterOpen { filterOpen = true }
         }
@@ -177,9 +186,12 @@ struct ClipboardView: View {
 
     private func card(_ item: ClipItem, width: CGFloat?, height: CGFloat, previewHeight: CGFloat) -> some View {
         KeepCard(name: title(item), detail: "\(item.appName) · \(KeepBucket.ago(item.at))", badge: badge(item), badgeTint: tint(item),
-                 pinned: item.pinned, selected: store.selected == item.id, width: width, height: height,
-                 onTap: { store.selected = item.id },
-                 onDoubleTap: { primary(item) }) {
+                 pinned: item.pinned, selected: store.selected == item.id || multi.contains(item.id), width: width, height: height,
+                 onTap: { multi = []; store.selected = item.id },
+                 onDoubleTap: { primary(item) },
+                 onCommandTap: { toggleMulti(item) },
+                 quickActions: quickActions(item),
+                 checked: multi.count > 1 && multi.contains(item.id)) {
             ClipPreview(item: item, height: previewHeight)
         }
         .contextMenu { ClipContextMenu(item: item, state: state, toast: toast) }
@@ -225,6 +237,35 @@ struct ClipboardView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: cardsHeight)
+    }
+
+    private func toggleMulti(_ item: ClipItem) {
+        // The card already chosen joins the selection it starts.
+        if multi.isEmpty, let current = store.selected { multi.insert(current) }
+        if multi.contains(item.id) { multi.remove(item.id) } else { multi.insert(item.id) }
+        store.selected = item.id
+    }
+
+    /// The icons on a card under the pointer.
+    private func quickActions(_ item: ClipItem) -> [KeepQuickAction] {
+        [KeepQuickAction(symbol: "doc.on.doc", help: "Copy") { store.copy(item); toast.say("Copied") },
+         KeepQuickAction(symbol: item.pinned ? "pin.slash" : "pin", help: item.pinned ? "Unpin" : "Pin") { store.togglePin(item.id) },
+         KeepQuickAction(symbol: "tray.and.arrow.down", help: "Put on the shelf") { store.putOnShelf(item); toast.say("On the shelf") },
+         KeepQuickAction(symbol: "trash", help: "Delete", destructive: true) { store.delete(item.id); toast.say("Deleted") }]
+    }
+
+    /// What the selection bar does to every selected item.
+    private var bulkActions: [KeepQuickAction] {
+        let items = store.items.filter { multi.contains($0.id) }
+        return [KeepQuickAction(symbol: "doc.on.doc", help: "Copy all") {
+                    let n = store.copyText(items)
+                    toast.say(n == 0 ? "Only text can be copied together" : "\(n) copied as one text")
+                },
+                KeepQuickAction(symbol: "pin", help: "Pin") { items.filter { !$0.pinned }.forEach { store.togglePin($0.id) } },
+                KeepQuickAction(symbol: "tray.and.arrow.down", help: "To shelf") { items.forEach(store.putOnShelf); toast.say("\(items.count) on the shelf") },
+                KeepQuickAction(symbol: "trash", help: "Delete", destructive: true) {
+                    items.forEach { store.delete($0.id) }; multi = []; toast.say("\(items.count) deleted")
+                }]
     }
 
     private var trailingHint: String {
@@ -287,7 +328,15 @@ struct ClipboardView: View {
             if press.modifiers.contains(.command) { store.copy(item); toast.say("Copied") } else { primary(item) }
             return .handled
         case .delete:
-            guard query.isEmpty, let item else { return .ignored }
+            guard query.isEmpty else { return .ignored }
+            if multi.count > 1 {
+                let n = multi.count
+                multi.forEach(store.delete)
+                multi = []
+                toast.say("\(n) deleted")
+                return .handled
+            }
+            guard let item else { return .ignored }
             store.delete(item.id); toast.say("Deleted")
             return .handled
         case .escape:

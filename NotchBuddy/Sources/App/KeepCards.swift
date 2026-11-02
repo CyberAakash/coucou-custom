@@ -159,6 +159,9 @@ enum KeepDebug {
     #if DEBUG
     /// The Tasks page's snapshot: text typed in its composer.
     nonisolated(unsafe) static var tasksComposerText: String?
+    /// Snapshots: every card shows its hover icons; the first three cards are selected.
+    nonisolated(unsafe) static var forceHover = false
+    nonisolated(unsafe) static var selectFirstThree = false
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }
@@ -196,14 +199,47 @@ struct KeepCard<Preview: View>: View {
     var onTap: () -> Void = {}
     var onDoubleTap: () -> Void = {}
     var onCommandTap: () -> Void = {}
+    /// Icons shown over the card's top right while the pointer is on it (coucou-custom fork).
+    var quickActions: [KeepQuickAction] = []
+    /// Part of a multi-selection: a check mark on its top left.
+    var checked = false
     @ViewBuilder var preview: () -> Preview
     @State private var hovered = false
+
+    private var debugHover: Bool {
+        #if DEBUG
+        return KeepDebug.forceHover
+        #else
+        return false
+        #endif
+    }
 
     var body: some View {
         Button(action: onTap) { face }
             .buttonStyle(KeepCardPress(selected: selected, hovered: hovered))
             .simultaneousGesture(TapGesture(count: 2).onEnded { onDoubleTap() })
             .simultaneousGesture(TapGesture().modifiers(.command).onEnded { onCommandTap() })
+            // Over the button, not inside it: a button inside a button's label never gets the click.
+            .overlay(alignment: .topTrailing) {
+                if (hovered || debugHover) && !quickActions.isEmpty {
+                    HStack(spacing: 3) {
+                        ForEach(quickActions) { KeepQuickActionButton(action: $0) }
+                    }
+                    .padding(10)
+                    .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                // In the badge's place, unless the hover icons are showing.
+                if checked && !((hovered || debugHover) && !quickActions.isEmpty) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(Color(hex: "#0B0C0E"), Color(hex: "#22D3EE"))
+                        .padding(11)
+                        .allowsHitTesting(false)
+                }
+            }
             .onHover { hovered = $0 }
             .animation(.easeOut(duration: 0.15), value: hovered)
             .animation(.easeOut(duration: 0.15), value: selected)
@@ -223,6 +259,8 @@ struct KeepCard<Preview: View>: View {
                     .frame(height: 13)
                     .background(Capsule().fill((badgeTint ?? .black).opacity(badgeTint == nil ? 0.65 : 0.2)))
                     .padding(4)
+                    // The hover icons and the check mark take its place.
+                    .opacity(((hovered || debugHover) && !quickActions.isEmpty) || checked ? 0 : 1)
                 if pinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 8, weight: .bold))
@@ -247,6 +285,65 @@ struct KeepCard<Preview: View>: View {
         .frame(width: width, height: height, alignment: .topLeading)
         .frame(maxWidth: width == nil ? .infinity : nil)
         .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// One hover icon on a card: what it does, its tooltip, red when it removes.
+struct KeepQuickAction: Identifiable {
+    let id = UUID()
+    let symbol: String
+    let help: String
+    var destructive = false
+    let run: () -> Void
+}
+
+struct KeepQuickActionButton: View {
+    let action: KeepQuickAction
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action.run) {
+            Image(systemName: action.symbol)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(action.destructive ? Color(hex: "#FF6B6B") : Color(hex: "#F5F6F8"))
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.black.opacity(hovered ? 0.9 : 0.72)))
+                .overlay(Circle().strokeBorder(Color.white.opacity(hovered ? 0.25 : 0.1)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain).pointer()
+        .help(action.help)
+        .onHover { hovered = $0 }
+    }
+}
+
+/// Two or more cards chosen: the hint row becomes their count, what to do with all of them, and Clear.
+struct KeepSelectionBar: View {
+    let count: Int
+    let actions: [KeepQuickAction]
+    let clear: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("\(count) selected").font(.system(size: 10.5, weight: .bold)).foregroundColor(Color(hex: "#67E8F9"))
+            ForEach(actions) { a in
+                Button(action: a.run) {
+                    HStack(spacing: 4) {
+                        Image(systemName: a.symbol).font(.system(size: 9, weight: .bold))
+                        Text(a.help).font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(a.destructive ? Color(hex: "#FF6B6B") : Color(hex: "#E1E3E6"))
+                    .padding(.horizontal, 8).frame(height: 20)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                }
+                .buttonStyle(.plain).pointer()
+            }
+            Spacer(minLength: 4)
+            Button("Clear", action: clear).buttonStyle(.plain).pointer()
+                .font(.system(size: 10, weight: .semibold)).foregroundColor(Color(hex: "#8E939C"))
+            Text("⌘click adds or removes").font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
+        }
+        .frame(height: 20)
     }
 }
 
