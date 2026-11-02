@@ -181,6 +181,11 @@ enum CalendarComposer {
     private static let lengthPattern = try? NSRegularExpression(
         pattern: "\\bfor (\\d{1,3}(?:[.,]\\d)?)\\s*(minutes?|mins?|m|hours?|hrs?|h)\\b", options: [.caseInsensitive])
 
+    /// Where "for 30 min" sits in a line, for the Details panel to change it.
+    static func lengthRange(in text: String) -> Range<String.Index>? {
+        lengthPattern?.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)).flatMap { Range($0.range, in: text) }
+    }
+
     static func parse(_ text: String, calendars: [(id: String, title: String)], now: Date = .now,
                       readDate: Bool = true, readTag: Bool = true) -> ParsedEvent {
         var line = text
@@ -326,6 +331,8 @@ struct AgendaExtras: Equatable {
     private static let repeatPattern = regex(
         "\\b(?:every\\s+(?:(other)\\s+|(\\d{1,2})\\s+)?(days?|weeks?|months?|years?|weekdays?|weekends?|(?:\(weekdayAlternation))(?:\\s*(?:,|and|&)\\s*(?:\(weekdayAlternation)))*)(?:\\s+on\\s+(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?)?|(daily|weekly|monthly|yearly|annually))\\b")
     private static let untilPattern = regex("\\buntil\\s+(.+)$")
+    /// "every 2 weeks" followed by " on mon and thu".
+    private static let onDaysPattern = regex("^\\s+on\\s+((?:\(weekdayAlternation))(?:\\s*(?:,|and|&)\\s*(?:\(weekdayAlternation)))*)\\b")
     private static let countPattern = regex("\\b(?:for\\s+)?(\\d{1,3})\\s*times\\b")
     private static let placePattern = regex("(?<!\\S)@(\\S.*?)(?=\\s+(?:#|!|//|/[a-z]|alerts?\\b|every\\b|until\\b|daily\\b|weekly\\b|monthly\\b|yearly\\b|https?://)|$)")
     private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
@@ -390,7 +397,16 @@ struct AgendaExtras: Equatable {
                 }
                 if let d = group(m, 4).flatMap(Int.init), (1...31).contains(d) { r.dayOfMonth = d; if r.frequency != .monthly { r.dayOfMonth = nil } }
             }
-            x.ranges[.repeating] = m.range; blank(m.range)
+            var span = m.range
+            if r.frequency == .weekly, r.weekdays.isEmpty, let onDaysPattern {
+                let after = NSRange(location: m.range.location + m.range.length, length: masked.length - m.range.location - m.range.length)
+                if let on = onDaysPattern.firstMatch(in: masked as String, options: .anchored, range: after) {
+                    let words = masked.substring(with: on.range(at: 1)).lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+                    r.weekdays = Array(Set(words.compactMap { w in weekdayWords.first { $0.0 == w }?.1 })).sorted()
+                    span = NSUnionRange(span, on.range)
+                }
+            }
+            x.ranges[.repeating] = span; blank(span)
             // When it stops: "until <a date>" or "10 times".
             if let u = first(untilPattern), let detector {
                 let phrase = masked.substring(with: u.range(at: 1))
@@ -429,6 +445,79 @@ struct AgendaExtras: Equatable {
     static func same(_ r: Range<String.Index>?, from masked: String, in original: String) -> Range<String.Index>? {
         guard let r else { return nil }
         return Range(NSRange(r, in: masked), in: original)
+    }
+}
+
+// MARK: - Writing a piece back into the line (the Details panel)
+//
+// The Details panel edits the line itself, so the line stays the one truth: each control puts
+// the words for its piece in that piece's place (or removes them), in a form `read` and the
+// date reader take back exactly.
+
+enum AgendaLine {
+    private static let words = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
+    /// `phrase` in `range` of `line` (nil `phrase` removes it); with no range, added before the
+    /// note (which runs to the end) or at the end.
+    static func put(_ phrase: String?, at range: Range<String.Index>?, in line: String, before note: Range<String.Index>?) -> String {
+        var t = line
+        if let range {
+            t.replaceSubrange(range, with: phrase.map { " \($0) " } ?? " ")
+        } else if let phrase {
+            if let note { t.insert(contentsOf: phrase + " ", at: note.lowerBound) } else { t += " " + phrase }
+        }
+        return t.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// "5 nov 2026" or "5 nov 2026 7:00am": what the date reader takes back as that day and time.
+    static func date(_ date: Date, hasTime: Bool) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        var out = "\(c.day ?? 1) \(months[(c.month ?? 1) - 1]) \(c.year ?? 2026)"
+        if hasTime, let h = c.hour, let m = c.minute {
+            out += " \(h % 12 == 0 ? 12 : h % 12):\(String(format: "%02d", m))\(h < 12 ? "am" : "pm")"
+        }
+        return out
+    }
+
+    /// "for 45m", "for 2h", "for 90m".
+    static func length(minutes: Int) -> String {
+        minutes % 60 == 0 ? "for \(minutes / 60)h" : "for \(minutes)m"
+    }
+
+    static func alerts(_ offsets: [TimeInterval]) -> String? {
+        guard !offsets.isEmpty else { return nil }
+        return "alert " + offsets.sorted().map { s in
+            let m = Int(s / 60)
+            if m == 0 { return "at the time" }
+            if m % 1440 == 0 { return "\(m / 1440)d" }
+            if m % 60 == 0 { return "\(m / 60)h" }
+            return "\(m)m"
+        }.joined(separator: ", ")
+    }
+
+    static func priority(_ n: Int) -> String? { n > 0 ? String(repeating: "!", count: min(3, n)) : nil }
+
+    /// The repeat as words `read` takes back to the same rule.
+    static func repeating(_ r: AgendaRepeat?) -> String? {
+        guard let r else { return nil }
+        let days = r.weekdays.map { words[$0 - 1] }.joined(separator: " and ")
+        var out: String
+        switch r.frequency {
+        case .daily: out = r.interval == 1 ? "every day" : (r.interval == 2 ? "every other day" : "every \(r.interval) days")
+        case .weekly:
+            if r.weekdays == [2, 3, 4, 5, 6] && r.interval == 1 { out = "every weekday" }
+            else if r.weekdays == [1, 7] && r.interval == 1 { out = "every weekend" }
+            else if r.weekdays.isEmpty { out = r.interval == 1 ? "every week" : (r.interval == 2 ? "every other week" : "every \(r.interval) weeks") }
+            else { out = r.interval == 1 ? "every \(days)" : "every \(r.interval) weeks on \(days)" }
+        case .monthly:
+            out = r.interval == 1 ? "every month" : (r.interval == 2 ? "every other month" : "every \(r.interval) months")
+            if let d = r.dayOfMonth { out += " on \(AgendaExtras.ordinal(d))" }
+        case .yearly: out = r.interval == 1 ? "every year" : (r.interval == 2 ? "every other year" : "every \(r.interval) years")
+        }
+        if let until = r.until { out += " until " + date(until, hasTime: false) }
+        else if let count = r.count { out += " \(count) times" }
+        return out
     }
 }
 
