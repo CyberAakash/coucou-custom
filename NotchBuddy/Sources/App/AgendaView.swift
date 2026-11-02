@@ -58,6 +58,7 @@ struct AgendaView: View {
     @State private var menuRow = 0
     @State private var menuClosed = false
     @State private var helpOpen = false
+    @State private var detailsOpen = false
     /// A chip's ×: that piece stays plain title text for this line.
     @State private var skipDate = false
     @State private var skipTag = false
@@ -110,6 +111,24 @@ struct AgendaView: View {
             appendAppLog("nb.log", "[Agenda] submit '\(text)' as \(kind)")
             add()
         }
+        // `debug.agendaDetail` "name": what a Details control does, by name (the clicks a terminal can't make).
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDetail"))) { note in
+            let x = extras
+            switch note.object as? String ?? "" {
+            case "weekly": set(AgendaLine.repeating(AgendaRepeat(frequency: .weekly)), at: range(of: .repeating))
+            case "thu": var r = x.repeating ?? AgendaRepeat(frequency: .weekly); r.weekdays = (r.weekdays + [5]).sorted(); set(AgendaLine.repeating(r), at: range(of: .repeating))
+            case "never": set(nil, at: range(of: .repeating))
+            case "until": var r = x.repeating ?? AgendaRepeat(frequency: .weekly); r.until = Calendar.current.date(from: DateComponents(year: 2027, month: 3, day: 1)); set(AgendaLine.repeating(r), at: range(of: .repeating))
+            case "alert": set(AgendaLine.alerts(x.alerts + [600]), at: range(of: .alerts))
+            case "priority": set(AgendaLine.priority(3), at: range(of: .priority))
+            case "place": set("@Office 2", at: range(of: .place))
+            case "note": text = withCommand(AgendaLine.put("// call first", at: range(of: .note), in: command.rest, before: nil))
+            case "group": if let g = groups.last { set("#" + (TaskComposer.tag(for: g.id, in: groups) ?? ""), at: pieces.tag) }
+            case "date": set(AgendaLine.date(Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 20, hour: 16, minute: 30))!, hasTime: true), at: pieces.date)
+            case "allday": if let d = parsedTask.due { set(AgendaLine.date(d, hasTime: false), at: pieces.date) }
+            default: break
+            }
+        }
         // `debug.agendaDeleteTask` "title": deletes the open tasks with exactly that title (a key test's leftover).
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDeleteTask"))) { note in
             guard let title = note.object as? String, !title.isEmpty else { return }
@@ -143,6 +162,7 @@ struct AgendaView: View {
             DispatchQueue.main.async {
                 switch KeepDebug.agendaOpen {
                 case "help"?: helpOpen = true
+                case "details"?, "edetails"?: detailsOpen = true
                 case "when"?: menuSource = .chip(.when)
                 case "repeat"?: menuSource = .chip(.repeating)
                 case "group"?: menuSource = .groupChip
@@ -203,12 +223,16 @@ struct AgendaView: View {
 
     private var page: some View {
         VStack(alignment: .leading, spacing: 7) {
-            weekStrip
-            dayHeader
+            // Details takes the whole page while open: it shows every piece the chips would.
+            if !detailsOpen {
+                weekStrip
+                dayHeader
+            }
             missingAccess
             ZStack(alignment: .top) {
                 list
                 if helpOpen { help.transition(.opacity) }
+                if detailsOpen { details.transition(.opacity) }
                 // The menu sits on the list's bottom edge, right above the composer, whatever
                 // the composer's height (one or two rows of chips).
                 if let items = menuItems, !items.isEmpty {
@@ -218,6 +242,7 @@ struct AgendaView: View {
                 }
             }
             .animation(.easeOut(duration: 0.15), value: helpOpen)
+            .animation(.easeOut(duration: 0.15), value: detailsOpen)
             composer
         }
     }
@@ -667,7 +692,7 @@ struct AgendaView: View {
         let ready = k == .task ? !t.title.isEmpty : (!e.title.isEmpty && e.start != nil)
         let typing = !text.trimmingCharacters(in: .whitespaces).isEmpty
         return VStack(alignment: .leading, spacing: 5) {
-            if typing {
+            if typing && !detailsOpen {
                 // Wraps to a second row when a line has many pieces, so none is hidden.
                 ChipFlowLayout(spacing: 6) {
                     Text(ready ? "Will add" : (k == .event ? "Add a day or a time" : "Type a task")).font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
@@ -693,7 +718,11 @@ struct AgendaView: View {
                     .focusEffectDisabled()   // the capsule's border already shows focus
                     .focused($composing)
                     .onSubmit(add)
-                    .onKeyPress(keys: [.upArrow, .downArrow, .return, .tab]) { press in key(press.key) }
+                    .onKeyPress(keys: [.upArrow, .downArrow, .return, .tab]) { press in
+                        // ⌘Return opens or closes Details; the rest is the menu's or Tab's.
+                        if press.key == .return, press.modifiers.contains(.command) { openDetails(!detailsOpen); return .handled }
+                        return key(press.key)
+                    }
                     .onExitCommand(perform: escape)
                     .onChange(of: text) { _, new in
                         menuClosed = false
@@ -702,7 +731,14 @@ struct AgendaView: View {
                         if new == "?" { text = ""; helpOpen = true }
                         if new.isEmpty { kindOverride = nil; skipDate = false; skipTag = false; skipPieces = []; menuSource = nil }
                     }
-                Button { helpOpen.toggle() } label: {
+                Button { openDetails(!detailsOpen) } label: {
+                    Image(systemName: "slider.horizontal.3").font(.system(size: 10, weight: .bold))
+                        .foregroundColor(detailsOpen ? Color(hex: "#04161A") : Color(hex: "#8E939C"))
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(detailsOpen ? Color(hex: "#22D3EE") : Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain).pointer().help("Details: repeat, alerts, place, note (⌘Return)")
+                Button { helpOpen.toggle(); if helpOpen { detailsOpen = false } } label: {
                     Text("?").font(.system(size: 11, weight: .heavy)).foregroundColor(helpOpen ? Color(hex: "#04161A") : Color(hex: "#8E939C"))
                         .frame(width: 20, height: 20)
                         .background(Circle().fill(helpOpen ? Color(hex: "#22D3EE") : Color.white.opacity(0.08)))
@@ -728,7 +764,7 @@ struct AgendaView: View {
 
     /// The menu now: a chip's or /at's choices, else what the word being typed asks for.
     private var menuItems: [AgendaSuggestion]? {
-        guard !helpOpen else { return nil }
+        guard !helpOpen, !detailsOpen else { return nil }
         switch menuSource {
         case .slash(let set)?, .chip(let set)?: return AgendaSuggest.choices(set)
         case .groupChip?: return AgendaSuggest.menu(for: "#", groups: groups, groupKind: kind == .task ? "list" : "calendar")
@@ -755,6 +791,7 @@ struct AgendaView: View {
     /// Escape closes the help, then the menu; with neither open the notch closes as anywhere else.
     private func escape() {
         if helpOpen { helpOpen = false; return }
+        if detailsOpen { detailsOpen = false; composing = true; return }
         if menuSource != nil { menuSource = nil; return }
         if let items = menuItems, !items.isEmpty { menuClosed = true; return }
         NotificationCenter.default.post(name: .islandCollapse, object: nil)
@@ -933,6 +970,251 @@ struct AgendaView: View {
         .background(Capsule().fill(accent ? Color(hex: "#22D3EE").opacity(0.14) : Color.white.opacity(0.06)))
     }
 
+    // MARK: Details
+
+    private func openDetails(_ open: Bool) {
+        detailsOpen = open
+        if open { helpOpen = false; menuSource = nil }
+        composing = true
+    }
+
+    /// One piece of the line set from Details: its words in its place, or removed.
+    private func set(_ phrase: String?, at range: Range<String.Index>?) {
+        text = withCommand(AgendaLine.put(phrase, at: range, in: command.rest, before: self.range(of: .note)))
+    }
+
+    private var details: some View {
+        let k = kind
+        let x = extras
+        let t = parsedTask, e = parsedEvent
+        let date = k == .task ? t.due : e.start
+        let timed = k == .task ? t.hasTime : (e.start != nil && !e.allDay)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Details").font(.system(size: 13, weight: .bold))
+                Text("They write the line below, and the line writes them.").font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C"))
+                Spacer(minLength: 0)
+                Button { openDetails(false) } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundColor(Color(hex: "#8E939C"))
+                        .frame(width: 20, height: 20).background(Circle().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain).pointer().help("Close (Esc or ⌘Return)")
+            }
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 7) {
+                    if tasksOn && eventsOn { detailRow("Kind") { kindSwitch(k) } }
+                    detailRow("When") { whenControls(date: date, timed: timed, k: k, e: e) }
+                    detailRow("Repeat") { repeatControls(x.repeating, hasDate: date != nil) }
+                    if let r = x.repeating { detailRow("Ends") { endControls(r) } }
+                    detailRow("Alerts") { alertControls(x.alerts) }
+                    detailRow(k == .task ? "List" : "Calendar") { groupControl(k, t: t, e: e) }
+                    if k == .task {
+                        detailRow("Priority") {
+                            segments(["None", "Low", "Medium", "High"], selected: x.priority) { set(AgendaLine.priority($0), at: range(of: .priority)) }
+                        }
+                    }
+                    detailRow("Place") {
+                        detailField("A place", value: x.place ?? "") { set($0.isEmpty ? nil : "@" + $0, at: range(of: .place)) }
+                    }
+                    detailRow("Note") {
+                        detailField("A note, or paste a link", value: x.note ?? "") { new in
+                            // The note runs to the end of the line: added there, never before another piece.
+                            text = withCommand(AgendaLine.put(new.isEmpty ? nil : "// " + new, at: range(of: .note), in: command.rest, before: nil))
+                        }
+                    }
+                }
+                .padding(.bottom, 4)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: "#141518")))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+    }
+
+    private func detailRow<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(label).font(.system(size: 10.5, weight: .bold)).foregroundColor(Color(hex: "#8E939C"))
+                .frame(width: 58, height: 24, alignment: .leading)
+            content()
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 24)
+    }
+
+    @ViewBuilder
+    private func whenControls(date: Date?, timed: Bool, k: AgendaKind, e: ParsedEvent) -> some View {
+        if let date {
+            DatePicker("", selection: Binding(get: { date }, set: { set(AgendaLine.date($0, hasTime: timed), at: pieces.date) }),
+                       displayedComponents: timed ? [.date, .hourAndMinute] : [.date])
+                .labelsHidden().datePickerStyle(.field).fixedSize()
+            Toggle("All day", isOn: Binding(get: { !timed }, set: { allDay in
+                let base = allDay ? date : (Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: date) ?? date)
+                set(AgendaLine.date(base, hasTime: !allDay), at: pieces.date)
+            }))
+            .toggleStyle(.checkbox).font(.system(size: 11))
+            if k == .event, timed, let start = e.start, let end = e.end {
+                let minutes = Int(end.timeIntervalSince(start) / 60)
+                Picker("", selection: Binding(get: { minutes }, set: { set(AgendaLine.length(minutes: $0), at: CalendarComposer.lengthRange(in: command.rest)) })) {
+                    ForEach(Array(Set([15, 30, 45, 60, 90, 120, minutes])).sorted(), id: \.self) { m in
+                        Text(m % 60 == 0 ? "for \(m / 60) h" : (m > 60 ? "for \(m / 60) h \(m % 60) min" : "for \(m) min")).tag(m)
+                    }
+                }
+                .labelsHidden().fixedSize()
+            }
+            Button("Clear") { set(nil, at: pieces.date) }.buttonStyle(.plain).pointer()
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(Color(hex: "#8E939C"))
+        } else {
+            Button("Add a day and time") {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: .now)) ?? .now
+                set(AgendaLine.date(Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) ?? tomorrow, hasTime: true), at: nil)
+            }
+            .buttonStyle(HubButtonStyle())
+        }
+    }
+
+    @ViewBuilder
+    private func repeatControls(_ r: AgendaRepeat?, hasDate: Bool) -> some View {
+        let options = ["Never", "Daily", "Weekdays", "Weekly", "Monthly", "Yearly"]
+        let current: Int = {
+            guard let r else { return 0 }
+            switch r.frequency {
+            case .daily: return 1
+            case .weekly: return r.weekdays == [2, 3, 4, 5, 6] && r.interval == 1 ? 2 : 3
+            case .monthly: return 4
+            case .yearly: return 5
+            }
+        }()
+        VStack(alignment: .leading, spacing: 6) {
+            segments(options, selected: current) { i in
+                var new: AgendaRepeat? = [nil, AgendaRepeat(frequency: .daily), AgendaRepeat(frequency: .weekly, weekdays: [2, 3, 4, 5, 6]),
+                                          AgendaRepeat(frequency: .weekly), AgendaRepeat(frequency: .monthly), AgendaRepeat(frequency: .yearly)][i]
+                new?.until = r?.until
+                new?.count = r?.count
+                set(AgendaLine.repeating(new), at: range(of: .repeating))
+            }
+            if let r, r.frequency != .weekly || !(r.weekdays == [2, 3, 4, 5, 6] && r.interval == 1) {
+                HStack(spacing: 6) {
+                    Stepper(value: Binding(get: { r.interval }, set: { n in var c = r; c.interval = max(1, n); set(AgendaLine.repeating(c), at: range(of: .repeating)) }), in: 1...99) {
+                        Text(r.interval == 1 ? "Every \(unit(r))" : "Every \(r.interval) \(unit(r))").font(.system(size: 11))
+                    }
+                    .fixedSize()
+                    if r.frequency == .weekly {
+                        ForEach(1...7, id: \.self) { d in
+                            let on = r.weekdays.contains(d)
+                            Button {
+                                var c = r
+                                c.weekdays = on ? c.weekdays.filter { $0 != d } : (c.weekdays + [d]).sorted()
+                                set(AgendaLine.repeating(c), at: range(of: .repeating))
+                            } label: {
+                                Text(Calendar.current.veryShortWeekdaySymbols[d - 1]).font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(on ? Color(hex: "#04161A") : Color(hex: "#8E939C"))
+                                    .frame(width: 22, height: 22)
+                                    .background(Circle().fill(on ? Color(hex: "#22D3EE") : Color.white.opacity(0.06)))
+                            }
+                            .buttonStyle(.plain).pointer()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func unit(_ r: AgendaRepeat) -> String {
+        let one = r.interval == 1
+        switch r.frequency {
+        case .daily: return one ? "day" : "days"
+        case .weekly: return one ? "week" : "weeks"
+        case .monthly: return one ? "month" : "months"
+        case .yearly: return one ? "year" : "years"
+        }
+    }
+
+    @ViewBuilder
+    private func endControls(_ r: AgendaRepeat) -> some View {
+        let mode = r.until != nil ? 1 : (r.count != nil ? 2 : 0)
+        segments(["Never", "On a day", "After"], selected: mode) { i in
+            var c = r
+            c.until = i == 1 ? (Calendar.current.date(byAdding: .month, value: 1, to: Calendar.current.startOfDay(for: .now))) : nil
+            c.count = i == 2 ? 10 : nil
+            set(AgendaLine.repeating(c), at: range(of: .repeating))
+        }
+        if let until = r.until {
+            DatePicker("", selection: Binding(get: { until }, set: { d in var c = r; c.until = Calendar.current.startOfDay(for: d); set(AgendaLine.repeating(c), at: range(of: .repeating)) }),
+                       displayedComponents: [.date])
+                .labelsHidden().datePickerStyle(.field).fixedSize()
+        }
+        if let count = r.count {
+            Stepper(value: Binding(get: { count }, set: { n in var c = r; c.count = max(1, n); set(AgendaLine.repeating(c), at: range(of: .repeating)) }), in: 1...999) {
+                Text("\(count) times").font(.system(size: 11))
+            }
+            .fixedSize()
+        }
+    }
+
+    @ViewBuilder
+    private func alertControls(_ alerts: [TimeInterval]) -> some View {
+        ForEach(alerts, id: \.self) { a in
+            chipButton(AgendaExtras.alertLabel(a), accent: true, color: nil, undo: {
+                set(AgendaLine.alerts(alerts.filter { $0 != a }), at: range(of: .alerts))
+            }) {}
+        }
+        Menu {
+            ForEach(AgendaSuggest.alerts) { choice in
+                if case .insert(let words) = choice.action, let offset = AgendaExtras.read("x " + words).extras.alerts.first, !alerts.contains(offset) {
+                    Button(choice.title) { set(AgendaLine.alerts(alerts + [offset]), at: range(of: .alerts)) }
+                }
+            }
+        } label: {
+            Text("+ Alert").font(.system(size: 11, weight: .semibold))
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+    }
+
+    @ViewBuilder
+    private func groupControl(_ k: AgendaKind, t: ParsedTask, e: ParsedEvent) -> some View {
+        let current = k == .task ? (t.listID ?? tasks.newTaskList?.id) : (e.calendarID ?? calendar.newEventCalendar?.id)
+        Menu {
+            ForEach(groups, id: \.id) { g in
+                Button {
+                    set("#" + (TaskComposer.tag(for: g.id, in: groups) ?? TaskComposer.key(g.title)), at: pieces.tag)
+                } label: {
+                    if g.id == current { Label(g.title, systemImage: "checkmark") } else { Text(g.title) }
+                }
+            }
+        } label: {
+            Text(groups.first { $0.id == current }?.title ?? "Choose").font(.system(size: 11, weight: .semibold))
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+    }
+
+    /// A row of choices like the Task / Event switch.
+    private func segments(_ options: [String], selected: Int, _ pick: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { i, option in
+                Button { pick(i) } label: {
+                    Text(option).font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(i == selected ? Color(hex: "#F5F6F8") : Color(hex: "#8E939C"))
+                        .padding(.horizontal, 9).frame(height: 20)
+                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(i == selected ? Color.white.opacity(0.12) : .clear))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).pointer()
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.3)))
+    }
+
+    private func detailField(_ placeholder: String, value: String, _ change: @escaping (String) -> Void) -> some View {
+        TextField(placeholder, text: Binding(get: { value }, set: change))
+            .textFieldStyle(.plain).font(.system(size: 11.5))
+            .focusEffectDisabled()
+            .padding(.horizontal, 8).frame(height: 22).frame(maxWidth: 320)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(hex: "#1F2024")))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+    }
+
     // MARK: Help
 
     private var help: some View {
@@ -996,7 +1278,7 @@ struct AgendaView: View {
                 .frame(width: 184)
             }
             }
-            Text("↑↓ and Return pick from a menu · click a chip to change it, × keeps it as text · Esc closes")
+            Text("↑↓ Return pick · click a chip to change it, × keeps it as text · ⌘Return or the sliders: Details · Esc closes")
                 .font(.system(size: 10)).foregroundColor(Color(hex: "#6B7079"))
         }
         .padding(14)
