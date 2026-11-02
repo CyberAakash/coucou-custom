@@ -28,6 +28,10 @@ struct TaskItem: Identifiable, Equatable {
     var listID: String
     var done: Bool
     var completedAt: Date?
+    /// What the row shows beside the title: a loop when it repeats, ! marks, the place.
+    var repeats = false
+    var priority = 0            // Reminders' number: 1 high, 5 medium, 9 low, 0 none
+    var place: String?
 }
 
 /// The groups the page shows, in order.
@@ -199,7 +203,17 @@ final class TasksStore: ObservableObject {
         let due = comps.flatMap { Calendar.current.date(from: $0) }
         return TaskItem(id: r.calendarItemIdentifier, title: r.title ?? "", due: due,
                         hasTime: comps?.hour != nil, listID: r.calendar.calendarIdentifier,
-                        done: r.isCompleted, completedAt: r.completionDate)
+                        done: r.isCompleted, completedAt: r.completionDate,
+                        repeats: r.hasRecurrenceRules, priority: r.priority, place: place(r))
+    }
+
+    /// The place a task was given: Reminders' own when it has one, else the note's "Place: " line.
+    nonisolated static let placePrefix = "Place: "
+
+    private nonisolated static func place(_ r: EKReminder) -> String? {
+        if let own = r.location?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty { return own }
+        guard let first = r.notes?.split(separator: "\n", maxSplits: 1).first, first.hasPrefix(placePrefix) else { return nil }
+        return String(first.dropFirst(placePrefix.count)).trimmingCharacters(in: .whitespaces).nilIfEmpty
     }
 
     /// Overdue and today first by time, later by day, then the ones without a time by title.
@@ -218,15 +232,36 @@ final class TasksStore: ObservableObject {
 
     private func reminder(_ id: String) -> EKReminder? { store.calendarItem(withIdentifier: id) as? EKReminder }
 
-    /// Adds a task; returns its identifier, or nil when Reminders refused it.
+    /// Adds a task with what the composer read besides the time (repeat, alerts, priority,
+    /// place, note, link); returns its identifier, or nil when Reminders refused it.
     @discardableResult
-    func add(title: String, due: Date?, hasTime: Bool, listID: String?) -> String? {
+    func add(title: String, due: Date?, hasTime: Bool, listID: String?, extras: AgendaExtras = .none) -> String? {
         guard access == .granted else { return nil }
         let r = EKReminder(eventStore: store)
         r.title = title
         r.calendar = listID.flatMap { id in store.calendars(for: .reminder).first { $0.calendarIdentifier == id } }
             ?? store.defaultCalendarForNewReminders()
+        // A repeat needs a day to repeat from: its first one when none was typed.
+        let due = due ?? extras.repeating.map { $0.firstDay(from: .now) }
         if let due { setDue(r, due, hasTime: hasTime) }
+        if let due, extras.repeating != nil || !extras.alerts.isEmpty {
+            r.alarms?.forEach { r.removeAlarm($0) }
+            // Before a day without a time counts from 9 AM, as Reminders' own all-day alerts do.
+            let anchor = hasTime ? due : Calendar.current.startOfDay(for: due)
+            let offsets = extras.alerts.isEmpty ? (hasTime ? [0] : []) : extras.alerts
+            for before in offsets {
+                let shift = hasTime ? -before : 9 * 3600 - before
+                // A repeating task's alerts count from each due time: a fixed time would stay
+                // on the first one (Reminders moved one to midnight of the next month).
+                r.addAlarm(extras.repeating != nil ? EKAlarm(relativeOffset: shift) : EKAlarm(absoluteDate: anchor.addingTimeInterval(shift)))
+            }
+        }
+        if let rule = extras.repeating.map(Self.rule) { r.addRecurrenceRule(rule) }
+        r.priority = extras.reminderPriority
+        // Reminders drops a place it cannot map (it keeps one only for arrive / leave alerts), so
+        // the place is the note's first line.
+        r.notes = [extras.place.map { Self.placePrefix + $0 }, extras.note].compactMap { $0 }.joined(separator: "\n").nilIfEmpty
+        r.url = extras.link
         do {
             try store.save(r, commit: true)
             appendAppLog("nb.log", "[Tasks] added to \(r.calendar.title)\(due == nil ? "" : ", due")")
@@ -267,18 +302,54 @@ final class TasksStore: ObservableObject {
         commit(r, "moved")
     }
 
-    func delete(_ id: String) {
-        guard let r = reminder(id) else { return }
+    /// Deletes a task; returns what puts it back as it was (its repeat, alerts, note… included).
+    @discardableResult
+    func delete(_ id: String) -> (() -> Void)? {
+        guard let r = reminder(id) else { return nil }
+        let copy = (title: r.title, list: r.calendar, due: r.dueDateComponents, alarms: r.alarms?.map { $0.copy() as? EKAlarm },
+                    rules: r.recurrenceRules?.map { $0.copy() as? EKRecurrenceRule }, priority: r.priority,
+                    location: r.location, notes: r.notes, url: r.url)
         do {
             try store.remove(r, commit: true)
             appendAppLog("nb.log", "[Tasks] deleted")
             reload()
         } catch {
             appendAppLog("nb.log", "[Tasks] delete failed: \(error.localizedDescription)")
+            return nil
+        }
+        return { [store] in
+            let back = EKReminder(eventStore: store)
+            back.title = copy.title
+            back.calendar = copy.list
+            back.dueDateComponents = copy.due
+            copy.alarms?.compactMap { $0 }.forEach { back.addAlarm($0) }
+            copy.rules?.compactMap { $0 }.forEach { back.addRecurrenceRule($0) }
+            back.priority = copy.priority
+            back.location = copy.location
+            back.notes = copy.notes
+            back.url = copy.url
+            TasksStore.shared.commit(back, "restored")
         }
     }
 
-    private func commit(_ r: EKReminder, _ what: String) {
+    /// The composer's repeat as Reminders' and Calendar's rule.
+    nonisolated static func rule(_ r: AgendaRepeat) -> EKRecurrenceRule {
+        let frequency: EKRecurrenceFrequency = switch r.frequency {
+        case .daily: .daily
+        case .weekly: .weekly
+        case .monthly: .monthly
+        case .yearly: .yearly
+        }
+        let end: EKRecurrenceEnd? = r.until.map { EKRecurrenceEnd(end: Calendar.current.date(byAdding: .day, value: 1, to: $0) ?? $0) }
+            ?? r.count.map { EKRecurrenceEnd(occurrenceCount: $0) }
+        let days = r.weekdays.compactMap { EKWeekday(rawValue: $0).map(EKRecurrenceDayOfWeek.init) }
+        return EKRecurrenceRule(recurrenceWith: frequency, interval: r.interval,
+                                daysOfTheWeek: days.isEmpty ? nil : days,
+                                daysOfTheMonth: r.dayOfMonth.map { [NSNumber(value: $0)] },
+                                monthsOfTheYear: nil, weeksOfTheYear: nil, daysOfTheYear: nil, setPositions: nil, end: end)
+    }
+
+    fileprivate func commit(_ r: EKReminder, _ what: String) {
         do {
             try store.save(r, commit: true)
             appendAppLog("nb.log", "[Tasks] \(what)")
@@ -289,6 +360,70 @@ final class TasksStore: ObservableObject {
     }
 
     #if DEBUG
+    /// Save tests only: a "Coucou test" list made, read back in nb.log, and removed with what is in it.
+    func debugTest(_ action: String) {
+        let name = "Coucou test"
+        let mine = store.calendars(for: .reminder).filter { $0.title == name }
+        // No test list: an empty list filter means every list, so nothing but setup may run.
+        guard action == "setup" || !mine.isEmpty else { return }
+        switch action {
+        case "setup" where mine.isEmpty:
+            let list = EKCalendar(for: .reminder, eventStore: store)
+            list.title = name
+            list.source = store.defaultCalendarForNewReminders()?.source
+            do { try store.saveCalendar(list, commit: true); appendAppLog("nb.log", "[Test] list made") }
+            catch { appendAppLog("nb.log", "[Test] list failed: \(error.localizedDescription)") }
+            reload()
+        case "dump":
+            store.fetchReminders(matching: store.predicateForReminders(in: mine)) { rs in
+                // EventKit answers on its own queue: only nonisolated helpers here, the log on main.
+                let lines = (rs ?? []).map(TasksStore.debugLine)
+                Task { @MainActor in lines.forEach { appendAppLog("nb.log", $0) } }
+            }
+        case "tick":
+            // The first repeating test task: what EventKit does on completing it.
+            let p = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: mine)
+            store.fetchReminders(matching: p) { rs in
+                let id = TasksStore.debugFirst(rs, repeating: true)
+                Task { @MainActor in if let id { TasksStore.shared.setDone(id, true) } }
+            }
+        case "deleteundo":
+            let p = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: mine)
+            store.fetchReminders(matching: p) { rs in
+                let id = TasksStore.debugFirst(rs, repeating: false)
+                Task { @MainActor in
+                    guard let id else { return }
+                    let restore = TasksStore.shared.delete(id)
+                    appendAppLog("nb.log", "[Test] deleted, restoring")
+                    restore?()
+                }
+            }
+        case "teardown":
+            for list in mine {
+                do { try store.removeCalendar(list, commit: true); appendAppLog("nb.log", "[Test] list removed") }
+                catch { appendAppLog("nb.log", "[Test] list remove failed: \(error.localizedDescription)") }
+            }
+            reload()
+        default: break
+        }
+    }
+
+    nonisolated static func debugLine(_ r: EKReminder) -> String {
+        let alarms = (r.alarms ?? []).map(debugAlarm)
+        let due = r.dueDateComponents.flatMap { Calendar.current.date(from: $0) }.map { $0.formatted() } ?? "-"
+        return "[Test] task '\(r.title ?? "")' due=\(due) done=\(r.isCompleted) alarms=\(alarms) rule=\(r.recurrenceRules?.first?.description ?? "-") priority=\(r.priority) place=\(r.location ?? "-") note=\(r.notes ?? "-") url=\(r.url?.absoluteString ?? "-")"
+    }
+
+    nonisolated static func debugAlarm(_ a: EKAlarm) -> String {
+        a.absoluteDate.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "\(a.relativeOffset)s"
+    }
+
+    /// The first repeating test task (or, `repeating` false, the first with a note).
+    nonisolated static func debugFirst(_ rs: [EKReminder]?, repeating: Bool) -> String? {
+        for r in rs ?? [] where repeating ? r.hasRecurrenceRules : r.notes != nil { return r.calendarItemIdentifier }
+        return nil
+    }
+
     /// Snapshots only: sample lists and tasks, as if Reminders had answered (never written anywhere).
     private var debugFrozen = false
 
@@ -305,11 +440,11 @@ final class TasksStore: ObservableObject {
         }
         items = Self.sorted([
             TaskItem(id: "1", title: "Send the build to the testers", due: now.addingTimeInterval(-3 * 3600), hasTime: true, listID: "w", done: false),
-            TaskItem(id: "2", title: "Review the Briefs preview", due: now.addingTimeInterval(10 * 60), hasTime: true, listID: "w", done: false),
-            TaskItem(id: "5", title: "Stretch for a minute", due: now.addingTimeInterval(40), hasTime: true, listID: "p", done: false),
+            TaskItem(id: "2", title: "Review the Briefs preview", due: now.addingTimeInterval(10 * 60), hasTime: true, listID: "w", done: false, priority: 1),
+            TaskItem(id: "5", title: "Stretch for a minute", due: now.addingTimeInterval(40), hasTime: true, listID: "p", done: false, repeats: true),
             TaskItem(id: "3", title: "Call the bank about the card", due: at(9, 0, dayOffset: 1), hasTime: true, listID: "p", done: false),
             TaskItem(id: "4", title: "Milk, eggs, coffee beans", due: nil, hasTime: false, listID: "g", done: false),
-            TaskItem(id: "6", title: "Renew the passport", due: at(11, 0, dayOffset: 3), hasTime: true, listID: "p", done: false),
+            TaskItem(id: "6", title: "Renew the passport", due: at(11, 0, dayOffset: 3), hasTime: true, listID: "p", done: false, place: "Passport office"),
             TaskItem(id: "7", title: "Quarterly review deck", due: at(0, 0, dayOffset: 10), hasTime: false, listID: "w", done: false),
         ])
         doneToday = 3

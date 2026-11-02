@@ -53,7 +53,7 @@ struct AgendaView: View {
     @State private var kindOverride: AgendaKind?
     /// The suggestions menu: what opened it when not the word being typed, the row chosen, and
     /// Escape closing it until the line changes.
-    enum MenuSource { case whenSlash, whenChip, groupChip }
+    enum MenuSource: Equatable { case slash(AgendaSuggest.ChoiceSet), chip(AgendaSuggest.ChoiceSet), groupChip }
     @State private var menuSource: MenuSource?
     @State private var menuRow = 0
     @State private var menuClosed = false
@@ -61,6 +61,7 @@ struct AgendaView: View {
     /// A chip's ×: that piece stays plain title text for this line.
     @State private var skipDate = false
     @State private var skipTag = false
+    @State private var skipPieces: Set<AgendaExtras.Piece> = []
     @FocusState private var composing: Bool
     @State private var undo: UndoNote?
 
@@ -95,6 +96,20 @@ struct AgendaView: View {
             let menu = menuItems?.map(\.title).joined(separator: "|") ?? "-"
             appendAppLog("nb.log", "[Agenda] text='\(text)' kind=\(kind) menu=[\(menu)] row=\(menuRow) help=\(helpOpen) focus=\(composing) skipDate=\(skipDate) key=\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "none")")
         }
+        // `debug.agendaTest` "setup|dump|tick|deleteundo|teardown" on the test list and calendar;
+        // `debug.agendaType` "line" puts a line in the composer; `debug.agendaSubmit` adds it.
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaTest"))) { note in
+            let action = note.object as? String ?? ""
+            tasks.debugTest(action)
+            calendar.debugTest(action)
+        }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaType"))) { note in
+            text = note.object as? String ?? ""
+        }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaSubmit"))) { _ in
+            appendAppLog("nb.log", "[Agenda] submit '\(text)' as \(kind)")
+            add()
+        }
         // `debug.agendaDeleteTask` "title": deletes the open tasks with exactly that title (a key test's leftover).
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDeleteTask"))) { note in
             guard let title = note.object as? String, !title.isEmpty else { return }
@@ -128,7 +143,8 @@ struct AgendaView: View {
             DispatchQueue.main.async {
                 switch KeepDebug.agendaOpen {
                 case "help"?: helpOpen = true
-                case "when"?: menuSource = .whenChip
+                case "when"?: menuSource = .chip(.when)
+                case "repeat"?: menuSource = .chip(.repeating)
                 case "group"?: menuSource = .groupChip
                 default: break
                 }
@@ -193,6 +209,13 @@ struct AgendaView: View {
             ZStack(alignment: .top) {
                 list
                 if helpOpen { help.transition(.opacity) }
+                // The menu sits on the list's bottom edge, right above the composer, whatever
+                // the composer's height (one or two rows of chips).
+                if let items = menuItems, !items.isEmpty {
+                    suggestions(items)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .transition(.opacity)
+                }
             }
             .animation(.easeOut(duration: 0.15), value: helpOpen)
             composer
@@ -465,7 +488,10 @@ struct AgendaView: View {
             }
             .frame(width: 104, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
-                Text(e.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(e.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    if e.repeats { repeatIcon }
+                }
                 if !sub.isEmpty { Text(sub).font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1) }
             }
             Spacer(minLength: 6)
@@ -498,6 +524,10 @@ struct AgendaView: View {
         }
     }
 
+    private var repeatIcon: some View {
+        Image(systemName: "repeat").font(.system(size: 9, weight: .bold)).foregroundColor(Color(hex: "#8E939C")).help("Repeats")
+    }
+
     private func taskRow(_ t: TaskItem, overdue: Bool) -> some View {
         let list = tasks.list(t.listID)
         let when: String = {
@@ -508,7 +538,9 @@ struct AgendaView: View {
             }
             return t.hasTime ? due.formatted(date: .omitted, time: .shortened) : "All day"
         }()
-        let sub = [when.isEmpty ? nil : when, list?.title].compactMap { $0 }.joined(separator: " · ")
+        let sub = [when.isEmpty ? nil : when, t.place, list?.title].compactMap { $0 }.joined(separator: " · ")
+        // Reminders' priority numbers: 1–4 high, 5 medium, 6–9 low.
+        let marks = t.priority == 0 ? 0 : (t.priority < 5 ? 3 : (t.priority == 5 ? 2 : 1))
         return HStack(spacing: 10) {
             Button { complete(t) } label: {
                 Circle().strokeBorder(overdue ? Color(hex: "#F4505E") : (list?.color ?? Color(hex: "#6B7079")), lineWidth: 1.6)
@@ -516,7 +548,12 @@ struct AgendaView: View {
             }
             .buttonStyle(.plain).pointer().help("Done")
             Text(t.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+            if marks > 0 {
+                Text(String(repeating: "!", count: marks)).font(.system(size: 11, weight: .heavy)).foregroundColor(Color(hex: "#F4505E"))
+                    .help(["", "Low", "Medium", "High"][marks] + " priority")
+            }
             Spacer(minLength: 6)
+            if t.repeats { repeatIcon }
             Text(sub).font(.system(size: 10, weight: .medium))
                 .foregroundColor(overdue ? Color(hex: "#F4505E") : Color(hex: "#8E939C")).lineLimit(1).fixedSize()
         }
@@ -544,8 +581,8 @@ struct AgendaView: View {
             Divider()
             Button("Open in Reminders") { tasks.openReminders() }
             Button("Delete", role: .destructive) {
-                tasks.delete(t.id)
-                say("Deleted · \(t.title)") { tasks.add(title: t.title, due: t.due, hasTime: t.hasTime, listID: t.listID) }
+                let restore = tasks.delete(t.id)
+                say("Deleted · \(t.title)", undo: restore)
             }
         }
     }
@@ -564,17 +601,52 @@ struct AgendaView: View {
     /// The lists for a task, the calendars for an event: what #word picks from.
     private var groups: [(id: String, title: String)] { kind == .task ? listGroups : calendarGroups }
 
+    /// Repeat, alerts, priority, place, note and link, and the line with them blanked out.
+    /// Priority is a task's: on an event "!!" stays in the title.
+    private var extrasRead: (extras: AgendaExtras, masked: String) {
+        AgendaExtras.read(command.rest, skip: kind == .event ? skipPieces.union([.priority]) : skipPieces)
+    }
+    private var extras: AgendaExtras { extrasRead.extras }
+
     private var parsedTask: ParsedTask {
-        TaskComposer.parse(command.rest, lists: listGroups, readDate: !skipDate, readTag: !skipTag)
+        var p = TaskComposer.parse(extrasRead.masked, lists: listGroups, readDate: !skipDate, readTag: !skipTag)
+        // A repeat on set days starts on the first of them; with no date, on the first one from today.
+        if let r = extras.repeating {
+            if let due = p.due { p.due = r.aligned(due) } else { p.due = r.firstDay(from: .now); p.hasTime = false }
+        }
+        return p
     }
 
     private var parsedEvent: ParsedEvent {
-        CalendarComposer.parse(command.rest, calendars: calendarGroups, readDate: !skipDate, readTag: !skipTag)
+        var e = CalendarComposer.parse(extrasRead.masked, calendars: calendarGroups, readDate: !skipDate, readTag: !skipTag)
+        if let r = extras.repeating {
+            if let start = e.start, let end = e.end {
+                let moved = e.allDay ? r.firstDay(from: start) : r.aligned(start)
+                e.start = moved
+                e.end = end.addingTimeInterval(moved.timeIntervalSince(start))
+            } else {
+                let day = r.firstDay(from: .now)
+                e.start = day
+                e.end = Calendar.current.date(byAdding: .day, value: 1, to: day)
+                e.allDay = true
+            }
+        }
+        return e
     }
 
-    /// Where the date and the tag sit in the line, read even when their chip was undone, so a
-    /// choice from a chip's menu takes their place.
-    private var pieces: ParsedTask { TaskComposer.parse(command.rest, lists: groups) }
+    /// Where the date and the tag sit in the line itself, read even when their chip was undone, so
+    /// a choice from a chip's menu takes their place.
+    private var pieces: (date: Range<String.Index>?, tag: Range<String.Index>?) {
+        let full = AgendaExtras.read(command.rest)
+        let p = TaskComposer.parse(full.masked, lists: groups)
+        return (AgendaExtras.same(p.dateRange, from: full.masked, in: command.rest),
+                AgendaExtras.same(p.tagRange, from: full.masked, in: command.rest))
+    }
+
+    /// Where a repeat, alert or priority sits in the line itself.
+    private func range(of piece: AgendaExtras.Piece) -> Range<String.Index>? {
+        AgendaExtras.read(command.rest).extras.ranges[piece].flatMap { Range($0, in: command.rest) }
+    }
 
     /// A task unless /event is typed or Event picked (Task / Event and Tab win over the line);
     /// only one kind when the other is off or not allowed.
@@ -596,17 +668,20 @@ struct AgendaView: View {
         let typing = !text.trimmingCharacters(in: .whitespaces).isEmpty
         return VStack(alignment: .leading, spacing: 5) {
             if typing {
-                HStack(spacing: 6) {
+                // Wraps to a second row when a line has many pieces, so none is hidden.
+                ChipFlowLayout(spacing: 6) {
                     Text(ready ? "Will add" : (k == .event ? "Add a day or a time" : "Type a task")).font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
+                        .frame(height: 20)
                     if tasksOn && eventsOn { kindSwitch(k) }
                     if k == .task {
                         whenChip(t.due.map { TaskComposer.label($0, hasTime: t.hasTime) } ?? "No time", read: t.due != nil)
                         if let l = t.listID.flatMap(tasks.list) ?? tasks.newTaskList { groupChip(l.title, l.color, read: t.listID != nil) }
-                        if looksLikeEvent { eventHint }
                     } else {
                         whenChip(CalendarComposer.label(e) ?? "Add a day or a time", read: e.start != nil)
                         if let c = e.calendarID.flatMap(calendar.calendar) ?? calendar.newEventCalendar { groupChip(c.title, c.color, read: e.calendarID != nil) }
                     }
+                    extraChips(k)
+                    if k == .task && looksLikeEvent { eventHint }
                 }
                 .padding(.leading, 2)
                 .transition(.opacity)
@@ -625,7 +700,7 @@ struct AgendaView: View {
                         menuRow = 0
                         menuSource = nil   // typing closes a chip's or /at's menu
                         if new == "?" { text = ""; helpOpen = true }
-                        if new.isEmpty { kindOverride = nil; skipDate = false; skipTag = false; menuSource = nil }
+                        if new.isEmpty { kindOverride = nil; skipDate = false; skipTag = false; skipPieces = []; menuSource = nil }
                     }
                 Button { helpOpen.toggle() } label: {
                     Text("?").font(.system(size: 11, weight: .heavy)).foregroundColor(helpOpen ? Color(hex: "#04161A") : Color(hex: "#8E939C"))
@@ -646,13 +721,7 @@ struct AgendaView: View {
             .overlay(Capsule().strokeBorder(Color(hex: "#22D3EE").opacity(composing ? 0.45 : 0.12)))
         }
         .animation(.easeOut(duration: 0.15), value: typing)
-        .overlay(alignment: .bottomLeading) {
-            if let items = menuItems, !items.isEmpty {
-                suggestions(items)
-                    .padding(.bottom, typing ? 62 : 38)
-                    .transition(.opacity)
-            }
-        }
+
     }
 
     // MARK: Suggestions
@@ -661,8 +730,8 @@ struct AgendaView: View {
     private var menuItems: [AgendaSuggestion]? {
         guard !helpOpen else { return nil }
         switch menuSource {
-        case .whenSlash, .whenChip: return AgendaSuggest.when
-        case .groupChip: return AgendaSuggest.menu(for: "#", groups: groups, groupKind: kind == .task ? "list" : "calendar")
+        case .slash(let set)?, .chip(let set)?: return AgendaSuggest.choices(set)
+        case .groupChip?: return AgendaSuggest.menu(for: "#", groups: groups, groupKind: kind == .task ? "list" : "calendar")
         case nil:
             guard !menuClosed else { return nil }
             return AgendaSuggest.menu(for: text, groups: groups, groupKind: kind == .task ? "list" : "calendar")
@@ -702,22 +771,35 @@ struct AgendaView: View {
 
     private func pick(_ item: AgendaSuggestion) {
         switch item.action {
-        case .when:
-            menuSource = .whenSlash
+        case .choices(let set):
+            menuSource = .slash(set)
         case .help:
             text = AgendaSuggest.apply("", to: text).trimmingCharacters(in: .whitespaces)
             helpOpen = true
         case .insert(let words):
             switch menuSource {
-            case .whenChip:
-                text = withCommand(AgendaSuggest.replace(pieces.dateRange, in: command.rest, with: words))
+            case .chip(.when)?:
+                text = withCommand(AgendaSuggest.replace(pieces.date, in: command.rest, with: words))
                 skipDate = false
-            case .groupChip:
-                text = withCommand(AgendaSuggest.replace(pieces.tagRange, in: command.rest, with: words))
+            case .chip(let set)?:
+                // The chip's piece swapped for the choice.
+                let piece: AgendaExtras.Piece = set == .repeating ? .repeating : set == .alert ? .alerts : .priority
+                text = withCommand(AgendaSuggest.replace(range(of: piece), in: command.rest, with: words))
+                skipPieces.remove(piece)
+            case .groupChip?:
+                text = withCommand(AgendaSuggest.replace(pieces.tag, in: command.rest, with: words))
                 skipTag = false
-            case .whenSlash, nil:
+            case .slash(let set)?:
                 text = AgendaSuggest.apply(words, to: text)
-                if words.hasPrefix("#") { skipTag = false } else if menuSource == .whenSlash { skipDate = false }
+                switch set {
+                case .when: skipDate = false
+                case .repeating: skipPieces.remove(.repeating)
+                case .alert: skipPieces.remove(.alerts)
+                case .priority: skipPieces.remove(.priority)
+                }
+            case nil:
+                text = AgendaSuggest.apply(words, to: text)
+                if words.hasPrefix("#") { skipTag = false }
             }
             menuSource = nil
         }
@@ -725,29 +807,45 @@ struct AgendaView: View {
         composing = true
     }
 
+    private func menuRowView(_ item: AgendaSuggestion, chosen: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                if let id = item.groupID {
+                    Circle().fill((kind == .task ? tasks.list(id)?.color : calendar.calendar(id)?.color) ?? .gray).frame(width: 8, height: 8)
+                } else if !item.symbol.hasPrefix("/") {
+                    Image(systemName: item.symbol).font(.system(size: 10, weight: .semibold)).foregroundColor(Color(hex: "#67E8F9")).frame(width: 14)
+                } else {
+                    Text(item.symbol).font(.system(size: 11, design: .monospaced)).foregroundColor(Color(hex: "#67E8F9")).frame(width: 70, alignment: .leading)
+                }
+                Text(item.title).font(.system(size: 11.5, weight: chosen ? .semibold : .regular)).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(item.detail).font(.system(size: 10.5)).foregroundColor(Color(hex: "#6B7079")).lineLimit(1)
+            }
+            .padding(.horizontal, 9).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(chosen ? Color(hex: "#22D3EE").opacity(0.12) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).pointer()
+    }
+
     private func suggestions(_ items: [AgendaSuggestion]) -> some View {
         let row = min(menuRow, items.count - 1)
         return VStack(alignment: .leading, spacing: 1) {
-            ForEach(Array(items.prefix(7).enumerated()), id: \.element.id) { i, item in
-                Button { pick(item) } label: {
-                    HStack(spacing: 9) {
-                        if let id = item.groupID {
-                            Circle().fill((kind == .task ? tasks.list(id)?.color : calendar.calendar(id)?.color) ?? .gray).frame(width: 8, height: 8)
-                        } else if item.symbol == "clock" {
-                            Image(systemName: "clock").font(.system(size: 10, weight: .semibold)).foregroundColor(Color(hex: "#67E8F9")).frame(width: 14)
-                        } else {
-                            Text(item.symbol).font(.system(size: 11, design: .monospaced)).foregroundColor(Color(hex: "#67E8F9")).frame(width: 70, alignment: .leading)
+            // Up to seven rows show; more scroll, and the chosen one is kept in view.
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: items.count > 7) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                            menuRowView(item, chosen: i == row) { pick(item) }
+                                .id(item.id)
+                                .onHover { if $0 { menuRow = i } }
                         }
-                        Text(item.title).font(.system(size: 11.5, weight: i == row ? .semibold : .regular)).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text(item.detail).font(.system(size: 10.5)).foregroundColor(Color(hex: "#6B7079")).lineLimit(1)
                     }
-                    .padding(.horizontal, 9).frame(height: 26)
-                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(i == row ? Color(hex: "#22D3EE").opacity(0.12) : .clear))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).pointer()
-                .onHover { if $0 { menuRow = i } }
+                .frame(height: CGFloat(min(items.count, 7)) * 27)
+                .onChange(of: menuRow) { _, r in
+                    if items.indices.contains(r) { proxy.scrollTo(items[r].id) }
+                }
             }
             HStack(spacing: 12) {
                 Text("↑↓ choose"); Text("Return pick"); Text("Esc close"); Text("? help")
@@ -767,7 +865,7 @@ struct AgendaView: View {
     /// The day and time read: click to choose another, × to leave the words in the title.
     private func whenChip(_ label: String, read: Bool) -> some View {
         chipButton(label, accent: read, color: nil, undo: read ? { skipDate = true } : nil) {
-            menuSource = menuSource == .whenChip ? nil : .whenChip
+            menuSource = menuSource == .chip(.when) ? nil : .chip(.when)
             composing = true
         }
     }
@@ -778,6 +876,38 @@ struct AgendaView: View {
             menuSource = menuSource == .groupChip ? nil : .groupChip
             composing = true
         }
+    }
+
+    /// Repeat, alerts, priority (tasks), place, note and link: click the first three to choose
+    /// another, × to keep the words as title text.
+    @ViewBuilder
+    private func extraChips(_ k: AgendaKind) -> some View {
+        let x = extras
+        if let r = x.repeating {
+            chipButton(r.label, accent: true, color: nil, undo: { skipPieces.insert(.repeating) }) { toggle(.chip(.repeating)) }
+        }
+        if !x.alerts.isEmpty {
+            chipButton("Alert " + x.alerts.map(AgendaExtras.alertLabel).joined(separator: ", "), accent: true, color: nil,
+                       undo: { skipPieces.insert(.alerts) }) { toggle(.chip(.alert)) }
+        }
+        if k == .task, x.priority > 0 {
+            chipButton(String(repeating: "!", count: x.priority) + " " + ["", "Low", "Medium", "High"][x.priority], accent: false, color: nil,
+                       undo: { skipPieces.insert(.priority) }) { toggle(.chip(.priority)) }
+        }
+        if let place = x.place {
+            chipButton(place, accent: false, color: nil, undo: { skipPieces.insert(.place) }) { composing = true }
+        }
+        if x.note != nil {
+            chipButton("Note", accent: false, color: nil, undo: { skipPieces.insert(.note) }) { composing = true }
+        }
+        if let link = x.link {
+            chipButton(link.host ?? "Link", accent: false, color: nil, undo: { skipPieces.insert(.link) }) { composing = true }
+        }
+    }
+
+    private func toggle(_ source: MenuSource) {
+        menuSource = menuSource == source ? nil : source
+        composing = true
     }
 
     private func chipButton(_ title: String, accent: Bool, color: Color?, undo: (() -> Void)?, action: @escaping () -> Void) -> some View {
@@ -817,7 +947,8 @@ struct AgendaView: View {
                 }
                 .buttonStyle(.plain).pointer().help("Close (Esc)")
             }
-            HStack(alignment: .top, spacing: 18) {
+            ScrollView(.vertical, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 5) {
                     helpLabel("WHAT IT IS")
                     helpRow("Task", "the default", plain: true)
@@ -829,17 +960,18 @@ struct AgendaView: View {
                     helpRow("fri 2pm", "a weekday")
                     helpRow("in 2 hours", "from now")
                     helpRow("for 45m", "event length")
+                    helpRow("/at", "pick a time")
                 }
                 VStack(alignment: .leading, spacing: 5) {
-                    helpLabel("GROUPS AND KEYS")
+                    helpLabel("MORE")
                     helpRow("#word", "list or calendar")
-                    helpRow("/", "commands")
-                    helpRow("#", "pick a list")
-                    helpRow("/at", "pick a time")
-                    helpRow("↑↓ Return", "pick from a menu")
-                    helpRow("Click a chip", "change it", plain: true)
-                    helpRow("× on a chip", "keep as text", plain: true)
-                    helpRow("Esc", "close")
+                    helpRow("!  !!  !!!", "priority (tasks)")
+                    helpRow("@Room 4", "place")
+                    helpRow("every weekday", "repeat")
+                    helpRow("until 31 dec", "or 10 times")
+                    helpRow("alert 10m", "alert before")
+                    helpRow("// text", "note, or a link")
+                    helpRow("/", "every command")
                 }
                 VStack(alignment: .leading, spacing: 5) {
                     helpLabel("TRY ONE")
@@ -850,7 +982,7 @@ struct AgendaView: View {
                             composing = true
                         } label: {
                             HStack {
-                                Text(example).font(.system(size: 11)).lineLimit(1)
+                                Text(example).font(.system(size: 11)).lineLimit(1).minimumScaleFactor(0.85)
                                 Spacer(minLength: 4)
                                 Text(AgendaCommand.read(example).kind == .event ? "event" : "task").font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
                             }
@@ -861,8 +993,11 @@ struct AgendaView: View {
                         .buttonStyle(.plain).pointer()
                     }
                 }
-                .frame(width: 200)
+                .frame(width: 184)
             }
+            }
+            Text("↑↓ and Return pick from a menu · click a chip to change it, × keeps it as text · Esc closes")
+                .font(.system(size: 10)).foregroundColor(Color(hex: "#6B7079"))
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -871,8 +1006,8 @@ struct AgendaView: View {
     }
 
     private var helpExamples: [String] {
-        var out = ["Call the bank tomorrow 6pm", "Report in 2 hours"]
-        if tasksOn && eventsOn { out += ["/e Lunch fri 1pm for 1h", "/e Dentist tue 4pm for 30m"] }
+        var out = ["Call the bank tomorrow 6pm !!", "Pay rent every month on 1st", "Water plants every other day"]
+        if tasksOn && eventsOn { out += ["/e Lunch fri 1pm for 1h @Cafe", "/e Gym every mon 7am for 1h"] }
         return out
     }
 
@@ -884,8 +1019,8 @@ struct AgendaView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(code).font(plain ? .system(size: 11) : .system(size: 10.5, design: .monospaced))
                 .foregroundColor(plain ? Color(hex: "#C5C8CD") : Color(hex: "#67E8F9"))
-                .frame(width: 92, alignment: .leading)
-            Text(meaning).font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
+                .frame(width: 88, alignment: .leading)
+            Text(meaning).font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1).fixedSize()
         }
     }
 
@@ -929,11 +1064,11 @@ struct AgendaView: View {
             let p = parsedTask
             guard !p.title.isEmpty else { return }
             let list = p.listID.flatMap(tasks.list) ?? tasks.newTaskList
-            if let id = tasks.add(title: p.title, due: p.due, hasTime: p.hasTime, listID: list?.id) {
+            if let id = tasks.add(title: p.title, due: p.due, hasTime: p.hasTime, listID: list?.id, extras: extras) {
                 text = ""
                 if let due = p.due { day = Calendar.current.startOfDay(for: due); calendar.showWeek(of: day) }
                 let when = p.due.map { " · " + TaskComposer.label($0, hasTime: p.hasTime) } ?? ""
-                say("Task added to \(list?.title ?? "Reminders")\(when)") { tasks.delete(id) }
+                say("Task added to \(list?.title ?? "Reminders")\(when)") { _ = tasks.delete(id) }
             } else {
                 say("Reminders didn't take it; try again", undo: nil)
             }
@@ -941,7 +1076,7 @@ struct AgendaView: View {
             let p = parsedEvent
             guard !p.title.isEmpty, let start = p.start, let end = p.end else { return }
             let target = p.calendarID.flatMap(calendar.calendar) ?? calendar.newEventCalendar
-            if let id = calendar.add(title: p.title, start: start, end: end, allDay: p.allDay, calendarID: target?.id) {
+            if let id = calendar.add(title: p.title, start: start, end: end, allDay: p.allDay, calendarID: target?.id, extras: extras) {
                 text = ""
                 day = Calendar.current.startOfDay(for: start)
                 calendar.showWeek(of: day)

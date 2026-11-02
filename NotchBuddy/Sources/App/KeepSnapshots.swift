@@ -56,8 +56,9 @@ enum KeepSnapshots {
                 : (options.contains("hint") ? "Review the PR today 5pm for 30 min"
                 : (options.contains("slash") ? "Call mom /"
                 : (options.contains("hash") ? "Send the build tomorrow 6pm #wo"
-                : (options.contains("when") || options.contains("group") ? "Call mom tomorrow 6pm #personal" : nil)))))
-            KeepDebug.agendaOpen = ["help", "when", "group"].first { options.contains($0) }
+                : (options.contains("full") || options.contains("repeat") ? "Pay rent every month on 1st alert 1d !! @Bank // bring the cheque"
+                : (options.contains("when") || options.contains("group") ? "Call mom tomorrow 6pm #personal" : nil))))))
+            KeepDebug.agendaOpen = ["help", "when", "group", "repeat"].first { options.contains($0) }
             KeepDebug.agendaTasksOnly = options.contains("tasks")
             size = CGSize(width: IslandConst.openWidth, height: 420)
             view = AnyView(islandFrame(height: 420, width: IslandConst.openWidth) { AgendaView(state: state) })
