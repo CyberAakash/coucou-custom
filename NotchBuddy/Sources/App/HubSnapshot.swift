@@ -35,7 +35,8 @@ enum HubSnapshot {
 
     /// The AppStorage key holding a page's chosen tab, for "page#tab".
     private static let tabKeys: [String: String] = ["routines": "routinesSettingsSection", "buddy": "buddySettingsSection",
-                                                    "brief": "briefsSettingsTab", "shelf": "shelfSettingsTab", "clipboard": "clipboardSettingsTab"]
+                                                    "brief": "briefsSettingsTab", "shelf": "shelfSettingsTab", "clipboard": "clipboardSettingsTab",
+                                                    "agenda": "agendaSettingsTab"]
 
     private static func render(pages: [HubPage], width: CGFloat, tabs: [String: String] = [:]) async {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

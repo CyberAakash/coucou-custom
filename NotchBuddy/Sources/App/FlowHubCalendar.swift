@@ -1,24 +1,27 @@
 #if !APPSTORE
 import SwiftUI
 
-// MARK: - Settings → Calendar (coucou-custom fork, roadmap phase 3)
+// MARK: - Settings → Agenda → Calendar (coucou-custom fork, roadmap phase 3)
 //
 // Events in the notch's Agenda on or off, access and Internet Accounts, the calendars by account
 // (shown or not, where new events go), and the meetings: the next one in the closed wing, the
 // Join card when one starts.
 
-struct HubCalendarPage: View {
+struct HubCalendarSettings: View {
     @ObservedObject private var store = CalendarStore.shared
     @ObservedObject private var settings = CalendarSettings.shared
 
     static let tint = Color(hex: "#0A84FF")
 
     var body: some View {
-        HubPageScaffold(title: "Calendar",
-                        subtitle: "Your events in the notch's Agenda beside your tasks, the next meeting in the closed wing, and a Join button when it starts.",
-                        trailing: { HubBannerSwitch(title: "In the Agenda", tint: Self.tint, isOn: $settings.enabled) }) {
+        Group {
             HubLabel("Calendar")
             HubCard {
+                HubRow(title: "Events in the Agenda",
+                       detail: "Your events in the notch's Agenda beside your tasks: type one with a day, a time, a length and #calendar.") {
+                    Toggle("", isOn: $settings.enabled).toggleStyle(.switch).labelsHidden()
+                }
+                HubDivider()
                 HubRow(title: "Calendars on this Mac", detail: accessDetail) {
                     switch store.access {
                     case .granted:

@@ -43,7 +43,7 @@ struct HubBuddyPage: View {
         // The page's one banner: its title and, for the Buddy, its switch.
         HubPageScaffold(title: kind == .buddy ? String(localized: "Buddy") : String(localized: "Routines"),
                         subtitle: kind == .buddy ? String(localized: "hub.notch.buddy")
-                                                 : String(localized: "hub.notch.routines", defaultValue: "Water, focus sessions, reminders, timers and breathing: what they do and where they show."),
+                                                 : String(localized: "hub.notch.routines", defaultValue: "Water, focus sessions, timers and breathing: what they do and where they show. Reminders live in Agenda."),
                         trailing: {
             if kind == .buddy {
                 HubBannerSwitch(title: "Show on the desktop", tint: Color(hex: "#F472B6"), isOn: $settings.enabled)
@@ -134,12 +134,6 @@ struct HubBuddyPage: View {
             if shows(.alerts) {
                 HubLabel("Alerts")
                 BuddyAlertsCard(settings: routineSettings)
-            }
-
-            if shows(.tasks) {
-                HubTasksSettings()
-                HubLabel("Where reminders show")
-                BuddyAlertPlaces(kinds: [.reminder], trial: true)
             }
 
             if shows(.water) {
@@ -456,7 +450,7 @@ private struct BuddyTip: View {
 enum BuddySection: String, CaseIterable, Identifiable {
     // coucou-custom fork: the Routines page has a tab per routine (focus, breathing, timers,
     // tasks, water) and one for how their alerts show.
-    case look, wardrobe, assistant, focus, breathing, timers, tasks, water, alerts, behaviour, clicks, moving
+    case look, wardrobe, assistant, focus, breathing, timers, water, alerts, behaviour, clicks, moving
 
     var id: String { rawValue }
 
@@ -465,7 +459,7 @@ enum BuddySection: String, CaseIterable, Identifiable {
     static func tabs(for kind: HubBuddyPage.Kind) -> [BuddySection] {
         switch kind {
         case .buddy: return [.look, .wardrobe, .assistant, .behaviour, .clicks]
-        case .routines: return [.focus, .breathing, .timers, .tasks, .water, .alerts]
+        case .routines: return [.focus, .breathing, .timers, .water, .alerts]
         }
     }
 
@@ -478,7 +472,6 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .breathing: "Breathing"
         case .timers: "Timers"
         case .alerts: "Alerts"
-        case .tasks: "Tasks"
         case .water: "Water"
         case .behaviour: "Behaviour"
         case .clicks: "Clicks"
@@ -495,7 +488,6 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .breathing: "wind"
         case .timers: "timer"
         case .alerts: "bell.badge"
-        case .tasks: "checklist"
         case .water: "drop"
         case .behaviour: "face.smiling"
         case .clicks: "cursorarrow.click"
@@ -512,7 +504,6 @@ enum BuddySection: String, CaseIterable, Identifiable {
         case .breathing: "breathing breathe calm orb full screen fullscreen dim relax"
         case .timers: "timer timers countdown start done stays seconds"
         case .alerts: "alerts alert sound launch greeting hello start card notch full screen fullscreen screen behind dim where show popup moment"
-        case .tasks: "tasks task reminders reminder apple lists list colour color to-do todo composer new due notch"
         case .water: "water drink glass goal hydration nudge every between days ml litre"
         case .behaviour: "behaviour behavior react agents speech bubbles eyes cursor follow nap idle sleep card hud popup drag distance gap"
         case .clicks: "clicks click double triple many gesture action shortcut open app link"

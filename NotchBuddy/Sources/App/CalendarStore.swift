@@ -32,7 +32,7 @@ struct CalEvent: Identifiable, Equatable {
     let attendees: Int
 }
 
-/// Settings → Calendar: the page on or off, the calendars left out, where new events go, the wing
+/// Settings → Agenda → Calendar: events in the Agenda on or off, the calendars left out, where new events go, the wing
 /// and the Join card.
 @MainActor
 final class CalendarSettings: ObservableObject {

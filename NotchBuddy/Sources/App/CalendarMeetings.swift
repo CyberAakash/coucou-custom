@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - The Join card (coucou-custom fork, roadmap phase 3)
 //
 // When a meeting with a Zoom, Meet, Teams or Webex link starts (or the minutes before it chosen in
-// Settings → Calendar), a card hangs below the notch: Join opens it, In 5 min asks again, Dismiss
+// Settings → Agenda → Calendar), a card hangs below the notch: Join opens it, In 5 min asks again, Dismiss
 // closes it. It waits while another card is open and never shows twice for the same meeting.
 
 @MainActor

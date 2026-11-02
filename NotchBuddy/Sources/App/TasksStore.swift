@@ -78,7 +78,7 @@ enum TaskGroup: String, CaseIterable {
     }
 }
 
-/// Settings → Routines → Tasks: whether the page is on, which lists it shows, where new tasks go.
+/// Settings → Agenda → Tasks: whether tasks show in the Agenda, which lists it shows, where new tasks go.
 @MainActor
 final class TasksSettings: ObservableObject {
     static let shared = TasksSettings()
@@ -361,7 +361,7 @@ final class TaskDueSoon: ObservableObject {
     func update() {
         let store = TasksStore.shared
         let now = Date.now
-        // The next calendar event inside the minutes chosen in Settings → Calendar.
+        // The next calendar event inside the minutes chosen in Settings → Agenda → Calendar.
         let cal = CalendarSettings.shared
         let event: Due? = (cal.enabled && cal.wing && CalendarStore.shared.access == .granted)
             ? CalendarStore.shared.nextEvent(now: now).flatMap { e in
