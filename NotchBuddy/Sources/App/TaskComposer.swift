@@ -186,10 +186,11 @@ enum CalendarComposer {
         lengthPattern?.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)).flatMap { Range($0.range, in: text) }
     }
 
+    /// `defaultMinutes`: an event's length when none is typed (Settings → Agenda → Composer).
     static func parse(_ text: String, calendars: [(id: String, title: String)], now: Date = .now,
-                      readDate: Bool = true, readTag: Bool = true) -> ParsedEvent {
+                      readDate: Bool = true, readTag: Bool = true, defaultMinutes: Double = 60) -> ParsedEvent {
         var line = text
-        var minutes: Double = 60
+        var minutes = defaultMinutes
         var hasLength = false
         let ns = text as NSString
         if let lengthPattern, let m = lengthPattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
@@ -521,6 +522,44 @@ enum AgendaLine {
     }
 }
 
+// MARK: - Templates: your own slash commands (Settings → Agenda → Composer)
+//
+// "/standup" and a space (or picking it from the / menu) puts its line in the composer, as text
+// you then change like any other line: nothing is hidden behind the name.
+
+struct AgendaTemplate: Codable, Equatable, Identifiable {
+    var name: String     // without the slash, lower case
+    var line: String
+    var id: String { name }
+
+    /// The composer's own commands: a template may not take their names.
+    static let reserved: Set<String> = ["e", "t", "event", "task", "at", "today", "tomorrow", "repeat", "alert",
+                                        "priority", "place", "note", "help"]
+
+    /// What is wrong with a name, or nil when it can be used ("standup", "gym-am").
+    static func problem(_ name: String, others: [AgendaTemplate]) -> String? {
+        let n = name.lowercased()
+        if n.isEmpty { return "Give it a name." }
+        if n.range(of: "^[a-z0-9][a-z0-9_-]{0,23}$", options: .regularExpression) == nil {
+            return "Letters, digits, - and _ only, no spaces, up to 24."
+        }
+        if reserved.contains(n) { return "/\(n) is one of the composer's own commands." }
+        if others.contains(where: { $0.name == n }) { return "/\(n) is already a template." }
+        return nil
+    }
+
+    /// The line with "/name " (just completed by a space) replaced by that template's line;
+    /// nil when the word just finished is not a template.
+    static func expand(_ text: String, templates: [AgendaTemplate]) -> String? {
+        guard let last = text.last, last.isWhitespace else { return nil }
+        let body = text.dropLast()
+        let start = body.lastIndex(where: \.isWhitespace).map { body.index(after: $0) } ?? body.startIndex
+        let word = body[start...]
+        guard word.hasPrefix("/"), let t = templates.first(where: { "/" + $0.name == word.lowercased() }) else { return nil }
+        return String(body[..<start]) + t.line + " "
+    }
+}
+
 // MARK: - Suggestions while typing (the Agenda's composer)
 //
 // The last word being typed decides the menu: "/…" the commands, "#…" the lists (a task) or the
@@ -597,13 +636,18 @@ enum AgendaSuggest {
     }
 
     /// The menu for the word being typed, or nil when it is not "/…" or "#…".
-    static func menu(for text: String, groups: [(id: String, title: String)], groupKind: String) -> [AgendaSuggestion]? {
+    static func menu(for text: String, groups: [(id: String, title: String)], groupKind: String,
+                     templates: [AgendaTemplate]) -> [AgendaSuggestion]? {
         guard let word = lastWord(text) else { return nil }
         if word.hasPrefix("/") {
             let q = word.dropFirst().lowercased()
             // "/e", "/t", "/event" and "/task" typed in full are commands already: no menu over them.
             if ["e", "t", "event", "task"].contains(q) { return nil }
-            let hits = commands.filter { $0.symbol.dropFirst().hasPrefix(q) }
+            // Your templates first: they are why you typed a name of your own.
+            let mine = templates.filter { $0.name.hasPrefix(q) }.map {
+                AgendaSuggestion(title: $0.line, detail: "your template", symbol: "/" + $0.name, groupID: nil, action: .insert($0.line))
+            }
+            let hits = mine + commands.filter { $0.symbol.dropFirst().hasPrefix(q) }
             return finished(hits, word) ? nil : hits
         }
         if word.hasPrefix("#") {
