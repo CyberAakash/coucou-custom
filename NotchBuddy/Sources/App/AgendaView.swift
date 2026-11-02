@@ -70,6 +70,13 @@ struct AgendaView: View {
     @State private var hoverRow: String?
     /// The task whose Later choices are open in its row (they stay when the pointer leaves).
     @State private var laterRow: String?
+    /// The row shown in the quick view ("t…" or "e…"), and a delete waiting for its confirm.
+    @State private var quick: String?
+    @State private var confirmDelete = false
+    /// An item being edited in the composer: Return saves it instead of adding a new one.
+    struct EditTarget: Equatable { let id: String; let keepNotes: Bool; let repeats: Bool; let title: String }
+    @State private var editing: EditTarget?
+    @State private var editAllFuture = false
     /// A swipe across a row: which row, how far, and the trackpad's state while it lasts.
     @State private var swipeID: String?
     @State private var swipeX: CGFloat = 0
@@ -130,7 +137,8 @@ struct AgendaView: View {
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaSubmit"))) { _ in
             // Never into real lists: frozen sample data, or a #coucou line that does not reach the test list.
             let target = kind == .task ? parsedTask.listID.flatMap(tasks.list)?.title : parsedEvent.calendarID.flatMap(calendar.calendar)?.title
-            guard !tasks.debugIsFrozen, !calendar.debugIsFrozen, !text.contains("#coucou") || target == "Coucou test" else {
+            // Test submits only ever reach the test list or calendar ("Coucou test").
+            guard !tasks.debugIsFrozen, !calendar.debugIsFrozen, target == "Coucou test" else {
                 appendAppLog("nb.log", "[Agenda] submit refused: '\(text)' would go to \(target ?? "the default list")")
                 return
             }
@@ -181,6 +189,24 @@ struct AgendaView: View {
                 }
             }
         }
+        // `debug.agendaQuickTitle` "title": its quick view; `debug.agendaQuickEdit`: its Edit;
+        // `debug.agendaUndo`: the toast's Undo.
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaQuickTitle"))) { note in
+            let title = note.object as? String ?? ""
+            if let t = tasks.items.first(where: { $0.title == title }) { openQuick("t" + t.id) }
+            else if let e = calendar.events.first(where: { $0.title == title }) { openQuick("e" + e.id) }
+            appendAppLog("nb.log", "[Agenda] debug quick \(quick ?? "none")")
+        }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaQuickEdit"))) { _ in
+            guard let q = quick else { appendAppLog("nb.log", "[Agenda] debug edit: no quick view"); return }
+            let t = tasks.items.first(where: { "t" + $0.id == q })
+            appendAppLog("nb.log", "[Agenda] debug edit \(q): task \(t != nil), details \(t.flatMap { tasks.details($0.id) } != nil)")
+            if let t, let d = tasks.details(t.id) { startEdit(task: t, d) }
+            else if let e = calendar.events.first(where: { "e" + $0.id == q }), let d = calendar.details(e) { startEdit(event: e, d) }
+        }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaUndo"))) { _ in
+            if let action = undo?.action { action(); undo = nil; appendAppLog("nb.log", "[Agenda] debug undo") }
+        }
         // `debug.agendaDeleteTask` "title": deletes the open tasks with exactly that title (a key test's leftover).
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDeleteTask"))) { note in
             guard let title = note.object as? String, !title.isEmpty else { return }
@@ -220,6 +246,7 @@ struct AgendaView: View {
             if KeepDebug.agendaTasksOnly { filter = .tasks; showUndated = true }
             hoverRow = KeepDebug.agendaHover
             laterRow = KeepDebug.agendaLater
+            quick = KeepDebug.agendaQuick
             if let sw = KeepDebug.agendaSwipe?.split(separator: "_"), sw.count == 2, let x = Double(sw[1]) {
                 swipeID = String(sw[0]); swipeX = x
             }
@@ -228,6 +255,9 @@ struct AgendaView: View {
                 switch KeepDebug.agendaOpen {
                 case "help"?: helpOpen = true
                 case "details"?, "edetails"?: detailsOpen = true
+                case "confirm"?: confirmDelete = true
+                case "editing"?:
+                    if let t = tasks.items.first(where: { $0.id == "2" }), let d = tasks.details(t.id) { startEdit(task: t, d) }
                 case "when"?: menuSource = .chip(.when)
                 case "repeat"?: menuSource = .chip(.repeating)
                 case "group"?: menuSource = .groupChip
@@ -298,6 +328,7 @@ struct AgendaView: View {
                 list
                 if helpOpen { help.transition(.opacity) }
                 if detailsOpen { details.transition(.opacity) }
+                if let q = quick, !detailsOpen, !helpOpen { quickView(q).transition(.opacity.combined(with: .move(edge: .bottom))) }
                 // The menu sits on the list's bottom edge, right above the composer, whatever
                 // the composer's height (one or two rows of chips).
                 if let items = menuItems, !items.isEmpty {
@@ -308,6 +339,7 @@ struct AgendaView: View {
             }
             .animation(.easeOut(duration: 0.15), value: helpOpen)
             .animation(.easeOut(duration: 0.15), value: detailsOpen)
+            .animation(.spring(response: 0.28, dampingFraction: 0.86), value: quick)
             composer
         }
     }
@@ -594,6 +626,10 @@ struct AgendaView: View {
                 quickIcon("link", "Copy the meeting link") { copy(url.absoluteString, what: "Meeting link") }
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
+            if hovered {
+                quickIcon("eye", "Quick view") { openQuick("e" + e.id) }
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
             if hovered && !canJoin {
                 Button(e.meeting != nil ? "Join" : "Open") { e.meeting != nil ? calendar.join(e) : calendar.openCalendarApp(at: e.start) }
                     .buttonStyle(.plain).pointer()
@@ -619,7 +655,7 @@ struct AgendaView: View {
         .opacity(past && hoverRow != "e" + e.id ? 0.5 : 1)
         .contentShape(Rectangle())
         .onHover { over in withAnimation(.easeOut(duration: 0.15)) { hoverRow = over ? "e" + e.id : (hoverRow == "e" + e.id ? nil : hoverRow) } }
-        .onTapGesture { calendar.openCalendarApp(at: e.start) }
+        .onTapGesture { openQuick("e" + e.id) }
         .pointer()
         .contextMenu {
             if e.meeting != nil { Button("Join") { calendar.join(e) } }
@@ -679,6 +715,7 @@ struct AgendaView: View {
                 HStack(spacing: 4) {
                     quickIcon("checkmark", "Done", tint: Color(hex: "#4ADE80"), fill: Color(hex: "#30D158").opacity(0.18)) { complete(t) }
                     quickIcon("clock", "Later") { withAnimation(.easeOut(duration: 0.15)) { laterRow = t.id } }
+                    quickIcon("eye", "Quick view") { openQuick("t" + t.id) }
                     quickIcon("trash", "Delete", tint: Color(hex: "#F4A3AA")) { deleteTask(t) }
                 }
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -695,6 +732,8 @@ struct AgendaView: View {
             .fill(overdue ? Color(hex: "#F4505E").opacity(hovered ? 0.14 : 0.08) : Color.white.opacity(hovered ? 0.07 : 0)))
         .modifier(RowLift(on: hovered))
         .contentShape(Rectangle())
+        .onTapGesture { openQuick("t" + t.id) }
+        .pointer()
         .onHover { over in withAnimation(.easeOut(duration: 0.15)) { hoverRow = over ? "t" + t.id : (hoverRow == "t" + t.id ? nil : hoverRow) } }
         .contextMenu {
             Menu("Move to list") {
@@ -717,6 +756,267 @@ struct AgendaView: View {
             Button("Open in Reminders") { tasks.openReminders() }
             Button("Delete", role: .destructive) { deleteTask(t) }
         }
+    }
+
+    // MARK: Quick view
+
+    /// The rows in the order the day shows them, for ↑ ↓ in the quick view.
+    private var orderedIDs: [String] {
+        let s = sections
+        var ids = s.overdue.map { "t" + $0.id } + s.allDayTasks.map { "t" + $0.id }
+        ids += s.timeline.map { entry in
+            switch entry {
+            case .event(let e): "e" + e.id
+            case .task(let t): "t" + t.id
+            }
+        }
+        if showUndated { ids += s.undated.map { "t" + $0.id } }
+        return ids
+    }
+
+    private func openQuick(_ id: String) {
+        confirmDelete = false
+        laterRow = nil
+        helpOpen = false
+        detailsOpen = false
+        quick = id
+        composing = true
+    }
+
+    @ViewBuilder
+    private func quickView(_ id: String) -> some View {
+        if id.hasPrefix("t"), let t = tasks.items.first(where: { "t" + $0.id == id }), let d = tasks.details(t.id) {
+            taskQuickView(t, d)
+        } else if id.hasPrefix("e"), let e = calendar.events.first(where: { "e" + $0.id == id }), let d = calendar.details(e) {
+            eventQuickView(e, d)
+        } else {
+            // Gone meanwhile (done, deleted, moved elsewhere): nothing to show.
+            Color.clear.onAppear {
+                appendAppLog("nb.log", "[Agenda] quick view closed: \(id.hasPrefix("t") ? "task" : "event") not found (in list: \(tasks.items.contains { "t" + $0.id == id }))")
+                quick = nil
+            }
+        }
+    }
+
+    private func sheet<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) { content() }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: "#17181C")))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.09)))
+            .shadow(color: .black.opacity(0.55), radius: 18, y: -6)
+    }
+
+    private func quickHeader(_ title: String, color: Color, bar: Bool, marks: Int) -> some View {
+        HStack(spacing: 10) {
+            if bar { RoundedRectangle(cornerRadius: 1.5).fill(color).frame(width: 3, height: 18) }
+            else { Circle().fill(color).frame(width: 9, height: 9) }
+            Text(title).font(.system(size: 15, weight: .bold)).lineLimit(2)
+            if marks > 0 {
+                Text(String(repeating: "!", count: marks)).font(.system(size: 12, weight: .heavy)).foregroundColor(Color(hex: "#F4505E"))
+            }
+            Spacer(minLength: 6)
+            Text("↑↓ · Esc").font(.system(size: 10)).foregroundColor(Color(hex: "#6B7079"))
+            Button { quick = nil; confirmDelete = false } label: {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundColor(Color(hex: "#8E939C"))
+                    .frame(width: 20, height: 20).background(Circle().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain).pointer().help("Close (Esc)")
+        }
+    }
+
+    private func field(_ label: String, _ value: String?, accent: Bool = false, lines: Int = 1) -> some View {
+        Group {
+            if let value, !value.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(label).font(.system(size: 10.5, weight: .bold)).foregroundColor(Color(hex: "#8E939C")).frame(width: 66, alignment: .leading)
+                    Text(value).font(.system(size: 11.5, weight: accent ? .semibold : .regular))
+                        .foregroundColor(accent ? Color(hex: "#67E8F9") : Color(hex: "#D9DBDF"))
+                        .lineLimit(lines).textSelection(.enabled)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private func sheetButton(_ title: String, primary: Color? = nil, light: Bool = false, danger: Bool = false,
+                             _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 11.5, weight: .bold))
+                .foregroundColor(primary != nil ? (light ? .white : Color(hex: "#04210F")) : (danger ? Color(hex: "#F4A3AA") : Color(hex: "#F5F6F8")))
+                .padding(.horizontal, 13).frame(height: 28)
+                .background(Capsule().fill(primary ?? Color.white.opacity(0.09)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).pointer()
+    }
+
+    private func taskQuickView(_ t: TaskItem, _ d: TasksStore.Details) -> some View {
+        let list = tasks.list(d.listID)
+        let x = d.extras
+        return sheet {
+            quickHeader(d.title, color: list?.color ?? .gray, bar: false, marks: x.priority)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 7) {
+                    field("When", d.due.map { TaskComposer.label($0, hasTime: d.hasTime) + (d.hasTime ? "" : " · all day") } ?? "No time", accent: d.due != nil)
+                    field("Repeat", x.repeating?.label, accent: true)
+                    field("Alerts", x.alerts.isEmpty ? nil : x.alerts.map(AgendaExtras.alertLabel).joined(separator: ", "), accent: true)
+                    field("List", list?.title)
+                    field("Priority", x.priority > 0 ? ["", "Low", "Medium", "High"][x.priority] : nil)
+                    field("Place", x.place)
+                    field("Note", x.note, lines: 4)
+                    if let link = x.link {
+                        HStack(spacing: 10) {
+                            Text("Link").font(.system(size: 10.5, weight: .bold)).foregroundColor(Color(hex: "#8E939C")).frame(width: 66, alignment: .leading)
+                            Button(link.host ?? link.absoluteString) { NSWorkspace.shared.open(link) }
+                                .buttonStyle(.plain).pointer().font(.system(size: 11.5, weight: .semibold)).foregroundColor(Color(hex: "#3B9EFF"))
+                        }
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                sheetButton("Delete", danger: true) { quick = nil; deleteTask(t) }
+                sheetButton("Open in Reminders") { tasks.openReminders() }
+                Spacer(minLength: 6)
+                sheetButton("Edit") { startEdit(task: t, d) }
+                if let c = laterChoices.first(where: { $0.short == "Tomorrow" }) {
+                    sheetButton("Tomorrow") { later(t, to: c.due, hasTime: c.hasTime, title: c.title) }
+                }
+                sheetButton("Done", primary: Color(hex: "#30D158")) { quick = nil; complete(t) }
+            }
+        }
+    }
+
+    private func eventQuickView(_ e: CalEvent, _ d: CalendarStore.Details) -> some View {
+        let cal = calendar.calendar(d.calendarID)
+        let x = d.extras
+        let when: String = d.allDay ? TaskComposer.label(d.start, hasTime: false) + " · all day"
+            : "\(TaskComposer.label(d.start, hasTime: false)) · \(d.start.formatted(date: .omitted, time: .shortened)) – \(d.end.formatted(date: .omitted, time: .shortened))"
+        let people = d.people.isEmpty ? nil : (d.people.prefix(4).joined(separator: ", ") + (d.people.count > 4 ? " and \(d.people.count - 4) more" : ""))
+        return sheet {
+            quickHeader(d.title, color: cal?.color ?? .blue, bar: true, marks: 0)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 7) {
+                    field("When", when, accent: true)
+                    field("Repeat", x.repeating?.label, accent: true)
+                    field("Alerts", x.alerts.isEmpty ? nil : x.alerts.map(AgendaExtras.alertLabel).joined(separator: ", "), accent: true)
+                    field("Calendar", cal?.title)
+                    field("Place", x.place)
+                    field("Meeting", e.meeting.map(CalendarStore.meetingApp))
+                    field("People", people, lines: 2)
+                    field("Note", x.note, lines: 4)
+                    if let locked = d.locked {
+                        Text(locked).font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C")).padding(.top, 2)
+                    }
+                }
+            }
+            if confirmDelete {
+                HStack(spacing: 8) {
+                    Text(d.repeats ? "Delete this event, or it and the ones after it?" : "Delete this event?")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Spacer(minLength: 6)
+                    sheetButton("Cancel") { confirmDelete = false }
+                    if d.repeats { sheetButton("This and later", danger: true) { deleteEvent(e, allFuture: true) } }
+                    sheetButton(d.repeats ? "This one" : "Delete", danger: true) { deleteEvent(e, allFuture: false) }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    if d.locked == nil { sheetButton("Delete", danger: true) { confirmDelete = true } }
+                    sheetButton("Open in Calendar") { calendar.openCalendarApp(at: d.start) }
+                    if let url = e.meeting ?? x.link { sheetButton("Copy link") { copy(url.absoluteString, what: "Link") } }
+                    Spacer(minLength: 6)
+                    if d.locked == nil { sheetButton("Edit") { startEdit(event: e, d) } }
+                    if e.meeting != nil { sheetButton("Join", primary: Color(hex: "#0A84FF"), light: true) { calendar.join(e) } }
+                }
+            }
+        }
+    }
+
+    private func deleteEvent(_ e: CalEvent, allFuture: Bool) {
+        quick = nil
+        confirmDelete = false
+        calendar.delete(e, allFuture: allFuture)
+        say("Deleted · \(e.title)", undo: nil)
+    }
+
+    // MARK: Editing an item in the composer
+
+    private func startEdit(task t: TaskItem, _ d: TasksStore.Details) {
+        let tag = TaskComposer.tag(for: d.listID, in: listGroups)
+        let line = AgendaEditLine.line(kind: .task, title: d.title, due: d.due, hasTime: d.hasTime, end: nil, tag: tag,
+                                       extras: d.extras, includeNote: !d.noteHasLines)
+        load(line, kind: .task, hasDate: d.due != nil, extras: d.extras, noteKept: d.noteHasLines,
+             target: EditTarget(id: "t" + t.id, keepNotes: d.noteHasLines, repeats: false, title: d.title))
+    }
+
+    private func startEdit(event e: CalEvent, _ d: CalendarStore.Details) {
+        let tag = TaskComposer.tag(for: d.calendarID, in: calendarGroups)
+        let line = AgendaEditLine.line(kind: .event, title: d.title, due: d.start, hasTime: !d.allDay, end: d.end, tag: tag,
+                                       extras: d.extras, includeNote: !d.noteHasLines)
+        load(line, kind: .event, hasDate: true, extras: d.extras, noteKept: d.noteHasLines,
+             target: EditTarget(id: "e" + e.id, keepNotes: d.noteHasLines, repeats: d.repeats, title: d.title))
+    }
+
+    private func load(_ line: String, kind k: AgendaKind, hasDate: Bool, extras x: AgendaExtras, noteKept: Bool, target: EditTarget) {
+        var known = x
+        if noteKept { known.note = nil }
+        let stray = AgendaEditLine.strays(in: line, kind: k, hasDate: hasDate, extras: known, lists: k == .task ? listGroups : calendarGroups)
+        quick = nil
+        text = line
+        // After the line's own change has reset the chips' state.
+        DispatchQueue.main.async {
+            kindOverride = k
+            skipDate = stray.date
+            skipTag = false
+            skipPieces = stray.pieces
+            editing = target
+            editAllFuture = false
+            openDetails(true)
+        }
+    }
+
+    private func cancelEdit() {
+        editing = nil
+        text = ""
+        detailsOpen = false
+    }
+
+    private func saveEdit(_ edit: EditTarget) {
+        if edit.id.hasPrefix("t") {
+            let p = parsedTask
+            guard !p.title.isEmpty else { return }
+            let id = String(edit.id.dropFirst())
+            let undo = tasks.update(id, title: p.title, due: p.due, hasTime: p.hasTime, listID: p.listID ?? tasks.items.first { $0.id == id }?.listID,
+                                    extras: extras, keepNotes: edit.keepNotes)
+            say(undo == nil ? "Reminders didn't take the change" : "Saved · \(p.title)", undo: undo)
+        } else {
+            let p = parsedEvent
+            guard !p.title.isEmpty, let start = p.start, let end = p.end,
+                  let e = calendar.events.first(where: { "e" + $0.id == edit.id }) else { return }
+            let ok = calendar.update(e, title: p.title, start: start, end: end, allDay: p.allDay, calendarID: p.calendarID ?? e.calendarID,
+                                     extras: extras, keepNotes: edit.keepNotes, allFuture: edit.repeats && editAllFuture)
+            say(ok ? "Saved · \(p.title)" : "The calendar didn't take the change", undo: nil)
+        }
+        editing = nil
+        text = ""
+        detailsOpen = false
+    }
+
+    private func editBanner(_ edit: EditTarget) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pencil").font(.system(size: 10, weight: .bold)).foregroundColor(Color(hex: "#FDE68A"))
+            Text("Editing · \(edit.title)").font(.system(size: 10.5, weight: .semibold)).foregroundColor(Color(hex: "#FDE68A")).lineLimit(1)
+            if edit.keepNotes {
+                Text("its note is kept as it is").font(.system(size: 10)).foregroundColor(Color(hex: "#8E939C"))
+            }
+            if edit.repeats {
+                segments(["This one", "This and later"], selected: editAllFuture ? 1 : 0) { editAllFuture = $0 == 1 }
+            }
+            Spacer(minLength: 6)
+            Button("Cancel") { cancelEdit() }.buttonStyle(.plain).pointer()
+                .font(.system(size: 10.5, weight: .semibold)).foregroundColor(Color(hex: "#8E939C"))
+        }
+        .padding(.leading, 2)
     }
 
     // MARK: Swipes
@@ -986,12 +1286,13 @@ struct AgendaView: View {
         let ready = k == .task ? !t.title.isEmpty : (!e.title.isEmpty && e.start != nil)
         let typing = !text.trimmingCharacters(in: .whitespaces).isEmpty
         return VStack(alignment: .leading, spacing: 5) {
+            if let edit = editing { editBanner(edit) }
             if typing && !detailsOpen {
                 // Wraps to a second row when a line has many pieces, so none is hidden.
                 ChipFlowLayout(spacing: 6) {
                     Text(ready ? "Will add" : (k == .event ? "Add a day or a time" : "Type a task")).font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
                         .frame(height: 20)
-                    if tasksOn && eventsOn { kindSwitch(k) }
+                    if tasksOn && eventsOn && editing == nil { kindSwitch(k) }
                     if k == .task {
                         whenChip(t.due.map { TaskComposer.label($0, hasTime: t.hasTime) } ?? "No time", read: t.due != nil)
                         if let l = t.listID.flatMap(tasks.list) ?? tasks.newTaskList { groupChip(l.title, l.color, read: t.listID != nil) }
@@ -1041,7 +1342,7 @@ struct AgendaView: View {
                 }
                 .buttonStyle(.plain).pointer().help("What you can type")
                 Button(action: add) {
-                    Text("Return").font(.system(size: 10, weight: .heavy)).foregroundColor(Color(hex: "#04161A"))
+                    Text(editing == nil ? "Return" : "Save").font(.system(size: 10, weight: .heavy)).foregroundColor(Color(hex: "#04161A"))
                         .padding(.horizontal, 10).frame(height: 22)
                         .background(Capsule().fill(Color(hex: "#22D3EE").opacity(ready ? 1 : 0.35)))
                 }
@@ -1072,6 +1373,15 @@ struct AgendaView: View {
     }
 
     private func key(_ key: KeyEquivalent) -> KeyPress.Result {
+        // The quick view open: ↑ ↓ go to the item before or after it.
+        if let q = quick, key == .upArrow || key == .downArrow {
+            let ids = orderedIDs
+            if let i = ids.firstIndex(of: q) {
+                let next = i + (key == .downArrow ? 1 : -1)
+                if ids.indices.contains(next) { confirmDelete = false; quick = ids[next] }
+            }
+            return .handled
+        }
         if let items = menuItems, !items.isEmpty {
             switch key {
             case .upArrow: menuRow = (menuRow - 1 + items.count) % items.count
@@ -1088,7 +1398,9 @@ struct AgendaView: View {
     /// Escape closes the help, then the menu; with neither open the notch closes as anywhere else.
     private func escape() {
         if helpOpen { helpOpen = false; return }
+        if quick != nil { quick = nil; confirmDelete = false; return }
         if detailsOpen { detailsOpen = false; composing = true; return }
+        if editing != nil { cancelEdit(); return }
         if menuSource != nil { menuSource = nil; return }
         if let items = menuItems, !items.isEmpty { menuClosed = true; return }
         NotificationCenter.default.post(name: .islandCollapse, object: nil)
@@ -1299,7 +1611,7 @@ struct AgendaView: View {
             }
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 7) {
-                    if tasksOn && eventsOn { detailRow("Kind") { kindSwitch(k) } }
+                    if tasksOn && eventsOn && editing == nil { detailRow("Kind") { kindSwitch(k) } }
                     detailRow("When") { whenControls(date: date, timed: timed, k: k, e: e) }
                     detailRow("Repeat") { repeatControls(x.repeating, hasDate: date != nil) }
                     if let r = x.repeating { detailRow("Ends") { endControls(r) } }
@@ -1576,7 +1888,7 @@ struct AgendaView: View {
                 .frame(width: 184)
             }
             }
-            Text("↑↓ Return pick · click a chip to change it, × keeps it as text · ⌘Return or the sliders: Details · Esc closes")
+            Text("Rows: click for the quick view, hover for actions, swipe with two fingers · chips: click to change, × keeps as text · ⌘Return: Details · Esc closes")
                 .font(.system(size: 10)).foregroundColor(Color(hex: "#6B7079"))
         }
         .padding(14)
@@ -1640,6 +1952,7 @@ struct AgendaView: View {
     }
 
     private func add() {
+        if let edit = editing { saveEdit(edit); return }
         if kind == .task {
             let p = parsedTask
             guard !p.title.isEmpty else { return }

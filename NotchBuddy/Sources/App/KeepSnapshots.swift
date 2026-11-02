@@ -59,11 +59,12 @@ enum KeepSnapshots {
                 : (options.contains("edetails") ? "/e Standup 9:30 for 15m every 2 weeks on mon and thu until 31 dec alert 5m, 1h @Room 4 #work"
                 : (options.contains("full") || options.contains("repeat") || options.contains("details") ? "Pay rent every month on 1st alert 1d !! @Bank // bring the cheque"
                 : (options.contains("when") || options.contains("group") ? "Call mom tomorrow 6pm #personal" : nil)))))))
-            KeepDebug.agendaOpen = ["help", "when", "group", "repeat", "edetails", "details"].first { options.contains($0) }
+            KeepDebug.agendaOpen = ["help", "when", "group", "repeat", "edetails", "details", "confirm", "editing"].first { options.contains($0) }
             KeepDebug.agendaTasksOnly = options.contains("tasks")
             KeepDebug.agendaHover = options.first { $0.hasPrefix("hover=") }.map { String($0.dropFirst(6)) }
             KeepDebug.agendaLater = options.first { $0.hasPrefix("later=") }.map { String($0.dropFirst(6)) }
             KeepDebug.agendaSwipe = options.first { $0.hasPrefix("swipe=") }.map { String($0.dropFirst(6)) }
+            KeepDebug.agendaQuick = options.first { $0.hasPrefix("quick=") }.map { String($0.dropFirst(6)) }
             size = CGSize(width: IslandConst.openWidth, height: 420)
             view = AnyView(islandFrame(height: 420, width: IslandConst.openWidth) { AgendaView(state: state) })
         case "eventalert":

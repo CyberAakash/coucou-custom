@@ -238,12 +238,29 @@ final class TasksStore: ObservableObject {
     func add(title: String, due: Date?, hasTime: Bool, listID: String?, extras: AgendaExtras = .none) -> String? {
         guard access == .granted else { return nil }
         let r = EKReminder(eventStore: store)
+        fill(r, title: title, due: due, hasTime: hasTime, listID: listID, extras: extras, keepNotes: false)
+        do {
+            try store.save(r, commit: true)
+            appendAppLog("nb.log", "[Tasks] added to \(r.calendar.title)\(due == nil ? "" : ", due")")
+            reload()
+            return r.calendarItemIdentifier
+        } catch {
+            appendAppLog("nb.log", "[Tasks] add failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// A reminder set from the composer's reading, new or edited: everything replaced but the
+    /// notes when `keepNotes` (a note of several lines the one-line composer could not hold).
+    private func fill(_ r: EKReminder, title: String, due: Date?, hasTime: Bool, listID: String?, extras: AgendaExtras, keepNotes: Bool) {
         r.title = title
         r.calendar = listID.flatMap { id in store.calendars(for: .reminder).first { $0.calendarIdentifier == id } }
-            ?? store.defaultCalendarForNewReminders()
+            ?? (r.calendar ?? store.defaultCalendarForNewReminders())
+        r.recurrenceRules?.forEach { r.removeRecurrenceRule($0) }
+        r.alarms?.forEach { r.removeAlarm($0) }
         // A repeat needs a day to repeat from: its first one when none was typed.
         let due = due ?? extras.repeating.map { $0.firstDay(from: .now) }
-        if let due { setDue(r, due, hasTime: hasTime) }
+        if let due { setDue(r, due, hasTime: hasTime) } else { r.dueDateComponents = nil }
         if let due, extras.repeating != nil || !extras.alerts.isEmpty {
             r.alarms?.forEach { r.removeAlarm($0) }
             // Before a day without a time counts from 9 AM, as Reminders' own all-day alerts do.
@@ -260,17 +277,132 @@ final class TasksStore: ObservableObject {
         r.priority = extras.reminderPriority
         // Reminders drops a place it cannot map (it keeps one only for arrive / leave alerts), so
         // the place is the note's first line.
-        r.notes = [extras.place.map { Self.placePrefix + $0 }, extras.note].compactMap { $0 }.joined(separator: "\n").nilIfEmpty
+        if !keepNotes {
+            r.notes = [extras.place.map { Self.placePrefix + $0 }, extras.note].compactMap { $0 }.joined(separator: "\n").nilIfEmpty
+        }
         r.url = extras.link
+    }
+
+    /// Everything a task has, for its quick view and for editing it in the composer.
+    struct Details {
+        var title: String
+        var due: Date?
+        var hasTime: Bool
+        var listID: String
+        var extras: AgendaExtras
+        /// The note has lines the one-line composer cannot hold: editing keeps it as it is.
+        var noteHasLines: Bool
+        var done: Bool
+    }
+
+    func details(_ id: String) -> Details? {
+        #if DEBUG
+        // Snapshots: the sample task as it would read (a note and a repeat on the second one).
+        if debugFrozen, let t = items.first(where: { $0.id == id }) {
+            var x = AgendaExtras()
+            x.priority = t.priority == 0 ? 0 : (t.priority < 5 ? 3 : (t.priority == 5 ? 2 : 1))
+            x.place = t.place
+            if id == "2" { x.repeating = AgendaRepeat(frequency: .weekly, weekdays: [2, 5]); x.alerts = [600]; x.note = "Check the wing text against the camera housing." }
+            return Details(title: t.title, due: t.due, hasTime: t.hasTime, listID: t.listID, extras: x, noteHasLines: false, done: false)
+        }
+        #endif
+        guard let r = reminder(id) else { return nil }
+        let comps = r.dueDateComponents
+        let due = comps.flatMap { Calendar.current.date(from: $0) }
+        let hasTime = comps?.hour != nil
+        var x = AgendaExtras()
+        x.repeating = r.recurrenceRules?.first.flatMap(Self.repeatOf)
+        x.priority = r.priority == 0 ? 0 : (r.priority < 5 ? 3 : (r.priority == 5 ? 2 : 1))
+        x.link = r.url
+        var lines = (r.notes ?? "").components(separatedBy: "\n")
+        if let first = lines.first, first.hasPrefix(Self.placePrefix) {
+            x.place = String(first.dropFirst(Self.placePrefix.count)).trimmingCharacters(in: .whitespaces).nilIfEmpty
+            lines.removeFirst()
+        } else if let own = r.location?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            x.place = own
+        }
+        let note = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        x.note = note.nilIfEmpty
+        if let due {
+            let anchor = hasTime ? due : Calendar.current.startOfDay(for: due)
+            x.alerts = (r.alarms ?? []).compactMap { a in
+                if let at = a.absoluteDate { return hasTime ? due.timeIntervalSince(at) : anchor.addingTimeInterval(9 * 3600).timeIntervalSince(at) }
+                return hasTime ? -a.relativeOffset : 9 * 3600 - a.relativeOffset
+            }.filter { $0 >= 0 }.sorted()
+            // A timed task's own alert at its time is the default, not a choice to show.
+            if hasTime && x.repeating == nil && x.alerts == [0] { x.alerts = [] }
+        }
+        return Details(title: r.title ?? "", due: due, hasTime: hasTime, listID: r.calendar.calendarIdentifier, extras: x,
+                       noteHasLines: note.contains("\n"), done: r.isCompleted)
+    }
+
+    /// Saves an edited task; returns what puts it back as it was.
+    @discardableResult
+    func update(_ id: String, title: String, due: Date?, hasTime: Bool, listID: String?, extras: AgendaExtras, keepNotes: Bool) -> (() -> Void)? {
+        guard let r = reminder(id) else { return nil }
+        let before = snapshot(r)
+        fill(r, title: title, due: due, hasTime: hasTime, listID: listID, extras: extras, keepNotes: keepNotes)
         do {
             try store.save(r, commit: true)
-            appendAppLog("nb.log", "[Tasks] added to \(r.calendar.title)\(due == nil ? "" : ", due")")
+            appendAppLog("nb.log", "[Tasks] edited")
             reload()
-            return r.calendarItemIdentifier
         } catch {
-            appendAppLog("nb.log", "[Tasks] add failed: \(error.localizedDescription)")
+            appendAppLog("nb.log", "[Tasks] edit failed: \(error.localizedDescription)")
             return nil
         }
+        return { [weak self] in
+            guard let self, let r = self.reminder(id) else { return }
+            self.restore(before, into: r)
+            self.commit(r, "edit undone")
+        }
+    }
+
+    private struct Snapshot {
+        let title: String?, list: EKCalendar?, due: DateComponents?, alarms: [EKAlarm], rules: [EKRecurrenceRule]
+        let priority: Int, location: String?, notes: String?, url: URL?
+    }
+
+    private func snapshot(_ r: EKReminder) -> Snapshot {
+        Snapshot(title: r.title, list: r.calendar, due: r.dueDateComponents,
+                 alarms: (r.alarms ?? []).compactMap { $0.copy() as? EKAlarm },
+                 rules: (r.recurrenceRules ?? []).compactMap { $0.copy() as? EKRecurrenceRule },
+                 priority: r.priority, location: r.location, notes: r.notes, url: r.url)
+    }
+
+    private func restore(_ s: Snapshot, into r: EKReminder) {
+        r.title = s.title
+        if let list = s.list { r.calendar = list }
+        r.dueDateComponents = s.due
+        r.alarms?.forEach { r.removeAlarm($0) }
+        s.alarms.forEach { r.addAlarm($0) }
+        r.recurrenceRules?.forEach { r.removeRecurrenceRule($0) }
+        s.rules.forEach { r.addRecurrenceRule($0) }
+        r.priority = s.priority
+        r.location = s.location
+        r.notes = s.notes
+        r.url = s.url
+    }
+
+    /// Reminders' and Calendar's rule as the composer's repeat (the first day of the month only).
+    nonisolated static func repeatOf(_ rule: EKRecurrenceRule) -> AgendaRepeat {
+        let f: AgendaRepeat.Frequency = switch rule.frequency {
+        case .daily: .daily
+        case .weekly: .weekly
+        case .monthly: .monthly
+        case .yearly: .yearly
+        @unknown default: .weekly
+        }
+        var r = AgendaRepeat(frequency: f, interval: max(1, rule.interval))
+        r.weekdays = (rule.daysOfTheWeek ?? []).map { $0.dayOfTheWeek.rawValue }.sorted()
+        r.dayOfMonth = rule.daysOfTheMonth?.first?.intValue
+        if let end = rule.recurrenceEnd {
+            if end.occurrenceCount > 0 { r.count = end.occurrenceCount }
+            else if let date = end.endDate {
+                // Saved as the day after (an UNTIL at midnight): shown as its last day.
+                r.until = Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: date))
+            }
+        }
+        return r
     }
 
     private func setDue(_ r: EKReminder, _ due: Date, hasTime: Bool) {
@@ -310,9 +442,7 @@ final class TasksStore: ObservableObject {
     @discardableResult
     func delete(_ id: String) -> (() -> Void)? {
         guard let r = reminder(id) else { return nil }
-        let copy = (title: r.title, list: r.calendar, due: r.dueDateComponents, alarms: r.alarms?.map { $0.copy() as? EKAlarm },
-                    rules: r.recurrenceRules?.map { $0.copy() as? EKRecurrenceRule }, priority: r.priority,
-                    location: r.location, notes: r.notes, url: r.url)
+        let copy = snapshot(r)
         do {
             try store.remove(r, commit: true)
             appendAppLog("nb.log", "[Tasks] deleted")
@@ -323,15 +453,7 @@ final class TasksStore: ObservableObject {
         }
         return { [store] in
             let back = EKReminder(eventStore: store)
-            back.title = copy.title
-            back.calendar = copy.list
-            back.dueDateComponents = copy.due
-            copy.alarms?.compactMap { $0 }.forEach { back.addAlarm($0) }
-            copy.rules?.compactMap { $0 }.forEach { back.addRecurrenceRule($0) }
-            back.priority = copy.priority
-            back.location = copy.location
-            back.notes = copy.notes
-            back.url = copy.url
+            TasksStore.shared.restore(copy, into: back)
             TasksStore.shared.commit(back, "restored")
         }
     }

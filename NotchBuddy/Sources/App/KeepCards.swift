@@ -173,6 +173,8 @@ enum KeepDebug {
     nonisolated(unsafe) static var agendaLater: String?
     /// The Agenda's snapshot: a row mid-swipe ("t2_130", "e3_-140").
     nonisolated(unsafe) static var agendaSwipe: String?
+    /// The Agenda's snapshot: a row's quick view open ("t2", "e2").
+    nonisolated(unsafe) static var agendaQuick: String?
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }

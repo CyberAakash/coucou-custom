@@ -258,17 +258,7 @@ final class CalendarStore: ObservableObject {
     func add(title: String, start: Date, end: Date, allDay: Bool, calendarID: String?, extras: AgendaExtras = .none) -> String? {
         guard access == .granted else { return nil }
         let e = EKEvent(eventStore: store)
-        e.title = title
-        e.startDate = start
-        e.endDate = end
-        e.isAllDay = allDay
-        e.calendar = calendarID.flatMap { id in store.calendars(for: .event).first { $0.calendarIdentifier == id } }
-            ?? store.defaultCalendarForNewEvents
-        extras.alerts.forEach { e.addAlarm(EKAlarm(relativeOffset: -$0)) }
-        if let rule = extras.repeating.map(TasksStore.rule) { e.addRecurrenceRule(rule) }
-        e.location = extras.place
-        e.notes = extras.note
-        e.url = extras.link
+        fill(e, title: title, start: start, end: end, allDay: allDay, calendarID: calendarID, extras: extras, keepNotes: false)
         do {
             try store.save(e, span: .thisEvent, commit: true)
             appendAppLog("nb.log", "[Calendar] added to \(e.calendar.title)")
@@ -277,6 +267,109 @@ final class CalendarStore: ObservableObject {
         } catch {
             appendAppLog("nb.log", "[Calendar] add failed: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    /// An event set from the composer's reading, new or edited: everything replaced but the notes
+    /// when `keepNotes` (an invitation's text the one-line composer cannot hold).
+    private func fill(_ e: EKEvent, title: String, start: Date, end: Date, allDay: Bool, calendarID: String?,
+                      extras: AgendaExtras, keepNotes: Bool) {
+        e.title = title
+        e.startDate = start
+        e.endDate = end
+        e.isAllDay = allDay
+        e.calendar = calendarID.flatMap { id in store.calendars(for: .event).first { $0.calendarIdentifier == id } }
+            ?? (e.calendar ?? store.defaultCalendarForNewEvents)
+        e.alarms?.forEach { e.removeAlarm($0) }
+        extras.alerts.forEach { e.addAlarm(EKAlarm(relativeOffset: -$0)) }
+        e.recurrenceRules?.forEach { e.removeRecurrenceRule($0) }
+        if let rule = extras.repeating.map(TasksStore.rule) { e.addRecurrenceRule(rule) }
+        e.location = extras.place
+        if !keepNotes { e.notes = extras.note }
+        e.url = extras.link
+    }
+
+    /// The one occurrence a row shows (a repeating event has one identifier for all of them).
+    private func occurrence(_ ev: CalEvent) -> EKEvent? {
+        let id = ev.id.split(separator: "@").first.map(String.init) ?? ev.id
+        let p = store.predicateForEvents(withStart: ev.start.addingTimeInterval(-60), end: ev.end.addingTimeInterval(60), calendars: nil)
+        return store.events(matching: p).first { $0.eventIdentifier == id && abs($0.startDate.timeIntervalSince(ev.start)) < 1 }
+            ?? store.event(withIdentifier: id)
+    }
+
+    /// Everything an event has, for its quick view and for editing it in the composer.
+    struct Details {
+        var title: String
+        var start: Date
+        var end: Date
+        var allDay: Bool
+        var calendarID: String
+        var extras: AgendaExtras
+        var people: [String]
+        var noteHasLines: Bool
+        /// Someone else's invitation, or a read-only calendar: neither edited nor deleted here.
+        var locked: String?
+        var repeats: Bool
+    }
+
+    func details(_ ev: CalEvent) -> Details? {
+        #if DEBUG
+        // Snapshots: the sample event as it would read.
+        if debugFrozen {
+            var x = AgendaExtras()
+            x.place = ev.location
+            x.alerts = [300]
+            if ev.repeats { x.repeating = AgendaRepeat(frequency: .weekly, weekdays: [2, 3, 4, 5, 6]) }
+            return Details(title: ev.title, start: ev.start, end: ev.end, allDay: ev.allDay, calendarID: ev.calendarID, extras: x,
+                           people: ev.attendees > 1 ? ["Priya", "Rahul", "Sam", "Wen", "Ana"] : [], noteHasLines: false,
+                           locked: nil, repeats: ev.repeats)
+        }
+        #endif
+        guard let e = occurrence(ev) else { return nil }
+        var x = AgendaExtras()
+        x.repeating = e.recurrenceRules?.first.map(TasksStore.repeatOf)
+        x.alerts = (e.alarms ?? []).map { a in a.absoluteDate.map { e.startDate.timeIntervalSince($0) } ?? -a.relativeOffset }
+            .filter { $0 >= 0 }.sorted()
+        x.place = e.location?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let note = (e.notes ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        x.note = note.nilIfEmpty
+        x.link = e.url
+        let people = (e.attendees ?? []).compactMap { $0.name ?? $0.url.absoluteString.replacingOccurrences(of: "mailto:", with: "") }
+        var locked: String?
+        if !e.calendar.allowsContentModifications { locked = "Its calendar is read-only." }
+        else if e.isAllDay, e.endDate.timeIntervalSince(e.startDate) > 86400 * 1.01 { locked = "It spans several days: change it in Calendar." }
+        else if let org = e.organizer, !org.isCurrentUser, !(e.attendees ?? []).isEmpty { locked = "An invitation from \(org.name ?? "someone else"): change it in Calendar." }
+        return Details(title: e.title ?? "", start: e.startDate, end: e.endDate, allDay: e.isAllDay, calendarID: e.calendar.calendarIdentifier,
+                       extras: x, people: people, noteHasLines: note.contains("\n") || note.count > 200, locked: locked,
+                       repeats: e.hasRecurrenceRules)
+    }
+
+    /// Saves an edited event: this occurrence, or it and the ones after it.
+    @discardableResult
+    func update(_ ev: CalEvent, title: String, start: Date, end: Date, allDay: Bool, calendarID: String?,
+                extras: AgendaExtras, keepNotes: Bool, allFuture: Bool) -> Bool {
+        guard let e = occurrence(ev) else { return false }
+        fill(e, title: title, start: start, end: end, allDay: allDay, calendarID: calendarID, extras: extras, keepNotes: keepNotes)
+        do {
+            try store.save(e, span: allFuture ? .futureEvents : .thisEvent, commit: true)
+            appendAppLog("nb.log", "[Calendar] edited\(allFuture ? " (and later ones)" : "")")
+            reload()
+            return true
+        } catch {
+            appendAppLog("nb.log", "[Calendar] edit failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Deletes this occurrence, or it and the ones after it.
+    func delete(_ ev: CalEvent, allFuture: Bool) {
+        guard let e = occurrence(ev) else { return }
+        do {
+            try store.remove(e, span: allFuture ? .futureEvents : .thisEvent, commit: true)
+            appendAppLog("nb.log", "[Calendar] deleted\(allFuture ? " (and later ones)" : "")")
+            reload()
+        } catch {
+            appendAppLog("nb.log", "[Calendar] delete failed: \(error.localizedDescription)")
         }
     }
 
