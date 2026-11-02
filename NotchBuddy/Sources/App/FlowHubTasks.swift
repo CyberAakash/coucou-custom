@@ -1,7 +1,7 @@
 #if !APPSTORE
 import SwiftUI
 
-// MARK: - Settings → Routines → Tasks (coucou-custom fork, roadmap phase 2)
+// MARK: - Settings → Agenda → Tasks (coucou-custom fork, roadmap phase 2)
 //
 // Tasks in the notch's Agenda on or off, access to Reminders, and the lists: which ones show in the
 // notch and which one new tasks go to. The tasks themselves live in Reminders.
