@@ -5,7 +5,8 @@ import Foundation
 //
 // "Call the bank tomorrow 6pm #personal" → title "Call the bank", tomorrow at 6 PM, the Personal
 // list. Dates come from Apple's date detector (on this Mac, no network); `#word` picks the list
-// whose name starts with it. Nothing else is guessed: what is not a date or a list stays in the title.
+// whose name starts with it, else the first whose name has a word starting with it ("#work" →
+// "Zoho Pending Work"). Nothing else is guessed: what is not a date or a list stays in the title.
 
 struct ParsedTask: Equatable {
     var title: String
@@ -27,6 +28,9 @@ enum TaskComposer {
     private static let timePattern = try? NSRegularExpression(
         pattern: "\\d{1,2}(:\\d{2})?\\s*(am|pm|a\\.m\\.|p\\.m\\.)|\\b\\d{1,2}:\\d{2}\\b|\\bnoon\\b|\\bmidnight\\b|\\bmorning\\b|\\bafternoon\\b|\\bevening\\b|\\btonight\\b|\\bin \\d+\\s*(minutes?|mins?|hours?|hrs?)\\b|\\bat \\d{1,2}\\b",
         options: [.caseInsensitive])
+    /// Apple's detector reads "lunch fri 1pm" or "dinner tomorrow" with the meal as part of the date:
+    /// the meal word stays in the title.
+    private static let mealPattern = try? NSRegularExpression(pattern: "^(lunch|dinner|breakfast|brunch|supper)\\b\\s*", options: [.caseInsensitive])
 
     static func parse(_ text: String, lists: [(id: String, title: String)], now: Date = .now) -> ParsedTask {
         var result = ParsedTask(title: "", due: nil, hasTime: false, listID: nil, dateRange: nil, tagRange: nil)
@@ -36,7 +40,8 @@ enum TaskComposer {
         if let tagPattern {
             for m in tagPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
                 let word = ns.substring(with: m.range(at: 1)).lowercased()
-                if let list = lists.first(where: { key($0.title).hasPrefix(word) }) {
+                if let list = lists.first(where: { key($0.title).hasPrefix(word) })
+                    ?? lists.first(where: { words($0.title).contains { $0.hasPrefix(word) } }) {
                     result.listID = list.id
                     result.tagRange = Range(m.range, in: text)
                     break
@@ -63,8 +68,14 @@ enum TaskComposer {
             if let m = matches.first(where: { m in
                 guard let r = Range(m.range, in: text) else { return false }
                 return result.tagRange.map { !$0.overlaps(r) } ?? true
-            }), let date = m.date, let r = Range(m.range, in: text) {
-                let phrase = String(text[r])
+            }), let date = m.date, var r = Range(m.range, in: text) {
+                var phrase = String(text[r])
+                if let meal = mealPattern?.firstMatch(in: phrase, range: NSRange(location: 0, length: (phrase as NSString).length)),
+                   meal.range.length < (phrase as NSString).length,
+                   let cut = Range(meal.range, in: phrase) {
+                    r = text.index(r.lowerBound, offsetBy: phrase.distance(from: phrase.startIndex, to: cut.upperBound))..<r.upperBound
+                    phrase = String(text[r])
+                }
                 let timed = timePattern?.firstMatch(in: phrase, range: NSRange(location: 0, length: (phrase as NSString).length)) != nil
                 result.due = timed ? date : Calendar.current.startOfDay(for: date)
                 result.hasTime = timed
@@ -91,6 +102,11 @@ enum TaskComposer {
         title.lowercased().filter { !$0.isWhitespace }
     }
 
+    /// A list name's words, lower case: "Zoho Pending Work" → zoho, pending, work.
+    static func words(_ title: String) -> [String] {
+        title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
     /// "Tomorrow 6:00 PM", "Fri 2 Nov", "Today": the chip under the composer and a task's time.
     static func label(_ due: Date, hasTime: Bool, now: Date = .now) -> String {
         let cal = Calendar.current
@@ -114,8 +130,31 @@ struct ParsedEvent: Equatable {
     var end: Date?
     var allDay: Bool
     var calendarID: String?
-    /// "for 30 min" was typed: the Agenda's composer then makes an event, not a task.
+    /// "for 30 min" was typed: the Agenda's composer suggests an event (it never switches by itself).
     var hasLength = false
+}
+
+/// What the Agenda's composer adds: a task unless the line or you say event.
+enum AgendaKind { case task, event }
+
+/// "/event" or "/e", "/task" or "/t", as a word of its own anywhere in the line: what it is, and
+/// the line without it. The last one typed wins.
+enum AgendaCommand {
+    private static let pattern = try? NSRegularExpression(pattern: "(?<!\\S)/(event|e|task|t)(?!\\S)", options: [.caseInsensitive])
+
+    static func read(_ text: String) -> (kind: AgendaKind?, rest: String) {
+        let ns = text as NSString
+        guard let pattern else { return (nil, text) }
+        let matches = pattern.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        guard let last = matches.last else { return (nil, text) }
+        let kind: AgendaKind = ns.substring(with: last.range(at: 1)).lowercased().hasPrefix("e") ? .event : .task
+        var rest = text
+        // From the end, so the ranges before stay valid.
+        for m in matches.reversed() {
+            if let r = Range(m.range, in: rest) { rest.replaceSubrange(r, with: " ") }
+        }
+        return (kind, rest.split(whereSeparator: \.isWhitespace).joined(separator: " "))
+    }
 }
 
 enum CalendarComposer {

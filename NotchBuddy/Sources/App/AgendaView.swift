@@ -7,8 +7,8 @@ import SwiftUI
 // Your day as one list: overdue tasks on top of today, then one timeline where calendar events
 // (a coloured bar and a time range, Join on a meeting with a link) and timed tasks (a ring at their
 // time) sit together, a "now" line through it; undated tasks folded under No time. The week strip
-// marks each day's events (dots) and tasks (a ring). One composer: a line with a length or a
-// calendar's #name makes an event, anything else a task; Task / Event (or Tab) overrides it.
+// marks each day's events (dots) and tasks (a ring). One composer: a line is a task unless it says
+// /event (or /e), or you pick Event or press Tab; a length only suggests an event.
 // The data stays where it lives: Reminders for tasks (TasksStore), the Mac's calendars for events
 // (CalendarStore).
 
@@ -21,7 +21,6 @@ struct AgendaView: View {
     @Environment(\.islandViewActive) private var active
 
     enum Filter: String, CaseIterable { case all = "All", events = "Events", tasks = "Tasks" }
-    enum Kind { case task, event }
 
     struct UndoNote: Identifiable {
         let id = UUID()
@@ -51,7 +50,7 @@ struct AgendaView: View {
     @State private var filter: Filter = .all
     @State private var showUndated = false
     @State private var text = ""
-    @State private var kindOverride: Kind?
+    @State private var kindOverride: AgendaKind?
     @FocusState private var composing: Bool
     @State private var undo: UndoNote?
 
@@ -502,24 +501,27 @@ struct AgendaView: View {
 
     // MARK: Composer
 
+    private var command: (kind: AgendaKind?, rest: String) { AgendaCommand.read(text) }
+
     private var parsedTask: ParsedTask {
-        TaskComposer.parse(text, lists: tasks.lists.map { (id: $0.id, title: $0.title) })
+        TaskComposer.parse(command.rest, lists: tasks.lists.map { (id: $0.id, title: $0.title) })
     }
 
     private var parsedEvent: ParsedEvent {
-        CalendarComposer.parse(text, calendars: calendar.calendars.filter(\.writable).map { (id: $0.id, title: $0.title) })
+        CalendarComposer.parse(command.rest, calendars: calendar.calendars.filter(\.writable).map { (id: $0.id, title: $0.title) })
     }
 
-    /// An event when a length was typed or the #name is a calendar's and not a list's; the filter
-    /// shown leans it; Task / Event (or Tab) overrides all of it.
-    private var kind: Kind {
-        if let kindOverride { return kindOverride }
+    /// A task unless /event is typed or Event picked (Task / Event and Tab win over the line);
+    /// only one kind when the other is off or not allowed.
+    private var kind: AgendaKind {
         if !eventsOn { return .task }
         if !tasksOn { return .event }
-        let e = parsedEvent, t = parsedTask
-        if e.hasLength || (e.calendarID != nil && t.listID == nil) { return .event }
-        if filter == .events { return .event }
-        return .task
+        return kindOverride ?? command.kind ?? .task
+    }
+
+    /// A length was typed on what is still a task by default: offer the switch, never make it.
+    private var looksLikeEvent: Bool {
+        tasksOn && eventsOn && kindOverride == nil && command.kind == nil && parsedEvent.hasLength
     }
 
     private var composer: some View {
@@ -535,6 +537,7 @@ struct AgendaView: View {
                     if k == .task {
                         chip(t.due.map { TaskComposer.label($0, hasTime: t.hasTime) } ?? "No time", accent: t.due != nil)
                         if let l = t.listID.flatMap(tasks.list) ?? tasks.newTaskList { colourChip(l.title, l.color) }
+                        if looksLikeEvent { eventHint }
                     } else {
                         if let label = CalendarComposer.label(e) { chip(label, accent: true) }
                         if let c = e.calendarID.flatMap(calendar.calendar) ?? calendar.newEventCalendar { colourChip(c.title, c.color) }
@@ -544,7 +547,7 @@ struct AgendaView: View {
                 .transition(.opacity)
             }
             HStack(spacing: 8) {
-                TextField(tasksOn && eventsOn ? "Add a task, or an event with a length or #calendar…" : (eventsOn ? "Add an event…" : "Add a task…"), text: $text)
+                TextField(tasksOn && eventsOn ? "Add a task… start with /e for an event" : (eventsOn ? "Add an event…" : "Add a task…"), text: $text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .focusEffectDisabled()   // the capsule's border already shows focus
@@ -571,9 +574,25 @@ struct AgendaView: View {
         .animation(.easeOut(duration: 0.15), value: typing)
     }
 
-    private func kindSwitch(_ k: Kind) -> some View {
+    private var eventHint: some View {
+        Button { kindOverride = .event } label: {
+            HStack(spacing: 6) {
+                Text("Looks like an event")
+                Text("Tab").font(.system(size: 9, weight: .heavy))
+                    .padding(.horizontal, 4).frame(height: 14)
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: "#9CCBFF").opacity(0.5)))
+            }
+            .font(.system(size: 10.5, weight: .semibold)).foregroundColor(Color(hex: "#9CCBFF"))
+            .padding(.horizontal, 9).frame(height: 20)
+            .background(Capsule().fill(Color(hex: "#0A84FF").opacity(0.14)))
+        }
+        .buttonStyle(.plain).pointer()
+        .help("Make it an event")
+    }
+
+    private func kindSwitch(_ k: AgendaKind) -> some View {
         HStack(spacing: 2) {
-            ForEach([Kind.task, .event], id: \.self) { option in
+            ForEach([AgendaKind.task, .event], id: \.self) { option in
                 Button { kindOverride = option } label: {
                     Text(option == .task ? "Task" : "Event").font(.system(size: 10, weight: .bold))
                         .foregroundColor(k == option ? (option == .event ? Color(hex: "#CFE5FF") : Color(hex: "#F5F6F8")) : Color(hex: "#8E939C"))

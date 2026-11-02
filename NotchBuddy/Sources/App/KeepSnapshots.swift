@@ -49,10 +49,11 @@ enum KeepSnapshots {
             size = CGSize(width: 640, height: h)
             view = AnyView(islandFrame(height: h) { ShelfView(state: state) })
         case "agenda":
-            // agenda[:sample][:typing|:event][:tasks]: sample data in both stores, a task or an event being typed, the Tasks filter.
+            // agenda[:sample][:typing|:event|:hint][:tasks]: sample data in both stores, a task, an event or a task with a length being typed, the Tasks filter.
             if options.contains("sample") { TasksStore.shared.debugFill(); CalendarStore.shared.debugFill() }
             KeepDebug.tasksComposerText = options.contains("typing") ? "Call the bank tomorrow 6pm #personal"
-                : (options.contains("event") ? "Lunch with Rita tomorrow 1pm for 45 min" : nil)
+                : (options.contains("event") ? "/e Lunch with Rita tomorrow 1pm for 45 min"
+                : (options.contains("hint") ? "Review the PR today 5pm for 30 min" : nil))
             KeepDebug.agendaTasksOnly = options.contains("tasks")
             size = CGSize(width: IslandConst.openWidth, height: 420)
             view = AnyView(islandFrame(height: 420, width: IslandConst.openWidth) { AgendaView(state: state) })
