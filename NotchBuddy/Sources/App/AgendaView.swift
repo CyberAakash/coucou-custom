@@ -51,6 +51,16 @@ struct AgendaView: View {
     @State private var showUndated = false
     @State private var text = ""
     @State private var kindOverride: AgendaKind?
+    /// The suggestions menu: what opened it when not the word being typed, the row chosen, and
+    /// Escape closing it until the line changes.
+    enum MenuSource { case whenSlash, whenChip, groupChip }
+    @State private var menuSource: MenuSource?
+    @State private var menuRow = 0
+    @State private var menuClosed = false
+    @State private var helpOpen = false
+    /// A chip's ×: that piece stays plain title text for this line.
+    @State private var skipDate = false
+    @State private var skipTag = false
     @FocusState private var composing: Bool
     @State private var undo: UndoNote?
 
@@ -79,12 +89,54 @@ struct AgendaView: View {
             if on { day = Calendar.current.startOfDay(for: .now); reload() }
             composing = on
         }
+        #if DEBUG
+        // `debug.agendaDump`: the composer's state in nb.log, to check the keys from a terminal.
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDump"))) { _ in
+            let menu = menuItems?.map(\.title).joined(separator: "|") ?? "-"
+            appendAppLog("nb.log", "[Agenda] text='\(text)' kind=\(kind) menu=[\(menu)] row=\(menuRow) help=\(helpOpen) focus=\(composing) skipDate=\(skipDate) key=\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "none")")
+        }
+        // `debug.agendaDeleteTask` "title": deletes the open tasks with exactly that title (a key test's leftover).
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDeleteTask"))) { note in
+            guard let title = note.object as? String, !title.isEmpty else { return }
+            let hits = tasks.items.filter { $0.title == title }
+            appendAppLog("nb.log", "[Agenda] debug delete '\(title)': \(hits.count) found")
+            hits.forEach { tasks.delete($0.id) }
+        }
+        // `debug.agendaKeys` "8,0,20s": key presses posted to Coucou alone (never to the app in front);
+        // "s" after a code holds Shift.
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaKeys"))) { note in
+            let items = (note.object as? String ?? "").split(separator: ",").map(String.init)
+            for (i, item) in items.enumerated() {
+                let shift = item.hasSuffix("s")
+                guard let code = UInt16(shift ? String(item.dropLast()) : item) else { continue }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 * Double(i)) {
+                    let pid = getpid()
+                    for down in [true, false] {
+                        let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+                        if shift { e?.flags = .maskShift }
+                        e?.postToPid(pid)
+                    }
+                }
+            }
+        }
+        #endif
         .onAppear {
             #if DEBUG
             if let sample = KeepDebug.tasksComposerText { text = sample }
             if KeepDebug.agendaTasksOnly { filter = .tasks; showUndated = true }
+            // After the sample text's own change has closed any menu.
+            DispatchQueue.main.async {
+                switch KeepDebug.agendaOpen {
+                case "help"?: helpOpen = true
+                case "when"?: menuSource = .whenChip
+                case "group"?: menuSource = .groupChip
+                default: break
+                }
+            }
             #endif
             reload()
+            // Opened straight on the Agenda: active from the start, so its onChange never fires.
+            if active { composing = true }
         }
     }
 
@@ -138,7 +190,11 @@ struct AgendaView: View {
             weekStrip
             dayHeader
             missingAccess
-            list
+            ZStack(alignment: .top) {
+                list
+                if helpOpen { help.transition(.opacity) }
+            }
+            .animation(.easeOut(duration: 0.15), value: helpOpen)
             composer
         }
     }
@@ -503,13 +559,22 @@ struct AgendaView: View {
 
     private var command: (kind: AgendaKind?, rest: String) { AgendaCommand.read(text) }
 
+    private var listGroups: [(id: String, title: String)] { tasks.lists.map { (id: $0.id, title: $0.title) } }
+    private var calendarGroups: [(id: String, title: String)] { calendar.calendars.filter(\.writable).map { (id: $0.id, title: $0.title) } }
+    /// The lists for a task, the calendars for an event: what #word picks from.
+    private var groups: [(id: String, title: String)] { kind == .task ? listGroups : calendarGroups }
+
     private var parsedTask: ParsedTask {
-        TaskComposer.parse(command.rest, lists: tasks.lists.map { (id: $0.id, title: $0.title) })
+        TaskComposer.parse(command.rest, lists: listGroups, readDate: !skipDate, readTag: !skipTag)
     }
 
     private var parsedEvent: ParsedEvent {
-        CalendarComposer.parse(command.rest, calendars: calendar.calendars.filter(\.writable).map { (id: $0.id, title: $0.title) })
+        CalendarComposer.parse(command.rest, calendars: calendarGroups, readDate: !skipDate, readTag: !skipTag)
     }
+
+    /// Where the date and the tag sit in the line, read even when their chip was undone, so a
+    /// choice from a chip's menu takes their place.
+    private var pieces: ParsedTask { TaskComposer.parse(command.rest, lists: groups) }
 
     /// A task unless /event is typed or Event picked (Task / Event and Tab win over the line);
     /// only one kind when the other is off or not allowed.
@@ -535,12 +600,12 @@ struct AgendaView: View {
                     Text(ready ? "Will add" : (k == .event ? "Add a day or a time" : "Type a task")).font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
                     if tasksOn && eventsOn { kindSwitch(k) }
                     if k == .task {
-                        chip(t.due.map { TaskComposer.label($0, hasTime: t.hasTime) } ?? "No time", accent: t.due != nil)
-                        if let l = t.listID.flatMap(tasks.list) ?? tasks.newTaskList { colourChip(l.title, l.color) }
+                        whenChip(t.due.map { TaskComposer.label($0, hasTime: t.hasTime) } ?? "No time", read: t.due != nil)
+                        if let l = t.listID.flatMap(tasks.list) ?? tasks.newTaskList { groupChip(l.title, l.color, read: t.listID != nil) }
                         if looksLikeEvent { eventHint }
                     } else {
-                        if let label = CalendarComposer.label(e) { chip(label, accent: true) }
-                        if let c = e.calendarID.flatMap(calendar.calendar) ?? calendar.newEventCalendar { colourChip(c.title, c.color) }
+                        whenChip(CalendarComposer.label(e) ?? "Add a day or a time", read: e.start != nil)
+                        if let c = e.calendarID.flatMap(calendar.calendar) ?? calendar.newEventCalendar { groupChip(c.title, c.color, read: e.calendarID != nil) }
                     }
                 }
                 .padding(.leading, 2)
@@ -553,12 +618,21 @@ struct AgendaView: View {
                     .focusEffectDisabled()   // the capsule's border already shows focus
                     .focused($composing)
                     .onSubmit(add)
-                    .onKeyPress(.tab) {
-                        guard tasksOn && eventsOn, typing else { return .ignored }
-                        kindOverride = kind == .task ? .event : .task
-                        return .handled
+                    .onKeyPress(keys: [.upArrow, .downArrow, .return, .tab]) { press in key(press.key) }
+                    .onExitCommand(perform: escape)
+                    .onChange(of: text) { _, new in
+                        menuClosed = false
+                        menuRow = 0
+                        menuSource = nil   // typing closes a chip's or /at's menu
+                        if new == "?" { text = ""; helpOpen = true }
+                        if new.isEmpty { kindOverride = nil; skipDate = false; skipTag = false; menuSource = nil }
                     }
-                    .onChange(of: text) { _, new in if new.isEmpty { kindOverride = nil } }
+                Button { helpOpen.toggle() } label: {
+                    Text("?").font(.system(size: 11, weight: .heavy)).foregroundColor(helpOpen ? Color(hex: "#04161A") : Color(hex: "#8E939C"))
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(helpOpen ? Color(hex: "#22D3EE") : Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain).pointer().help("What you can type")
                 Button(action: add) {
                     Text("Return").font(.system(size: 10, weight: .heavy)).foregroundColor(Color(hex: "#04161A"))
                         .padding(.horizontal, 10).frame(height: 22)
@@ -572,6 +646,247 @@ struct AgendaView: View {
             .overlay(Capsule().strokeBorder(Color(hex: "#22D3EE").opacity(composing ? 0.45 : 0.12)))
         }
         .animation(.easeOut(duration: 0.15), value: typing)
+        .overlay(alignment: .bottomLeading) {
+            if let items = menuItems, !items.isEmpty {
+                suggestions(items)
+                    .padding(.bottom, typing ? 62 : 38)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    // MARK: Suggestions
+
+    /// The menu now: a chip's or /at's choices, else what the word being typed asks for.
+    private var menuItems: [AgendaSuggestion]? {
+        guard !helpOpen else { return nil }
+        switch menuSource {
+        case .whenSlash, .whenChip: return AgendaSuggest.when
+        case .groupChip: return AgendaSuggest.menu(for: "#", groups: groups, groupKind: kind == .task ? "list" : "calendar")
+        case nil:
+            guard !menuClosed else { return nil }
+            return AgendaSuggest.menu(for: text, groups: groups, groupKind: kind == .task ? "list" : "calendar")
+        }
+    }
+
+    private func key(_ key: KeyEquivalent) -> KeyPress.Result {
+        if let items = menuItems, !items.isEmpty {
+            switch key {
+            case .upArrow: menuRow = (menuRow - 1 + items.count) % items.count
+            case .downArrow: menuRow = (menuRow + 1) % items.count
+            default: pick(items[min(menuRow, items.count - 1)])
+            }
+            return .handled
+        }
+        guard key == .tab, tasksOn && eventsOn, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return .ignored }
+        kindOverride = kind == .task ? .event : .task
+        return .handled
+    }
+
+    /// Escape closes the help, then the menu; with neither open the notch closes as anywhere else.
+    private func escape() {
+        if helpOpen { helpOpen = false; return }
+        if menuSource != nil { menuSource = nil; return }
+        if let items = menuItems, !items.isEmpty { menuClosed = true; return }
+        NotificationCenter.default.post(name: .islandCollapse, object: nil)
+    }
+
+    /// The line again with the /e or /t it had, after a piece of the rest changed.
+    private func withCommand(_ rest: String) -> String {
+        switch command.kind {
+        case .event?: return "/e " + rest
+        case .task?: return "/t " + rest
+        case nil: return rest
+        }
+    }
+
+    private func pick(_ item: AgendaSuggestion) {
+        switch item.action {
+        case .when:
+            menuSource = .whenSlash
+        case .help:
+            text = AgendaSuggest.apply("", to: text).trimmingCharacters(in: .whitespaces)
+            helpOpen = true
+        case .insert(let words):
+            switch menuSource {
+            case .whenChip:
+                text = withCommand(AgendaSuggest.replace(pieces.dateRange, in: command.rest, with: words))
+                skipDate = false
+            case .groupChip:
+                text = withCommand(AgendaSuggest.replace(pieces.tagRange, in: command.rest, with: words))
+                skipTag = false
+            case .whenSlash, nil:
+                text = AgendaSuggest.apply(words, to: text)
+                if words.hasPrefix("#") { skipTag = false } else if menuSource == .whenSlash { skipDate = false }
+            }
+            menuSource = nil
+        }
+        menuRow = 0
+        composing = true
+    }
+
+    private func suggestions(_ items: [AgendaSuggestion]) -> some View {
+        let row = min(menuRow, items.count - 1)
+        return VStack(alignment: .leading, spacing: 1) {
+            ForEach(Array(items.prefix(7).enumerated()), id: \.element.id) { i, item in
+                Button { pick(item) } label: {
+                    HStack(spacing: 9) {
+                        if let id = item.groupID {
+                            Circle().fill((kind == .task ? tasks.list(id)?.color : calendar.calendar(id)?.color) ?? .gray).frame(width: 8, height: 8)
+                        } else if item.symbol == "clock" {
+                            Image(systemName: "clock").font(.system(size: 10, weight: .semibold)).foregroundColor(Color(hex: "#67E8F9")).frame(width: 14)
+                        } else {
+                            Text(item.symbol).font(.system(size: 11, design: .monospaced)).foregroundColor(Color(hex: "#67E8F9")).frame(width: 70, alignment: .leading)
+                        }
+                        Text(item.title).font(.system(size: 11.5, weight: i == row ? .semibold : .regular)).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(item.detail).font(.system(size: 10.5)).foregroundColor(Color(hex: "#6B7079")).lineLimit(1)
+                    }
+                    .padding(.horizontal, 9).frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(i == row ? Color(hex: "#22D3EE").opacity(0.12) : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).pointer()
+                .onHover { if $0 { menuRow = i } }
+            }
+            HStack(spacing: 12) {
+                Text("↑↓ choose"); Text("Return pick"); Text("Esc close"); Text("? help")
+            }
+            .font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
+            .padding(.horizontal, 9).padding(.top, 3).padding(.bottom, 1)
+        }
+        .padding(5)
+        .frame(width: 380)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(hex: "#1B1C20")))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+    }
+
+    // MARK: Chips
+
+    /// The day and time read: click to choose another, × to leave the words in the title.
+    private func whenChip(_ label: String, read: Bool) -> some View {
+        chipButton(label, accent: read, color: nil, undo: read ? { skipDate = true } : nil) {
+            menuSource = menuSource == .whenChip ? nil : .whenChip
+            composing = true
+        }
+    }
+
+    /// The list or calendar: click to choose another, × (when a #tag was read) to leave it in the title.
+    private func groupChip(_ title: String, _ color: Color, read: Bool) -> some View {
+        chipButton(title, accent: false, color: color, undo: read ? { skipTag = true } : nil) {
+            menuSource = menuSource == .groupChip ? nil : .groupChip
+            composing = true
+        }
+    }
+
+    private func chipButton(_ title: String, accent: Bool, color: Color?, undo: (() -> Void)?, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 5) {
+            Button(action: action) {
+                HStack(spacing: 5) {
+                    if let color { Circle().fill(color).frame(width: 7, height: 7) }
+                    Text(title).font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(accent ? Color(hex: "#67E8F9") : (color != nil ? Color(hex: "#C5C8CD") : Color(hex: "#8E939C")))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).pointer()
+            if let undo {
+                Button(action: undo) {
+                    Image(systemName: "xmark").font(.system(size: 7, weight: .heavy)).foregroundColor(Color(hex: "#8E939C"))
+                        .frame(width: 14, height: 14).background(Circle().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain).pointer().help("Don't read this: keep the words in the title")
+            }
+        }
+        .padding(.leading, 9).padding(.trailing, undo == nil ? 9 : 3).frame(height: 20)
+        .background(Capsule().fill(accent ? Color(hex: "#22D3EE").opacity(0.14) : Color.white.opacity(0.06)))
+    }
+
+    // MARK: Help
+
+    private var help: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Text("Adding to your Agenda").font(.system(size: 13, weight: .bold))
+                Text("Just type; everything here is optional.").font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C"))
+                Spacer(minLength: 0)
+                Button { helpOpen = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundColor(Color(hex: "#8E939C"))
+                        .frame(width: 20, height: 20).background(Circle().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain).pointer().help("Close (Esc)")
+            }
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    helpLabel("WHAT IT IS")
+                    helpRow("Task", "the default", plain: true)
+                    helpRow("/event /e", "an event")
+                    helpRow("/task /t", "a task")
+                    helpRow("Tab", "switch kind")
+                    helpLabel("WHEN").padding(.top, 4)
+                    helpRow("tomorrow 6pm", "day and time")
+                    helpRow("fri 2pm", "a weekday")
+                    helpRow("in 2 hours", "from now")
+                    helpRow("for 45m", "event length")
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    helpLabel("GROUPS AND KEYS")
+                    helpRow("#word", "list or calendar")
+                    helpRow("/", "commands")
+                    helpRow("#", "pick a list")
+                    helpRow("/at", "pick a time")
+                    helpRow("↑↓ Return", "pick from a menu")
+                    helpRow("Click a chip", "change it", plain: true)
+                    helpRow("× on a chip", "keep as text", plain: true)
+                    helpRow("Esc", "close")
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    helpLabel("TRY ONE")
+                    ForEach(helpExamples, id: \.self) { example in
+                        Button {
+                            text = example
+                            helpOpen = false
+                            composing = true
+                        } label: {
+                            HStack {
+                                Text(example).font(.system(size: 11)).lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(AgendaCommand.read(example).kind == .event ? "event" : "task").font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
+                            }
+                            .padding(.horizontal, 8).frame(height: 24)
+                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.05)))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).pointer()
+                    }
+                }
+                .frame(width: 200)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: "#141518")))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+    }
+
+    private var helpExamples: [String] {
+        var out = ["Call the bank tomorrow 6pm", "Report in 2 hours"]
+        if tasksOn && eventsOn { out += ["/e Lunch fri 1pm for 1h", "/e Dentist tue 4pm for 30m"] }
+        return out
+    }
+
+    private func helpLabel(_ text: String) -> some View {
+        Text(text).font(.system(size: 8.5, weight: .heavy)).tracking(1).foregroundColor(Color(hex: "#6B7079"))
+    }
+
+    private func helpRow(_ code: String, _ meaning: String, plain: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(code).font(plain ? .system(size: 11) : .system(size: 10.5, design: .monospaced))
+                .foregroundColor(plain ? Color(hex: "#C5C8CD") : Color(hex: "#67E8F9"))
+                .frame(width: 92, alignment: .leading)
+            Text(meaning).font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
+        }
     }
 
     private var eventHint: some View {
@@ -607,22 +922,6 @@ struct AgendaView: View {
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.3)))
         .help("Tab switches")
-    }
-
-    private func chip(_ text: String, accent: Bool) -> some View {
-        Text(text).font(.system(size: 10.5, weight: .semibold))
-            .foregroundColor(accent ? Color(hex: "#67E8F9") : Color(hex: "#8E939C"))
-            .padding(.horizontal, 9).frame(height: 20)
-            .background(Capsule().fill(accent ? Color(hex: "#22D3EE").opacity(0.14) : Color.white.opacity(0.06)))
-    }
-
-    private func colourChip(_ title: String, _ color: Color) -> some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundColor(Color(hex: "#C5C8CD"))
-        }
-        .padding(.horizontal, 9).frame(height: 20)
-        .background(Capsule().fill(Color.white.opacity(0.06)))
     }
 
     private func add() {

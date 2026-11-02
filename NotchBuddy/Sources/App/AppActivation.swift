@@ -82,7 +82,8 @@ enum AppActivation {
         ) { note in
             let name = note.object as? String ?? "overview"
             MainActor.assumeIsolated {
-                let view: IslandView = name == "finished" ? .finished : name == "error" ? .error : .overview
+                // Any view by name ("agenda", "shelf"…); unknown names open home.
+                let view = IslandView(rawValue: name) ?? .overview
                 NotificationCenter.default.post(name: .hookExpand, object: view)
                 appendAppLog("nb.log", "[Notch] debug expand: \(view)")
             }
