@@ -48,16 +48,14 @@ enum KeepSnapshots {
             let h = KeepPanels.islandHeight(.shelf, layout: ShelfSettings.shared.layout) + (KeepDebug.filterOpen ? KeepPanels.filterRow : 0)
             size = CGSize(width: 640, height: h)
             view = AnyView(islandFrame(height: h) { ShelfView(state: state) })
-        case "tasks":
-            if options.contains("sample") { TasksStore.shared.debugFill() }
-            KeepDebug.tasksComposerText = options.contains("typing") ? "Call the bank tomorrow 6pm #personal" : nil
-            size = CGSize(width: 640, height: 330)
-            view = AnyView(islandFrame(height: 330) { TasksView(state: state) })
-        case "calendar":
-            if options.contains("sample") { CalendarStore.shared.debugFill() }
-            KeepDebug.tasksComposerText = options.contains("typing") ? "Lunch with Rita tomorrow 1pm for 45 min" : nil
-            size = CGSize(width: IslandConst.openWidth, height: 400)
-            view = AnyView(islandFrame(height: 400, width: IslandConst.openWidth) { CalendarView(state: state) })
+        case "agenda":
+            // agenda[:sample][:typing|:event][:tasks]: sample data in both stores, a task or an event being typed, the Tasks filter.
+            if options.contains("sample") { TasksStore.shared.debugFill(); CalendarStore.shared.debugFill() }
+            KeepDebug.tasksComposerText = options.contains("typing") ? "Call the bank tomorrow 6pm #personal"
+                : (options.contains("event") ? "Lunch with Rita tomorrow 1pm for 45 min" : nil)
+            KeepDebug.agendaTasksOnly = options.contains("tasks")
+            size = CGSize(width: IslandConst.openWidth, height: 420)
+            view = AnyView(islandFrame(height: 420, width: IslandConst.openWidth) { AgendaView(state: state) })
         case "meeting":
             // The Join card for a sample meeting starting now (Mochi is the island's, not drawn here).
             CalendarStore.shared.debugFill()

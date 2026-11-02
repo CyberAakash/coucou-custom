@@ -72,15 +72,9 @@ struct IslandViewContent: View {
             #else
             EmptyView()
             #endif
-        case .tasks:
+        case .agenda:
             #if !APPSTORE
-            TasksView(state: state)
-            #else
-            EmptyView()
-            #endif
-        case .calendar:
-            #if !APPSTORE
-            CalendarView(state: state)
+            AgendaView(state: state)
             #else
             EmptyView()
             #endif

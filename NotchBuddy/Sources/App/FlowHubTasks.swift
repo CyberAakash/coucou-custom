@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - Settings → Routines → Tasks (coucou-custom fork, roadmap phase 2)
 //
-// The notch's Tasks page on or off, access to Reminders, and the lists: which ones show in the
+// Tasks in the notch's Agenda on or off, access to Reminders, and the lists: which ones show in the
 // notch and which one new tasks go to. The tasks themselves live in Reminders.
 
 struct HubTasksSettings: View {
@@ -13,8 +13,8 @@ struct HubTasksSettings: View {
     var body: some View {
         HubLabel("Tasks")
         HubCard {
-            HubRow(title: "Tasks page in the notch",
-                   detail: "Your Reminders: type a task with a day, a time and #list; tick them off. Timed ones bring the Time's up card and show in the closed notch 15 minutes before.") {
+            HubRow(title: "Tasks in the Agenda",
+                   detail: "Your Reminders in the notch's Agenda, beside your events: type a task with a day, a time and #list; tick them off. Timed ones bring the Time's up card and show in the closed notch 15 minutes before.") {
                 Toggle("", isOn: $settings.enabled).toggleStyle(.switch).labelsHidden()
             }
             HubDivider()
