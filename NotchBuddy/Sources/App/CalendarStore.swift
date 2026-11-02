@@ -30,6 +30,8 @@ struct CalEvent: Identifiable, Equatable {
     /// A Zoom, Meet or Teams link found on the event.
     let meeting: URL?
     let attendees: Int
+    /// A loop beside the title in the Agenda.
+    var repeats = false
 }
 
 /// Settings → Agenda → Calendar: events in the Agenda on or off, the calendars left out, where new events go, the wing
@@ -178,7 +180,7 @@ final class CalendarStore: ObservableObject {
                  calendarID: e.calendar.calendarIdentifier,
                  location: e.location?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                  meeting: meetingLink(url: e.url, location: e.location, notes: e.notes),
-                 attendees: e.attendees?.count ?? 0)
+                 attendees: e.attendees?.count ?? 0, repeats: e.hasRecurrenceRules)
     }
 
     /// The first Zoom, Google Meet or Teams link on an event.
@@ -235,9 +237,10 @@ final class CalendarStore: ObservableObject {
 
     // MARK: Writing
 
-    /// Adds an event; returns its identifier, or nil when the calendar refused it.
+    /// Adds an event with what the composer read besides the time (repeat, alerts, place, note,
+    /// link); returns its identifier, or nil when the calendar refused it.
     @discardableResult
-    func add(title: String, start: Date, end: Date, allDay: Bool, calendarID: String?) -> String? {
+    func add(title: String, start: Date, end: Date, allDay: Bool, calendarID: String?, extras: AgendaExtras = .none) -> String? {
         guard access == .granted else { return nil }
         let e = EKEvent(eventStore: store)
         e.title = title
@@ -246,6 +249,11 @@ final class CalendarStore: ObservableObject {
         e.isAllDay = allDay
         e.calendar = calendarID.flatMap { id in store.calendars(for: .event).first { $0.calendarIdentifier == id } }
             ?? store.defaultCalendarForNewEvents
+        extras.alerts.forEach { e.addAlarm(EKAlarm(relativeOffset: -$0)) }
+        if let rule = extras.repeating.map(TasksStore.rule) { e.addRecurrenceRule(rule) }
+        e.location = extras.place
+        e.notes = extras.note
+        e.url = extras.link
         do {
             try store.save(e, span: .thisEvent, commit: true)
             appendAppLog("nb.log", "[Calendar] added to \(e.calendar.title)")
@@ -270,6 +278,37 @@ final class CalendarStore: ObservableObject {
     #if DEBUG
     private var debugFrozen = false
 
+    /// Save tests only: a "Coucou test" calendar made, read back in nb.log, and removed with its events.
+    func debugTest(_ action: String) {
+        let name = "Coucou test"
+        let mine = store.calendars(for: .event).filter { $0.title == name }
+        // No test calendar: an empty calendar filter means every calendar.
+        guard action == "setup" || !mine.isEmpty else { return }
+        switch action {
+        case "setup" where mine.isEmpty:
+            let c = EKCalendar(for: .event, eventStore: store)
+            c.title = name
+            c.source = store.defaultCalendarForNewEvents?.source
+            do { try store.saveCalendar(c, commit: true); appendAppLog("nb.log", "[Test] calendar made") }
+            catch { appendAppLog("nb.log", "[Test] calendar failed: \(error.localizedDescription)") }
+            reload()
+        case "dump":
+            let from = Calendar.current.startOfDay(for: .now)
+            guard !mine.isEmpty, let to = Calendar.current.date(byAdding: .day, value: 14, to: from) else { return }
+            var seen = Set<String>()
+            for e in store.events(matching: store.predicateForEvents(withStart: from, end: to, calendars: mine)) where seen.insert(e.eventIdentifier ?? "").inserted {
+                appendAppLog("nb.log", "[Test] event '\(e.title ?? "")' \(e.startDate.formatted()) – \(e.endDate.formatted(date: .omitted, time: .shortened)) allDay=\(e.isAllDay) alarms=\((e.alarms ?? []).map(\.relativeOffset)) rule=\(e.recurrenceRules?.first?.description ?? "-") place=\(e.location ?? "-") note=\(e.notes ?? "-") url=\(e.url?.absoluteString ?? "-")")
+            }
+        case "teardown":
+            for c in mine {
+                do { try store.removeCalendar(c, commit: true); appendAppLog("nb.log", "[Test] calendar removed") }
+                catch { appendAppLog("nb.log", "[Test] calendar remove failed: \(error.localizedDescription)") }
+            }
+            reload()
+        default: break
+        }
+    }
+
     /// Snapshots only: a sample week, as if the calendars had answered (never written anywhere).
     func debugFill() {
         debugFrozen = true
@@ -279,15 +318,16 @@ final class CalendarStore: ObservableObject {
         calendars = [CalCalendar(id: "w", title: "Work", account: "you@gmail.com", color: Color(hex: "#0A84FF"), writable: true),
                      CalCalendar(id: "p", title: "Personal", account: "iCloud", color: Color(hex: "#FF9F0A"), writable: true),
                      CalCalendar(id: "f", title: "Family", account: "iCloud", color: Color(hex: "#30D158"), writable: true)]
-        func ev(_ id: String, _ title: String, start: Date, minutes: Double, _ c: String, meet: String? = nil, people: Int = 0, place: String? = nil) -> CalEvent {
+        func ev(_ id: String, _ title: String, start: Date, minutes: Double, _ c: String, meet: String? = nil, people: Int = 0, place: String? = nil,
+                repeats: Bool = false) -> CalEvent {
             CalEvent(id: id, title: title, start: start, end: start.addingTimeInterval(minutes * 60), allDay: false, calendarID: c,
-                     location: place, meeting: meet.flatMap(URL.init(string:)), attendees: people)
+                     location: place, meeting: meet.flatMap(URL.init(string:)), attendees: people, repeats: repeats)
         }
         events = [
             CalEvent(id: "a", title: "Diwali leave plan", start: today, end: today.addingTimeInterval(86400), allDay: true,
                      calendarID: "p", location: nil, meeting: nil, attendees: 0),
             ev("1", "Inbox zero", start: now.addingTimeInterval(-90 * 60), minutes: 30, "w"),
-            ev("2", "IM stand-up", start: now.addingTimeInterval(8 * 60), minutes: 30, "w", meet: "https://zoho.zoom.us/j/123456789?pwd=abc", people: 6),
+            ev("2", "IM stand-up", start: now.addingTimeInterval(8 * 60), minutes: 30, "w", meet: "https://zoho.zoom.us/j/123456789?pwd=abc", people: 6, repeats: true),
             ev("3", "MICS tracker review", start: now.addingTimeInterval(4 * 3600), minutes: 60, "w", meet: "https://meet.google.com/abc-defg-hij"),
             ev("4", "Dinner with Priya", start: now.addingTimeInterval(9 * 3600), minutes: 60, "p", place: "Indiranagar"),
             ev("5", "School pickup", start: today.addingTimeInterval(86400 * 2 + 15 * 3600), minutes: 30, "f"),
@@ -304,7 +344,8 @@ final class CalendarStore: ObservableObject {
     }
 }
 
-private extension String {
+extension String {
+    /// Nil for an empty string: an event's or a reminder's blank place or note.
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 #endif

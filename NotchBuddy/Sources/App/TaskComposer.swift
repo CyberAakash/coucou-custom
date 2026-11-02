@@ -216,6 +216,222 @@ enum CalendarComposer {
         return "\(day) \(start.formatted(date: .omitted, time: .shortened)) – \(end.formatted(date: .omitted, time: .shortened))"
     }
 }
+// MARK: - The rest of a line: repeat, alerts, priority, place, note, link
+//
+// "Pay rent every month on 1st alert 1d !! @Bank // bring the cheque" → every month on the 1st, an
+// alert a day before, medium priority, at Bank, a note. These words are blanked out of the line
+// (same length, spaces) before the day, time and #tag are read, so those keep their places in the
+// line and a chip can still swap them.
+
+struct AgendaRepeat: Equatable {
+    enum Frequency: Equatable { case daily, weekly, monthly, yearly }
+    var frequency: Frequency
+    var interval = 1
+    /// 1 = Sunday … 7 = Saturday, as Calendar and EventKit count them.
+    var weekdays: [Int] = []
+    var dayOfMonth: Int?
+    var until: Date?
+    var count: Int?
+
+    /// "Every weekday", "Every 2 weeks", "Every Mon, Thu", "Every month on the 1st".
+    var label: String {
+        let names = Calendar.current.shortWeekdaySymbols
+        var out: String
+        switch frequency {
+        case .daily: out = interval == 1 ? "Every day" : "Every \(interval) days"
+        case .weekly:
+            if weekdays == [2, 3, 4, 5, 6] { out = "Every weekday" }
+            else if weekdays == [1, 7] { out = "Every weekend" }
+            else if !weekdays.isEmpty { out = (interval == 1 ? "Every " : "Every \(interval) weeks on ") + weekdays.map { names[$0 - 1] }.joined(separator: ", ") }
+            else { out = interval == 1 ? "Every week" : "Every \(interval) weeks" }
+        case .monthly:
+            out = interval == 1 ? "Every month" : "Every \(interval) months"
+            if let d = dayOfMonth { out += " on the \(AgendaExtras.ordinal(d))" }
+        case .yearly: out = interval == 1 ? "Every year" : "Every \(interval) years"
+        }
+        if let until { out += " until " + until.formatted(.dateTime.day().month(.abbreviated)) }
+        if let count { out += " · \(count) times" }
+        return out
+    }
+
+    /// A typed date moved to the first day the repeat falls on, its time kept ("every mon 7am"
+    /// typed on a Thursday → Monday 7 AM).
+    func aligned(_ date: Date, calendar: Calendar = .current) -> Date {
+        let day = firstDay(from: date, calendar: calendar)
+        let time = calendar.dateComponents([.hour, .minute, .second], from: date)
+        return calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: time.second ?? 0, of: day) ?? date
+    }
+
+    /// The first day it falls on from `from` (a weekday or a day of the month), for a line with a
+    /// repeat but no date: Reminders and Calendar need one to repeat from.
+    func firstDay(from: Date, calendar: Calendar = .current) -> Date {
+        let start = calendar.startOfDay(for: from)
+        for offset in 0..<370 {
+            guard let d = calendar.date(byAdding: .day, value: offset, to: start) else { break }
+            if !weekdays.isEmpty, !weekdays.contains(calendar.component(.weekday, from: d)) { continue }
+            if let dom = dayOfMonth, calendar.component(.day, from: d) != dom { continue }
+            return d
+        }
+        return start
+    }
+}
+
+struct AgendaExtras: Equatable {
+    enum Piece: Hashable { case repeating, alerts, priority, place, note, link }
+
+    var repeating: AgendaRepeat?
+    /// Seconds before the time; 0 is at the time.
+    var alerts: [TimeInterval] = []
+    /// 0 none, 1 low (!), 2 medium (!!), 3 high (!!!).
+    var priority = 0
+    var place: String?
+    var note: String?
+    var link: URL?
+    /// Where each piece sat in the line (UTF-16), to blank it and to swap it from a chip.
+    var ranges: [Piece: NSRange] = [:]
+
+    static let none = AgendaExtras()
+
+    /// Reminders' numbers: 1 high, 5 medium, 9 low, 0 none.
+    var reminderPriority: Int { [0, 9, 5, 1][max(0, min(3, priority))] }
+
+    static func alertLabel(_ seconds: TimeInterval) -> String {
+        if seconds == 0 { return "At the time" }
+        let m = Int(seconds / 60)
+        if m % 1440 == 0 { return m == 1440 ? "1 day before" : "\(m / 1440) days before" }
+        if m % 60 == 0 { return m == 60 ? "1 hour before" : "\(m / 60) hours before" }
+        return "\(m) min before"
+    }
+
+    static func ordinal(_ n: Int) -> String {
+        let suffix = (11...13).contains(n % 100) ? "th" : ["th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th"][n % 10]
+        return "\(n)\(suffix)"
+    }
+
+    private static let weekdayWords: [(String, Int)] = [
+        ("sunday", 1), ("sundays", 1), ("sun", 1), ("monday", 2), ("mondays", 2), ("mon", 2),
+        ("tuesday", 3), ("tuesdays", 3), ("tues", 3), ("tue", 3), ("wednesday", 4), ("wednesdays", 4), ("wed", 4),
+        ("thursday", 5), ("thursdays", 5), ("thurs", 5), ("thu", 5), ("friday", 6), ("fridays", 6), ("fri", 6),
+        ("saturday", 7), ("saturdays", 7), ("sat", 7),
+    ]
+    private static let weekdayAlternation = weekdayWords.map(\.0).sorted { $0.count > $1.count }.joined(separator: "|")
+
+    private static func regex(_ p: String) -> NSRegularExpression? { try? NSRegularExpression(pattern: p, options: [.caseInsensitive]) }
+    private static let linkPattern = regex("https?://\\S+")
+    /// A note runs to the end of the line, but a #tag ending the line is still the list.
+    private static let notePattern = regex("(?<!\\S)//\\s*(.*?)(\\s+#[\\p{L}\\p{N}_-]+)?\\s*$")
+    private static let priorityPattern = regex("(?<!\\S)(!{1,3})(?!\\S)")
+    private static let alertPattern = regex("\\balerts?\\s+((?:(?:at\\s+(?:the\\s+)?(?:time|start)|\\d{1,3}\\s*(?:minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w))(?:\\s*(?:,|and|&)\\s*|\\s+(?=\\d))?)+)(?:\\s+before)?")
+    private static let alertPart = regex("at\\s+(?:the\\s+)?(?:time|start)|(\\d{1,3})\\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w)")
+    private static let repeatPattern = regex(
+        "\\b(?:every\\s+(?:(other)\\s+|(\\d{1,2})\\s+)?(days?|weeks?|months?|years?|weekdays?|weekends?|(?:\(weekdayAlternation))(?:\\s*(?:,|and|&)\\s*(?:\(weekdayAlternation)))*)(?:\\s+on\\s+(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?)?|(daily|weekly|monthly|yearly|annually))\\b")
+    private static let untilPattern = regex("\\buntil\\s+(.+)$")
+    private static let countPattern = regex("\\b(?:for\\s+)?(\\d{1,3})\\s*times\\b")
+    private static let placePattern = regex("(?<!\\S)@(\\S.*?)(?=\\s+(?:#|!|//|/[a-z]|alerts?\\b|every\\b|until\\b|daily\\b|weekly\\b|monthly\\b|yearly\\b|https?://)|$)")
+    private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
+
+    /// The pieces of `text` (but those in `skip`, which stay plain words), and the line with them
+    /// blanked out for the date and #tag reading.
+    static func read(_ text: String, skip: Set<Piece> = [], now: Date = .now) -> (extras: AgendaExtras, masked: String) {
+        var x = AgendaExtras()
+        let masked = NSMutableString(string: text)
+        let full = { NSRange(location: 0, length: masked.length) }
+        func blank(_ r: NSRange) {
+            masked.replaceCharacters(in: r, with: String(repeating: " ", count: r.length))
+        }
+        func first(_ re: NSRegularExpression?) -> NSTextCheckingResult? { re?.firstMatch(in: masked as String, range: full()) }
+        func group(_ m: NSTextCheckingResult, _ i: Int) -> String? {
+            let r = m.range(at: i); return r.location == NSNotFound ? nil : masked.substring(with: r)
+        }
+
+        // A link anywhere; then the note runs to the end of the line.
+        if !skip.contains(.link), let m = first(linkPattern) {
+            x.link = URL(string: masked.substring(with: m.range)); x.ranges[.link] = m.range; blank(m.range)
+        }
+        if !skip.contains(.note), let m = first(notePattern) {
+            let note = (group(m, 1) ?? "").trimmingCharacters(in: .whitespaces)
+            if !note.isEmpty { x.note = note }
+            let tag = m.range(at: 2)
+            let r = tag.location == NSNotFound ? m.range : NSRange(location: m.range.location, length: tag.location - m.range.location)
+            x.ranges[.note] = r; blank(r)
+        }
+        if !skip.contains(.priority), let m = first(priorityPattern) {
+            x.priority = m.range(at: 1).length; x.ranges[.priority] = m.range; blank(m.range)
+        }
+        if !skip.contains(.alerts), let m = first(alertPattern), let list = group(m, 1) {
+            let ns = list as NSString
+            for part in alertPart?.matches(in: list, range: NSRange(location: 0, length: ns.length)) ?? [] {
+                if part.range(at: 1).location == NSNotFound { x.alerts.append(0); continue }
+                let n = Double(ns.substring(with: part.range(at: 1))) ?? 0
+                let unit = ns.substring(with: part.range(at: 2)).lowercased()
+                let minutes = unit.hasPrefix("w") ? n * 10080 : unit.hasPrefix("d") ? n * 1440 : unit.hasPrefix("h") ? n * 60 : n
+                x.alerts.append(minutes * 60)
+            }
+            x.alerts = Array(Set(x.alerts)).sorted()
+            x.ranges[.alerts] = m.range; blank(m.range)
+        }
+        if !skip.contains(.repeating), let m = first(repeatPattern) {
+            var r = AgendaRepeat(frequency: .weekly)
+            if let word = group(m, 5)?.lowercased() {
+                r.frequency = word == "daily" ? .daily : word == "weekly" ? .weekly : word == "monthly" ? .monthly : .yearly
+            } else if let what = group(m, 3)?.lowercased() {
+                if group(m, 1) != nil { r.interval = 2 }
+                if let n = group(m, 2).flatMap(Int.init) { r.interval = max(1, n) }
+                if what.hasPrefix("day") { r.frequency = .daily }
+                else if what.hasPrefix("weekday") { r.frequency = .weekly; r.weekdays = [2, 3, 4, 5, 6] }
+                else if what.hasPrefix("weekend") { r.frequency = .weekly; r.weekdays = [1, 7] }
+                else if what.hasPrefix("week") { r.frequency = .weekly }
+                else if what.hasPrefix("month") { r.frequency = .monthly }
+                else if what.hasPrefix("year") { r.frequency = .yearly }
+                else {
+                    r.frequency = .weekly
+                    let words = what.split(whereSeparator: { !$0.isLetter }).map(String.init)
+                    r.weekdays = Array(Set(words.compactMap { w in weekdayWords.first { $0.0 == w }?.1 })).sorted()
+                }
+                if let d = group(m, 4).flatMap(Int.init), (1...31).contains(d) { r.dayOfMonth = d; if r.frequency != .monthly { r.dayOfMonth = nil } }
+            }
+            x.ranges[.repeating] = m.range; blank(m.range)
+            // When it stops: "until <a date>" or "10 times".
+            if let u = first(untilPattern), let detector {
+                let phrase = masked.substring(with: u.range(at: 1))
+                if let d = detector.firstMatch(in: phrase, range: NSRange(location: 0, length: (phrase as NSString).length)),
+                   d.range.location == 0, let date = d.date {
+                    r.until = Calendar.current.startOfDay(for: date)
+                    let span = NSRange(location: u.range.location, length: u.range(at: 1).location - u.range.location + d.range.length)
+                    x.ranges[.repeating] = NSUnionRange(x.ranges[.repeating]!, span)
+                    blank(span)
+                }
+            }
+            if let c = first(countPattern), let n = group(c, 1).flatMap(Int.init), n > 0 {
+                r.count = n
+                x.ranges[.repeating] = NSUnionRange(x.ranges[.repeating]!, c.range)
+                blank(c.range)
+            }
+            x.repeating = r
+        }
+        if !skip.contains(.place), let m = first(placePattern) {
+            var r = m.range(at: 1)
+            // A day or time written after the place belongs to the date, not the place.
+            if let d = detector?.firstMatch(in: masked as String, range: r), d.range.location > r.location {
+                r.length = d.range.location - r.location
+            }
+            let place = masked.substring(with: r).trimmingCharacters(in: .whitespaces)
+            if !place.isEmpty {
+                x.place = place
+                let span = NSRange(location: m.range.location, length: r.location + r.length - m.range.location)
+                x.ranges[.place] = span; blank(span)
+            }
+        }
+        return (x, masked as String)
+    }
+
+    /// A range found in the blanked line, as the same range of the line itself (same UTF-16 length).
+    static func same(_ r: Range<String.Index>?, from masked: String, in original: String) -> Range<String.Index>? {
+        guard let r else { return nil }
+        return Range(NSRange(r, in: masked), in: original)
+    }
+}
+
 // MARK: - Suggestions while typing (the Agenda's composer)
 //
 // The last word being typed decides the menu: "/…" the commands, "#…" the lists (a task) or the
@@ -224,9 +440,9 @@ enum CalendarComposer {
 
 struct AgendaSuggestion: Equatable, Identifiable {
     enum Action: Equatable {
-        case insert(String)      // replace the word being typed with this and a space
-        case when                // open the day-and-time choices
-        case help                // open the help sheet
+        case insert(String)                      // replace the word being typed with this (and a space)
+        case choices(AgendaSuggest.ChoiceSet)    // open a list of choices
+        case help                                // open the help sheet
     }
     let title: String
     let detail: String
@@ -238,6 +454,9 @@ struct AgendaSuggestion: Equatable, Identifiable {
 }
 
 enum AgendaSuggest {
+    /// The lists of choices a command or a chip opens.
+    enum ChoiceSet: Equatable { case when, repeating, alert, priority }
+
     /// The word being typed: the last one, when the line does not end with a space.
     static func lastWord(_ text: String) -> Substring? {
         guard let last = text.last, !last.isWhitespace else { return nil }
@@ -248,9 +467,14 @@ enum AgendaSuggest {
     static let commands: [AgendaSuggestion] = [
         AgendaSuggestion(title: "Make it an event", detail: "or /e, or Tab", symbol: "/event", groupID: nil, action: .insert("/e")),
         AgendaSuggestion(title: "Make it a task", detail: "or /t", symbol: "/task", groupID: nil, action: .insert("/t")),
-        AgendaSuggestion(title: "A day and a time", detail: "choose from a list", symbol: "/at", groupID: nil, action: .when),
+        AgendaSuggestion(title: "A day and a time", detail: "choose from a list", symbol: "/at", groupID: nil, action: .choices(.when)),
         AgendaSuggestion(title: "Today", detail: "add a time after it", symbol: "/today", groupID: nil, action: .insert("today")),
         AgendaSuggestion(title: "Tomorrow", detail: "add a time after it", symbol: "/tomorrow", groupID: nil, action: .insert("tomorrow")),
+        AgendaSuggestion(title: "Repeat", detail: "every day, weekday, week…", symbol: "/repeat", groupID: nil, action: .choices(.repeating)),
+        AgendaSuggestion(title: "Alerts", detail: "10 min, 1 hour, 1 day before", symbol: "/alert", groupID: nil, action: .choices(.alert)),
+        AgendaSuggestion(title: "Priority", detail: "tasks: ! !! !!!", symbol: "/priority", groupID: nil, action: .choices(.priority)),
+        AgendaSuggestion(title: "A place", detail: "@Room 4", symbol: "/place", groupID: nil, action: .insert("@")),
+        AgendaSuggestion(title: "A note or a link", detail: "// text, a pasted link", symbol: "/note", groupID: nil, action: .insert("// ")),
         AgendaSuggestion(title: "Everything you can type", detail: "or type ?", symbol: "/help", groupID: nil, action: .help),
     ]
 
@@ -260,6 +484,28 @@ enum AgendaSuggest {
         ("Tomorrow 9 AM", "tomorrow 9am"), ("Tomorrow 6 PM", "tomorrow 6pm"),
         ("Next Monday 9 AM", "next monday 9am"), ("Tomorrow, no time", "tomorrow"),
     ].map { AgendaSuggestion(title: $0.0, detail: $0.1, symbol: "clock", groupID: nil, action: .insert($0.1)) }
+
+    static let repeats: [AgendaSuggestion] = [
+        ("Every day", "every day"), ("Every weekday", "every weekday"), ("Every week", "every week"),
+        ("Every other week", "every other week"), ("Every month", "every month"), ("Every year", "every year"),
+    ].map { AgendaSuggestion(title: $0.0, detail: $0.1, symbol: "repeat", groupID: nil, action: .insert($0.1)) }
+
+    static let alerts: [AgendaSuggestion] = [
+        ("At the time", "alert at the time"), ("5 min before", "alert 5m"), ("10 min before", "alert 10m"),
+        ("30 min before", "alert 30m"), ("1 hour before", "alert 1h"), ("1 day before", "alert 1d"),
+    ].map { AgendaSuggestion(title: $0.0, detail: $0.1, symbol: "bell", groupID: nil, action: .insert($0.1)) }
+
+    static let priorities: [AgendaSuggestion] = [("Low", "!"), ("Medium", "!!"), ("High", "!!!")]
+        .map { AgendaSuggestion(title: $0.0, detail: $0.1, symbol: "exclamationmark", groupID: nil, action: .insert($0.1)) }
+
+    static func choices(_ set: ChoiceSet) -> [AgendaSuggestion] {
+        switch set {
+        case .when: when
+        case .repeating: repeats
+        case .alert: alerts
+        case .priority: priorities
+        }
+    }
 
     /// The menu for the word being typed, or nil when it is not "/…" or "#…".
     static func menu(for text: String, groups: [(id: String, title: String)], groupKind: String) -> [AgendaSuggestion]? {
@@ -298,12 +544,14 @@ enum AgendaSuggest {
     }
 
     /// The line with the word being typed replaced by `words` and a space (or `words` added).
+    /// A marker the next words belong to ("@", "// ") takes no space of its own after it.
     static func apply(_ words: String, to text: String, replacingLastWord: Bool = true) -> String {
+        let end = words.hasSuffix("@") || words.hasSuffix(" ") ? "" : " "
         if replacingLastWord, let w = lastWord(text) {
-            return String(text[..<w.startIndex]) + words + " "
+            return String(text[..<w.startIndex]) + words + end
         }
         let base = text.isEmpty || text.last?.isWhitespace == true ? text : text + " "
-        return base + words + " "
+        return base + words + end
     }
 
     /// The line with one recognised piece swapped for other words (a chip changed).
