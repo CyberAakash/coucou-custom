@@ -365,6 +365,10 @@ final class TasksStore: ObservableObject {
 
     #if DEBUG
     /// Save tests only: a "Coucou test" list made, read back in nb.log, and removed with what is in it.
+    /// A sample render froze the store on sample data: save tests need the real one.
+    var debugIsFrozen: Bool { debugFrozen }
+    func debugUnfreeze() { debugFrozen = false; reload() }
+
     func debugTest(_ action: String) {
         let name = "Coucou test"
         let mine = store.calendars(for: .reminder).filter { $0.title == name }

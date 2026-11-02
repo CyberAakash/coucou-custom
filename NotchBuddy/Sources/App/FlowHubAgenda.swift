@@ -8,6 +8,50 @@ import SwiftUI
 // wing, the Join card) and Composer (what a new line starts as, your templates). Tasks and Calendar
 // keep their own switch: the Agenda shows when either is on.
 
+/// What a swipe across an Agenda row does (Settings → Agenda → Composer → Swipes).
+enum AgendaSwipe: String, CaseIterable, Identifiable {
+    case done, hour, tomorrow, nextWeek, delete, open, copyLink, none
+    var id: String { rawValue }
+
+    static let taskChoices: [AgendaSwipe] = [.done, .hour, .tomorrow, .nextWeek, .delete, .none]
+    static let eventChoices: [AgendaSwipe] = [.open, .copyLink, .none]
+
+    var title: String {
+        switch self {
+        case .done: "Done"
+        case .hour: "In an hour"
+        case .tomorrow: "Tomorrow"
+        case .nextWeek: "Next week"
+        case .delete: "Delete"
+        case .open: "Join or open"
+        case .copyLink: "Copy link"
+        case .none: "Nothing"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .done: "checkmark"
+        case .hour, .tomorrow, .nextWeek: "clock"
+        case .delete: "trash"
+        case .open: "arrow.up.right.square"
+        case .copyLink: "link"
+        case .none: ""
+        }
+    }
+
+    /// The colour behind the row as it slides.
+    var color: Color {
+        switch self {
+        case .done: Color(hex: "#1F7A3D")
+        case .hour, .tomorrow, .nextWeek: Color(hex: "#8A5A12")
+        case .delete: Color(hex: "#9F1D2A")
+        case .open, .copyLink: Color(hex: "#0A5FC2")
+        case .none: .clear
+        }
+    }
+}
+
 /// Settings → Agenda → Composer: what a new line starts as, and your templates.
 @MainActor
 final class AgendaComposerSettings: ObservableObject {
@@ -22,6 +66,11 @@ final class AgendaComposerSettings: ObservableObject {
     @Published var newEventAlert: Int { didSet { ud.set(newEventAlert, forKey: "agendaNewEventAlert") } }
     @Published var eventHint: Bool { didSet { ud.set(eventHint, forKey: "agendaEventHint") } }
     @Published var suggestions: Bool { didSet { ud.set(suggestions, forKey: "agendaSuggestions") } }
+    /// Swipes across a row: right and left, for a task and for an event.
+    @Published var taskRight: AgendaSwipe { didSet { ud.set(taskRight.rawValue, forKey: "agendaSwipeTaskRight") } }
+    @Published var taskLeft: AgendaSwipe { didSet { ud.set(taskLeft.rawValue, forKey: "agendaSwipeTaskLeft") } }
+    @Published var eventRight: AgendaSwipe { didSet { ud.set(eventRight.rawValue, forKey: "agendaSwipeEventRight") } }
+    @Published var eventLeft: AgendaSwipe { didSet { ud.set(eventLeft.rawValue, forKey: "agendaSwipeEventLeft") } }
     @Published var templates: [AgendaTemplate] {
         didSet { ud.set(try? JSONEncoder().encode(templates), forKey: "agendaTemplates") }
     }
@@ -32,7 +81,17 @@ final class AgendaComposerSettings: ObservableObject {
         newEventAlert = ud.object(forKey: "agendaNewEventAlert") as? Int ?? -1
         eventHint = ud.object(forKey: "agendaEventHint") as? Bool ?? true
         suggestions = ud.object(forKey: "agendaSuggestions") as? Bool ?? true
+        taskRight = Self.swipe("agendaSwipeTaskRight", .done)
+        taskLeft = Self.swipe("agendaSwipeTaskLeft", .tomorrow)
+        eventRight = Self.swipe("agendaSwipeEventRight", .open)
+        eventLeft = Self.swipe("agendaSwipeEventLeft", .none)
         templates = (ud.data(forKey: "agendaTemplates")).flatMap { try? JSONDecoder().decode([AgendaTemplate].self, from: $0) } ?? []
+    }
+}
+
+extension AgendaComposerSettings {
+    fileprivate static func swipe(_ key: String, _ fallback: AgendaSwipe) -> AgendaSwipe {
+        UserDefaults.standard.string(forKey: key).flatMap(AgendaSwipe.init(rawValue:)) ?? fallback
     }
 }
 
@@ -125,6 +184,20 @@ struct HubComposerSettings: View {
             }
         }
 
+        HubLabel("Swipes")
+        HubCard {
+            Text("Two fingers across a row, as in Gmail; with a mouse, drag the row. Past a third it acts, then offers Undo.")
+                .font(.system(size: 12.5)).foregroundColor(HubTheme.secondary).fixedSize(horizontal: false, vertical: true)
+            HubDivider()
+            swipeRow("Task, swipe right", $settings.taskRight, AgendaSwipe.taskChoices)
+            HubDivider()
+            swipeRow("Task, swipe left", $settings.taskLeft, AgendaSwipe.taskChoices)
+            HubDivider()
+            swipeRow("Event, swipe right", $settings.eventRight, AgendaSwipe.eventChoices)
+            HubDivider()
+            swipeRow("Event, swipe left", $settings.eventLeft, AgendaSwipe.eventChoices)
+        }
+
         HubLabel("Templates")
         HubCard {
             Text("Your own slash commands: type /name and a space, or pick it from the / menu, and its line fills the composer, ready to change.")
@@ -142,6 +215,15 @@ struct HubComposerSettings: View {
                     .font(.system(size: 13, weight: .semibold)).foregroundColor(HubTheme.accent)
                     .padding(.vertical, 4)
             }
+        }
+    }
+
+    private func swipeRow(_ title: String, _ value: Binding<AgendaSwipe>, _ choices: [AgendaSwipe]) -> some View {
+        HubRow(title: title, detail: "") {
+            Picker("", selection: value) {
+                ForEach(choices) { Text($0.title).tag($0) }
+            }
+            .labelsHidden().fixedSize()
         }
     }
 
