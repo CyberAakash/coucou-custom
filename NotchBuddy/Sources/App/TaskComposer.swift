@@ -560,6 +560,46 @@ struct AgendaTemplate: Codable, Equatable, Identifiable {
     }
 }
 
+// MARK: - An existing task or event as a line (editing it in the composer)
+//
+// The item's own pieces go before its title, so the reader takes them first; whatever the title
+// alone would add ("Daily standup", "Call about tomorrow") is then marked to stay text.
+
+enum AgendaEditLine {
+    static func line(kind: AgendaKind, title: String, due: Date?, hasTime: Bool, end: Date?, tag: String?,
+                     extras: AgendaExtras, includeNote: Bool) -> String {
+        var parts: [String] = kind == .event ? ["/e"] : []
+        if let due { parts.append(AgendaLine.date(due, hasTime: hasTime)) }
+        if kind == .event, hasTime, let due, let end { parts.append(AgendaLine.length(minutes: max(5, Int(end.timeIntervalSince(due) / 60)))) }
+        if let r = AgendaLine.repeating(extras.repeating) { parts.append(r) }
+        if let a = AgendaLine.alerts(extras.alerts) { parts.append(a) }
+        if kind == .task, let p = AgendaLine.priority(extras.priority) { parts.append(p) }
+        parts.append(title)
+        if let place = extras.place { parts.append("@" + place) }
+        if let tag { parts.append("#" + tag) }
+        if let link = extras.link { parts.append(link.absoluteString) }
+        if includeNote, let note = extras.note { parts.append("// " + note) }
+        return parts.joined(separator: " ")
+    }
+
+    /// The pieces the line reads that the item does not have: they must stay plain words.
+    static func strays(in line: String, kind: AgendaKind, hasDate: Bool, extras: AgendaExtras,
+                       lists: [(id: String, title: String)]) -> (date: Bool, pieces: Set<AgendaExtras.Piece>) {
+        let rest = AgendaCommand.read(line).rest
+        let read = AgendaExtras.read(rest)
+        var pieces = Set<AgendaExtras.Piece>()
+        if extras.repeating == nil && read.extras.repeating != nil { pieces.insert(.repeating) }
+        if extras.alerts.isEmpty && !read.extras.alerts.isEmpty { pieces.insert(.alerts) }
+        if extras.priority == 0 && read.extras.priority > 0 { pieces.insert(.priority) }
+        if extras.place == nil && read.extras.place != nil { pieces.insert(.place) }
+        if extras.note == nil && read.extras.note != nil { pieces.insert(.note) }
+        if extras.link == nil && read.extras.link != nil { pieces.insert(.link) }
+        let masked = AgendaExtras.read(rest, skip: pieces).masked
+        let date = !hasDate && TaskComposer.parse(masked, lists: lists).due != nil
+        return (date, pieces)
+    }
+}
+
 // MARK: - Suggestions while typing (the Agenda's composer)
 //
 // The last word being typed decides the menu: "/…" the commands, "#…" the lists (a task) or the
