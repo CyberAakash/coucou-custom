@@ -11,7 +11,7 @@ import SwiftUI
 /// not one of them: the notch opens on it, so it is always first and always there.
 enum NotchPage: String, CaseIterable, Identifiable, Codable {
     // Sessions last: it comes and goes with the agents, so the pages before it never move.
-    case chat, shelf, clipboard, tasks, calendar, sessions
+    case chat, shelf, clipboard, agenda, sessions
     var id: String { rawValue }
 
     var view: IslandView {
@@ -20,8 +20,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: .shelf
         case .clipboard: .clipboard
         case .sessions: .sessions
-        case .tasks: .tasks
-        case .calendar: .calendar
+        case .agenda: .agenda
         }
     }
 
@@ -31,8 +30,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: "Shelf"
         case .clipboard: "Clipboard"
         case .sessions: "Sessions"
-        case .tasks: "Tasks"
-        case .calendar: "Calendar"
+        case .agenda: "Agenda"
         }
     }
 
@@ -42,8 +40,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: "tray.full.fill"
         case .clipboard: "list.clipboard.fill"
         case .sessions: "rectangle.stack.fill"
-        case .tasks: "checklist"
-        case .calendar: "calendar"
+        case .agenda: "calendar"
         }
     }
 
@@ -53,8 +50,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .shelf: "Files dropped on the notch. Hidden, the + tab takes its place for uploads."
         case .clipboard: "What you copied. Hiding the page keeps recording; turn recording off on the Clipboard page."
         case .sessions: "Every agent session; shows only while one is running."
-        case .tasks: "Your Reminders: add with a day, a time and #list, tick them off."
-        case .calendar: "Your day and week from the Mac's calendars, with Join on meetings."
+        case .agenda: "Your day: Reminders tasks and calendar events in one list, with Join on meetings."
         }
     }
 }
@@ -71,11 +67,25 @@ final class PageArrangement: ObservableObject {
     @Published var hidden: Set<NotchPage> { didSet { UserDefaults.standard.set(hidden.map(\.rawValue).sorted(), forKey: Self.hiddenKey) } }
 
     private init() {
-        let stored = (UserDefaults.standard.stringArray(forKey: Self.orderKey) ?? []).compactMap(NotchPage.init(rawValue:))
+        let stored = Self.migrated(UserDefaults.standard.stringArray(forKey: Self.orderKey) ?? []).compactMap(NotchPage.init(rawValue:))
         // A page added in a later version, or an order never set, lands in the default place at the end.
         var seen = Set<NotchPage>()
         order = stored.filter { seen.insert($0).inserted } + NotchPage.allCases.filter { !stored.contains($0) }
-        hidden = Set((UserDefaults.standard.stringArray(forKey: Self.hiddenKey) ?? []).compactMap(NotchPage.init(rawValue:)))
+        let hiddenNames = UserDefaults.standard.stringArray(forKey: Self.hiddenKey) ?? []
+        // The Agenda took the place of the Tasks and Calendar pages: hidden only if both were.
+        var hiddenPages = Set(hiddenNames.compactMap(NotchPage.init(rawValue:)))
+        if hiddenNames.contains("tasks") && hiddenNames.contains("calendar") { hiddenPages.insert(.agenda) }
+        hidden = hiddenPages
+    }
+
+    /// Saved orders from before the Agenda name "tasks" and "calendar": the first of them becomes "agenda".
+    static func migrated(_ names: [String]) -> [String] {
+        var out: [String] = []
+        for name in names {
+            let n = (name == "tasks" || name == "calendar") ? "agenda" : name
+            if !out.contains(n) { out.append(n) }
+        }
+        return out
     }
 
     func isShown(_ page: NotchPage) -> Bool { !hidden.contains(page) }
@@ -114,10 +124,9 @@ enum IslandPages {
         case .shelf: return FileShelf.enabled
         case .clipboard: return ClipboardSettings.shared.enabled
         case .sessions: return !LiveSessions.shared.sessions.isEmpty
-        case .tasks: return TasksSettings.shared.enabled
-        case .calendar: return CalendarSettings.shared.enabled
+        case .agenda: return TasksSettings.shared.enabled || CalendarSettings.shared.enabled
         #else
-        case .shelf, .clipboard, .sessions, .tasks, .calendar: return false
+        case .shelf, .clipboard, .sessions, .agenda: return false
         #endif
         }
     }
@@ -126,7 +135,7 @@ enum IslandPages {
     static func page(of view: IslandView) -> IslandView? {
         switch view {
         case .overview, .empty: return .overview
-        case .prompt, .shelf, .clipboard, .sessions, .tasks, .calendar: return view
+        case .prompt, .shelf, .clipboard, .sessions, .agenda: return view
         default: return nil
         }
     }
@@ -231,8 +240,7 @@ struct PageBar: View {
         case .shelf: return "Shelf"
         case .clipboard: return "Clipboard"
         case .sessions: return "Sessions"
-        case .tasks: return "Tasks"
-        case .calendar: return "Calendar"
+        case .agenda: return "Agenda"
         default: return String(localized: "Home")
         }
     }

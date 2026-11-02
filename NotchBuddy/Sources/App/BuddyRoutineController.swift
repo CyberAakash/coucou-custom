@@ -182,7 +182,7 @@ final class BuddyRoutineController: ObservableObject {
 
     /// Short id (what voice and the tools quote) → the reminder's EventKit identifier.
     private var taskIDs: [String: String] = [:]
-    /// Reminders that came due long before this launch are overdue tasks on the Tasks page,
+    /// Reminders that came due long before this launch are overdue tasks in the Agenda,
     /// not a flood of alerts at start.
     private let launchedAt = Date.now
 

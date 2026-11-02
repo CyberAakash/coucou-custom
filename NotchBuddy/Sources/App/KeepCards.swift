@@ -157,11 +157,13 @@ struct KeepQuickLook: NSViewRepresentable {
 /// For checking the look from a terminal (KeepSnapshots): the pages open their filter when set.
 enum KeepDebug {
     #if DEBUG
-    /// The Tasks page's snapshot: text typed in its composer.
+    /// The Agenda snapshot: text typed in its composer.
     nonisolated(unsafe) static var tasksComposerText: String?
     /// Snapshots: every card shows its hover icons; the first three cards are selected.
     nonisolated(unsafe) static var forceHover = false
     nonisolated(unsafe) static var selectFirstThree = false
+    /// The Agenda's snapshot: open on the Tasks filter with No time unfolded.
+    nonisolated(unsafe) static var agendaTasksOnly = false
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }

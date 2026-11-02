@@ -106,7 +106,7 @@ enum TaskComposer {
         return hasTime ? "\(day) \(due.formatted(date: .omitted, time: .shortened))" : day
     }
 }
-/// An event typed in the Calendar page's composer: the Tasks reading plus a length
+/// An event typed in the Agenda's composer: the Tasks reading plus a length
 /// ("for 30 min", "for 2 hours"; an hour when none), all day when no time is given.
 struct ParsedEvent: Equatable {
     var title: String
@@ -114,6 +114,8 @@ struct ParsedEvent: Equatable {
     var end: Date?
     var allDay: Bool
     var calendarID: String?
+    /// "for 30 min" was typed: the Agenda's composer then makes an event, not a task.
+    var hasLength = false
 }
 
 enum CalendarComposer {
@@ -123,25 +125,27 @@ enum CalendarComposer {
     static func parse(_ text: String, calendars: [(id: String, title: String)], now: Date = .now) -> ParsedEvent {
         var line = text
         var minutes: Double = 60
+        var hasLength = false
         let ns = text as NSString
         if let lengthPattern, let m = lengthPattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
            let r = Range(m.range, in: text),
            let n = Double(ns.substring(with: m.range(at: 1)).replacingOccurrences(of: ",", with: ".")) {
             let unit = ns.substring(with: m.range(at: 2)).lowercased()
             minutes = unit.hasPrefix("h") ? n * 60 : n
+            hasLength = true
             line.replaceSubrange(r, with: " ")
         }
         let p = TaskComposer.parse(line, lists: calendars, now: now)
         guard let start = p.due else {
-            return ParsedEvent(title: p.title, start: nil, end: nil, allDay: false, calendarID: p.listID)
+            return ParsedEvent(title: p.title, start: nil, end: nil, allDay: false, calendarID: p.listID, hasLength: hasLength)
         }
         if p.hasTime {
             return ParsedEvent(title: p.title, start: start, end: start.addingTimeInterval(max(5, minutes) * 60),
-                               allDay: false, calendarID: p.listID)
+                               allDay: false, calendarID: p.listID, hasLength: hasLength)
         }
         let day = Calendar.current.startOfDay(for: start)
         return ParsedEvent(title: p.title, start: day, end: Calendar.current.date(byAdding: .day, value: 1, to: day),
-                           allDay: true, calendarID: p.listID)
+                           allDay: true, calendarID: p.listID, hasLength: hasLength)
     }
 
     /// "Tomorrow 1:00 – 2:00 PM", "Friday, all day".
