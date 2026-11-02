@@ -14,6 +14,8 @@ import Combine
 struct BuddyAlert: Identifiable, Equatable {
     enum Kind: Equatable {
         case reminder(id: String)
+        /// A calendar event's alert (coucou-custom fork): `CalEvent.id`, one per occurrence.
+        case event(id: String)
         case timerDone
         case focusDone
         case breakDone
@@ -518,6 +520,7 @@ final class BuddyRoutineController: ObservableObject {
     func act(on alert: BuddyAlert) {
         switch alert.kind {
         case .reminder(let id): snoozeReminder(id)
+        case .event(let id): EventAlerts.shared.snooze(id, minutes: 5); dismiss(alert)
         case .timerDone: snoozeTimer()
         case .breakDone: resumeFocus()
         case .water: logWater()
@@ -529,6 +532,9 @@ final class BuddyRoutineController: ObservableObject {
         let left = alerts.filter { !matching($0.kind) }
         if left.count != alerts.count { alerts = left }
     }
+
+    /// A calendar event's alert, through the same places as a reminder's (EventAlerts).
+    func raiseEvent(_ alert: BuddyAlert) { raise(alert, sound: "question") }
 
     private func raise(_ alert: BuddyAlert, sound: String) {
         if settings.alertSound { SoundEngine.shared.play(sound) }

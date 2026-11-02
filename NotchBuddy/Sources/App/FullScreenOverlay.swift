@@ -130,13 +130,14 @@ final class FullScreenOverlayWindow: NSPanel {
 // MARK: - Routine moments
 
 enum RoutineMomentKind: String, CaseIterable, Identifiable {
-    case water, reminder, focusStart, focusDone, breakDone, timerStart, timerDone
+    case water, reminder, event, focusStart, focusDone, breakDone, timerStart, timerDone
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .water: "Water reminders"
         case .reminder: "Reminders"
+        case .event: "Calendar events"
         case .focusStart: "Focus session starts"
         case .focusDone: "Focus session done"
         case .breakDone: "Break over"
@@ -155,6 +156,7 @@ enum RoutineMomentKind: String, CaseIterable, Identifiable {
             let s = BuddyRoutineSettings.shared
             return ("Time for some water", "\(BuddyWater.amount(s.waterLog.total(on: Date()))) of \(BuddyWater.amount(s.waterPlan.goal)) today")
         case .reminder: return ("Call Sam", "Reminder")
+        case .event: return ("Design review · in 10 min", "10:00 – 11:00 AM · Room 4 · Work")
         case .focusStart: return ("Focus starts now", "\(BuddyRoutineSettings.shared.focusPlan.focus) min")
         case .focusDone: return ("Focus session done", "Time for a break")
         case .breakDone: return ("Break over", "Ready for the next session?")
@@ -167,6 +169,7 @@ enum RoutineMomentKind: String, CaseIterable, Identifiable {
         switch alert {
         case .water: .water
         case .reminder: .reminder
+        case .event: .event
         case .focusDone: .focusDone
         case .breakDone: .breakDone
         case .timerDone: .timerDone
@@ -372,6 +375,7 @@ struct RoutineMoment {
         switch kind {
         case .water: Color(hex: "#22D3EE")
         case .reminder: Color(hex: "#F472B6")
+        case .event: Color(hex: "#0A84FF")
         case .focusStart: Color(hex: "#818CF8")
         case .focusDone, .breakDone: Color(hex: "#34D399")
         case .timerStart, .timerDone: Color(hex: "#F7B32B")
@@ -382,6 +386,7 @@ struct RoutineMoment {
         switch kind {
         case .water: "drop.fill"
         case .reminder: "bell.fill"
+        case .event: "calendar"
         case .focusStart: "brain.head.profile"
         case .focusDone: "cup.and.saucer.fill"
         case .breakDone: "brain.head.profile"
@@ -392,7 +397,7 @@ struct RoutineMoment {
     var mochiState: BotState {
         switch kind {
         case .focusDone, .timerDone: .finished
-        case .reminder: .question
+        case .reminder, .event: .question
         case .focusStart, .timerStart: .working
         case .water, .breakDone: .idle
         }
@@ -430,6 +435,11 @@ struct RoutineMoment {
             return [(5, "5 min"), (15, "15 min"), (60, "1 hour")].map { m, label in
                 action(label, symbol: "zzz") { _ = r.snoozeReminder(id, minutes: m) }
             }
+        case .event:
+            guard case .event(let id)? = alert?.kind else { return [] }
+            return [(5, "5 min"), (10, "10 min")].map { m, label in
+                action(label, symbol: "zzz") { EventAlerts.shared.snooze(id, minutes: m); if let a = alert { r.dismiss(a) } }
+            }
         case .timerDone:
             return [action("+1 min", symbol: "goforward") { r.rerunTimer(minutes: 1) },
                     action("+5 min", symbol: "goforward.5") { r.rerunTimer(minutes: 5) },
@@ -455,6 +465,10 @@ struct RoutineMoment {
         switch a.kind {
         case .water: return [action("Later") { r.snoozeWater() }, action("Done") { r.dismiss(a) }]
         case .reminder: return [action("Done") { r.dismiss(a) }]
+        case .event(let id):
+            // A meeting link: Join; else Open shows it in Calendar.
+            return [action("Dismiss") { r.dismiss(a) },
+                    action(EventAlerts.shared.hasMeeting(id) ? "Join" : "Open") { EventAlerts.shared.open(id); r.dismiss(a) }]
         case .timerDone: return [action("Done") { r.dismiss(a) }]
         case .breakDone: return [action("End") { r.endFocus() }, action("Start focus") { r.act(on: a) }]
         case .focusDone, .greeting: return [action("OK") { r.dismiss(a) }]
@@ -467,7 +481,7 @@ struct RoutineMoment {
     /// only, the alert stays on the Buddy's card).
     @MainActor var secondary: Action? {
         switch kind {
-        case .reminder: return quick.first   // Snooze 5 min
+        case .reminder, .event: return quick.first   // Snooze 5 min
         case .breakDone: return nil
         default: return actions.last
         }
@@ -479,6 +493,7 @@ struct RoutineMoment {
         let alertKind: BuddyAlert.Kind? = switch kind {
         case .water: .water
         case .reminder: .reminder(id: "preview")
+        case .event: .event(id: "preview")
         case .focusDone: .focusDone
         case .breakDone: .breakDone
         case .timerDone: .timerDone
@@ -518,7 +533,7 @@ struct RoutineMomentView: View {
         case .water, .timerDone: .hop
         case .focusDone: .joy
         case .focusStart, .timerStart: .calm
-        case .reminder, .breakDone: .idle
+        case .reminder, .event, .breakDone: .idle
         }
     }
 

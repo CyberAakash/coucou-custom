@@ -161,6 +161,7 @@ struct BuddyHUDView: View {
     private func icon(_ k: BuddyAlert.Kind) -> String {
         switch k {
         case .reminder: "bell.fill"
+        case .event: "calendar"
         case .timerDone: "timer"
         case .focusDone: "cup.and.saucer.fill"
         case .breakDone: "brain.head.profile"
@@ -172,6 +173,7 @@ struct BuddyHUDView: View {
     private func tint(_ k: BuddyAlert.Kind) -> Color {
         switch k {
         case .reminder: BuddyPalette.pink
+        case .event: BuddyPalette.indigo
         case .timerDone: BuddyPalette.amber
         case .focusDone: BuddyPalette.green
         case .breakDone: BuddyPalette.indigo
@@ -341,6 +343,7 @@ struct RoutineNotchCard: View {
         switch model.moment?.kind {
         case .water: .cyan
         case .reminder: .pink
+        case .event: .indigo
         case .focusStart: .indigo
         case .focusDone, .breakDone: .green
         case .timerStart, .timerDone: .amber
@@ -355,6 +358,20 @@ struct RoutineNotchCard: View {
         let quick = m.quick
         let actions = m.actions
         return VStack(alignment: .leading, spacing: 10) {
+            if m.kind == .event {
+                // An event's time, place and calendar are long: their own line under its name.
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: m.symbol).font(.system(size: 12, weight: .bold)).foregroundColor(tint)
+                        Text(m.title).font(.system(size: 15, weight: .semibold)).foregroundColor(Color(hex: "#F1F2F4")).lineLimit(1)
+                        if m.isPreview {
+                            Text("· a preview, its buttons do nothing").font(.system(size: 11)).foregroundColor(Color(hex: "#5C6370")).lineLimit(1)
+                        }
+                    }
+                    Text(m.detail).font(.system(size: 12).monospacedDigit()).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
+                        .padding(.leading, 20)
+                }
+            } else {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: m.symbol).font(.system(size: 12, weight: .bold)).foregroundColor(tint)
                 Text(m.title).font(.system(size: 15, weight: .semibold)).foregroundColor(Color(hex: "#F1F2F4")).lineLimit(1)
@@ -366,6 +383,7 @@ struct RoutineNotchCard: View {
                 } else if m.kind == .water, poured > 0 {
                     Text("+\(BuddyWater.amount(poured)) just now").font(.system(size: 11.5, weight: .semibold)).foregroundColor(tint)
                 }
+            }
             }
             if m.kind == .water, let p = m.progress {
                 RunnerBar(fraction: min(1, p), color: tint).frame(maxWidth: 360).animation(BriefLayout.spring, value: p)

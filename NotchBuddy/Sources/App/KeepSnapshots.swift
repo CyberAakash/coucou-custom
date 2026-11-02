@@ -63,6 +63,12 @@ enum KeepSnapshots {
             KeepDebug.agendaTasksOnly = options.contains("tasks")
             size = CGSize(width: IslandConst.openWidth, height: 420)
             view = AnyView(islandFrame(height: 420, width: IslandConst.openWidth) { AgendaView(state: state) })
+        case "eventalert":
+            // An event's alert set to the notch: the routine card with In 5 min / 10 min, Dismiss, Open.
+            RoutineNotchModel.shared.moment = RoutineMoment(kind: .event, alert: BuddyAlert(kind: .event(id: "preview"),
+                title: "Design review · in 10 min", detail: "10:00 – 11:00 AM · Room 4 · Work", isPreview: true))
+            size = CGSize(width: IslandConst.openWidth, height: 160)
+            view = AnyView(islandFrame(height: 160, width: IslandConst.openWidth) { RoutineNotchCard() })
         case "meeting":
             // The Join card for a sample meeting starting now (Mochi is the island's, not drawn here).
             CalendarStore.shared.debugFill()

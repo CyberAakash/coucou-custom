@@ -49,6 +49,32 @@ struct HubCalendarSettings: View {
                 }
             }
 
+            HubLabel("Alerts")
+            HubCard {
+                HubRow(title: "Event alerts", detail: "A card for each timed event at its own alert times, as set in Calendar or typed (\"alert 10m\"). A meeting with a link gets the Join card instead while that is on.") {
+                    Toggle("", isOn: $settings.alerts).toggleStyle(.switch).labelsHidden()
+                }
+                HubDivider()
+                HubRow(title: "When an event has no alert", detail: "The time used for events without their own alert.") {
+                    Picker("", selection: $settings.alertLead) {
+                        Text("No alert").tag(-1)
+                        Text("At the start").tag(0)
+                        ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0 == 60 ? "1 hour" : "\($0) min") before").tag($0) }
+                    }
+                    .labelsHidden().fixedSize().disabled(!settings.alerts)
+                }
+                HubDivider()
+                HubRow(title: "All-day events", detail: "One card at 9 AM with the day's all-day events.") {
+                    Toggle("", isOn: $settings.allDayCard).toggleStyle(.switch).labelsHidden().disabled(!settings.alerts)
+                }
+                HubDivider()
+                HubRow(title: "Try it", detail: "A sample event alert, where it is set to show; its buttons do nothing.") {
+                    Button("Test alert") { EventAlerts.shared.test() }.buttonStyle(HubButtonStyle())
+                }
+            }
+            HubLabel("Where event alerts show")
+            BuddyAlertPlaces(kinds: [.event])
+
             HubLabel("Meetings")
             HubCard {
                 HubRow(title: "Next event in the closed notch", detail: "Its name and time in the right wing, this long before it starts; a task due at the same time comes first.") {
