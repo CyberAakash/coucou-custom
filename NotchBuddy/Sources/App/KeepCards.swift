@@ -164,6 +164,8 @@ enum KeepDebug {
     nonisolated(unsafe) static var selectFirstThree = false
     /// The Agenda's snapshot: open on the Tasks filter with No time unfolded.
     nonisolated(unsafe) static var agendaTasksOnly = false
+    /// The Agenda's snapshot: "help", "when" or "group" open over it.
+    nonisolated(unsafe) static var agendaOpen: String?
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }
