@@ -166,6 +166,8 @@ enum KeepDebug {
     nonisolated(unsafe) static var agendaTasksOnly = false
     /// The Agenda's snapshot: "help", "when" or "group" open over it.
     nonisolated(unsafe) static var agendaOpen: String?
+    /// Settings → Agenda → Composer's snapshot: a template's editor open ("" a new one, "help" with a bad name).
+    nonisolated(unsafe) static var composerEditing: String?
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }

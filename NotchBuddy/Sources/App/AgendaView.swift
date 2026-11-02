@@ -18,6 +18,7 @@ struct AgendaView: View {
     @ObservedObject private var calendar = CalendarStore.shared
     @ObservedObject private var taskSettings = TasksSettings.shared
     @ObservedObject private var calSettings = CalendarSettings.shared
+    @ObservedObject private var composerSettings = AgendaComposerSettings.shared
     @Environment(\.islandViewActive) private var active
 
     enum Filter: String, CaseIterable { case all = "All", events = "Events", tasks = "Tasks" }
@@ -134,6 +135,10 @@ struct AgendaView: View {
             case "allday": if let d = parsedTask.due { set(AgendaLine.date(d, hasTime: false), at: pieces.date) }
             default: break
             }
+        }
+        // `debug.composerEdit` "standup" | "" | "help": the template editor open in the next hub snapshot.
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.composerEdit"))) { note in
+            KeepDebug.composerEditing = note.object as? String
         }
         // `debug.agendaDeleteTask` "title": deletes the open tasks with exactly that title (a key test's leftover).
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaDeleteTask"))) { note in
@@ -649,7 +654,8 @@ struct AgendaView: View {
     }
 
     private var parsedEvent: ParsedEvent {
-        var e = CalendarComposer.parse(extrasRead.masked, calendars: calendarGroups, readDate: !skipDate, readTag: !skipTag)
+        var e = CalendarComposer.parse(extrasRead.masked, calendars: calendarGroups, readDate: !skipDate, readTag: !skipTag,
+                                       defaultMinutes: Double(composerSettings.eventMinutes))
         if let r = extras.repeating {
             if let start = e.start, let end = e.end {
                 let moved = e.allDay ? r.firstDay(from: start) : r.aligned(start)
@@ -684,12 +690,13 @@ struct AgendaView: View {
     private var kind: AgendaKind {
         if !eventsOn { return .task }
         if !tasksOn { return .event }
-        return kindOverride ?? command.kind ?? .task
+        return kindOverride ?? command.kind ?? (composerSettings.eventsFirst ? .event : .task)
     }
 
     /// A length was typed on what is still a task by default: offer the switch, never make it.
     private var looksLikeEvent: Bool {
-        tasksOn && eventsOn && kindOverride == nil && command.kind == nil && parsedEvent.hasLength
+        tasksOn && eventsOn && composerSettings.eventHint && !composerSettings.eventsFirst
+            && kindOverride == nil && command.kind == nil && parsedEvent.hasLength
     }
 
     private var composer: some View {
@@ -718,7 +725,7 @@ struct AgendaView: View {
                 .transition(.opacity)
             }
             HStack(spacing: 8) {
-                TextField(tasksOn && eventsOn ? "Add a task… start with /e for an event" : (eventsOn ? "Add an event…" : "Add a task…"), text: $text)
+                TextField(tasksOn && eventsOn ? (composerSettings.eventsFirst ? "Add an event… start with /t for a task" : "Add a task… start with /e for an event") : (eventsOn ? "Add an event…" : "Add a task…"), text: $text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .focusEffectDisabled()   // the capsule's border already shows focus
@@ -735,6 +742,8 @@ struct AgendaView: View {
                         menuRow = 0
                         menuSource = nil   // typing closes a chip's or /at's menu
                         if new == "?" { text = ""; helpOpen = true }
+                        // "/standup" and a space: the template's line, as text to change.
+                        if let expanded = AgendaTemplate.expand(new, templates: composerSettings.templates) { text = expanded }
                         if new.isEmpty { kindOverride = nil; skipDate = false; skipTag = false; skipPieces = []; menuSource = nil }
                     }
                 Button { openDetails(!detailsOpen) } label: {
@@ -773,10 +782,11 @@ struct AgendaView: View {
         guard !helpOpen, !detailsOpen else { return nil }
         switch menuSource {
         case .slash(let set)?, .chip(let set)?: return AgendaSuggest.choices(set)
-        case .groupChip?: return AgendaSuggest.menu(for: "#", groups: groups, groupKind: kind == .task ? "list" : "calendar")
+        case .groupChip?: return AgendaSuggest.menu(for: "#", groups: groups, groupKind: kind == .task ? "list" : "calendar", templates: [])
         case nil:
-            guard !menuClosed else { return nil }
-            return AgendaSuggest.menu(for: text, groups: groups, groupKind: kind == .task ? "list" : "calendar")
+            guard !menuClosed, composerSettings.suggestions else { return nil }
+            return AgendaSuggest.menu(for: text, groups: groups, groupKind: kind == .task ? "list" : "calendar",
+                                      templates: composerSettings.templates)
         }
     }
 
@@ -1260,6 +1270,7 @@ struct AgendaView: View {
                     helpRow("alert 10m", "alert before")
                     helpRow("// text", "note, or a link")
                     helpRow("/", "every command")
+                    if let t = composerSettings.templates.first { helpRow("/" + t.name, "your template") }
                 }
                 VStack(alignment: .leading, spacing: 5) {
                     helpLabel("TRY ONE")
@@ -1364,7 +1375,10 @@ struct AgendaView: View {
             let p = parsedEvent
             guard !p.title.isEmpty, let start = p.start, let end = p.end else { return }
             let target = p.calendarID.flatMap(calendar.calendar) ?? calendar.newEventCalendar
-            if let id = calendar.add(title: p.title, start: start, end: end, allDay: p.allDay, calendarID: target?.id, extras: extras) {
+            var x = extras
+            // Settings → Agenda → Composer: an alert kept on the event when none was typed.
+            if x.alerts.isEmpty, composerSettings.newEventAlert >= 0 { x.alerts = [TimeInterval(composerSettings.newEventAlert * 60)] }
+            if let id = calendar.add(title: p.title, start: start, end: end, allDay: p.allDay, calendarID: target?.id, extras: x) {
                 text = ""
                 day = Calendar.current.startOfDay(for: start)
                 calendar.showWeek(of: day)
