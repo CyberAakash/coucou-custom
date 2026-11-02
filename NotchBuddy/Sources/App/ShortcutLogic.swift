@@ -21,7 +21,7 @@ enum ShortcutAction: String, CaseIterable, Sendable {
     case talkToCoucou      = "talkToCoucou"       // (unset) — start listening without wake phrase (non-AppStore)
     case captureScreen     = "captureScreen"      // ⌘⇧S — capture a part of the screen for Claude (non-AppStore)
     case closeIsland       = "closeIsland"        // ⌃⌥X — close the open notch (coucou-custom fork)
-    case openClipboard     = "openClipboard"      // ⌘⇧V — open the notch on the clipboard page (coucou-custom fork)
+    case openClipboard     = "openClipboard"      // ⌃⌥C, off by default — open the notch on the clipboard page (coucou-custom fork)
 
     // MARK: UserDefaults keys
 
@@ -65,7 +65,8 @@ enum ShortcutAction: String, CaseIterable, Sendable {
 
     /// Whether the shortcut is enabled by default.
     /// `toggleIsland` and `talkToCoucou` are off by default; all others are on.
-    var enabledByDefault: Bool { self != .toggleIsland && self != .talkToCoucou && self != .closeIsland }
+    // coucou-custom fork: the clipboard's is off too; it was ⌘⇧V, which apps use for Paste and Match Style.
+    var enabledByDefault: Bool { self != .toggleIsland && self != .talkToCoucou && self != .closeIsland && self != .openClipboard }
 }
 
 // MARK: - Shortcut Spec
@@ -115,7 +116,7 @@ enum ShortcutLogic {
         .talkToCoucou:      ShortcutSpec(keyCode: 9,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥V (disabled by default)
         .captureScreen:     ShortcutSpec(keyCode: 1,  nsFlags: ShortcutSpec.cmdShift), // ⌘⇧S
         .closeIsland:       ShortcutSpec(keyCode: 7,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥X (fork; Esc-based chords clash with Claude Code)
-        .openClipboard:     ShortcutSpec(keyCode: 9,  nsFlags: ShortcutSpec.cmdShift), // ⌘⇧V (fork)
+        .openClipboard:     ShortcutSpec(keyCode: 8,  nsFlags: ShortcutSpec.ctrlOpt),  // ⌃⌥C (fork; off by default)
     ]
 
     // MARK: - Load / save (UserDefaults)
