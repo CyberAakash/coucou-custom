@@ -103,6 +103,12 @@ struct AgendaView: View {
             let action = note.object as? String ?? ""
             tasks.debugTest(action)
             calendar.debugTest(action)
+            if action == "teardown" {
+                // The test events' alert cards still waiting go too.
+                let routines = BuddyRoutineController.shared
+                for a in routines.alerts where a.title.hasPrefix("Coucou ") { routines.dismiss(a) }
+                if RoutineNotchModel.shared.moment?.alert?.title.hasPrefix("Coucou ") == true { RoutineNotchModel.shared.close() }
+            }
         }
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.agendaType"))) { note in
             text = note.object as? String ?? ""

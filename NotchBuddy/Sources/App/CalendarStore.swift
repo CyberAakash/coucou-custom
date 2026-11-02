@@ -32,6 +32,8 @@ struct CalEvent: Identifiable, Equatable {
     let attendees: Int
     /// A loop beside the title in the Agenda.
     var repeats = false
+    /// The event's own alerts, seconds before its start (0 is at the start).
+    var alertOffsets: [TimeInterval] = []
 }
 
 /// Settings → Agenda → Calendar: events in the Agenda on or off, the calendars left out, where new events go, the wing
@@ -46,6 +48,9 @@ final class CalendarSettings: ObservableObject {
     static let wingMinutesKey = "coucouCalendarWingMinutes"
     static let joinKey = "coucouCalendarJoin"
     static let joinLeadKey = "coucouCalendarJoinLead"
+    static let alertsKey = "coucouCalendarAlerts"
+    static let alertLeadKey = "coucouCalendarAlertLead"
+    static let allDayKey = "coucouCalendarAllDayCard"
 
     private let ud = UserDefaults.standard
 
@@ -59,6 +64,12 @@ final class CalendarSettings: ObservableObject {
     /// The Join card below the notch when a meeting with a link starts (minutes before: 0 = at the start).
     @Published var join: Bool { didSet { ud.set(join, forKey: Self.joinKey) } }
     @Published var joinLead: Int { didSet { ud.set(joinLead, forKey: Self.joinLeadKey) } }
+    /// A card for each timed event at its own alert times (EventAlerts).
+    @Published var alerts: Bool { didSet { ud.set(alerts, forKey: Self.alertsKey) } }
+    /// Minutes before an event that has no alert of its own; -1 is none.
+    @Published var alertLead: Int { didSet { ud.set(alertLead, forKey: Self.alertLeadKey) } }
+    /// One card at 9 AM for the day's all-day events.
+    @Published var allDayCard: Bool { didSet { ud.set(allDayCard, forKey: Self.allDayKey) } }
 
     private init() {
         enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -68,6 +79,9 @@ final class CalendarSettings: ObservableObject {
         wingMinutes = ud.object(forKey: Self.wingMinutesKey) as? Int ?? 10
         join = ud.object(forKey: Self.joinKey) as? Bool ?? true
         joinLead = ud.object(forKey: Self.joinLeadKey) as? Int ?? 0
+        alerts = ud.object(forKey: Self.alertsKey) as? Bool ?? true
+        alertLead = ud.object(forKey: Self.alertLeadKey) as? Int ?? 10
+        allDayCard = ud.object(forKey: Self.allDayKey) as? Bool ?? true
     }
 }
 
@@ -180,7 +194,8 @@ final class CalendarStore: ObservableObject {
                  calendarID: e.calendar.calendarIdentifier,
                  location: e.location?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                  meeting: meetingLink(url: e.url, location: e.location, notes: e.notes),
-                 attendees: e.attendees?.count ?? 0, repeats: e.hasRecurrenceRules)
+                 attendees: e.attendees?.count ?? 0, repeats: e.hasRecurrenceRules,
+                 alertOffsets: (e.alarms ?? []).map { a in a.absoluteDate.map { e.startDate.timeIntervalSince($0) } ?? -a.relativeOffset })
     }
 
     /// The first Zoom, Google Meet or Teams link on an event.

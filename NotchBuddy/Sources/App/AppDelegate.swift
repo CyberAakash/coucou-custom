@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EventPeeks.shared.start()   // coucou-custom fork: charger, network, sound output, Caps Lock, keyboard peeks
         ClipboardStore.shared.start()   // coucou-custom fork: the clipboard history
         MeetingWatcher.shared.start()   // coucou-custom fork: the Join card when a meeting starts
+        EventAlerts.shared.start()      // coucou-custom fork: a card for every timed event's alerts
         #endif
         #if !APPSTORE
         // Opened by hand (Finder, Dock, Spotlight): the Coucou window shows. Not at login.
