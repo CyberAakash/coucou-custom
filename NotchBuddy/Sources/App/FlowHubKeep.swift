@@ -504,7 +504,7 @@ struct HubClipboardPage: View {
                     Toggle("", isOn: $settings.splitByTime).toggleStyle(.switch).labelsHidden()
                 }
                 HubDivider()
-                HubKeepRow(title: "Shortcut", detail: "Opens the notch on the Clipboard page: Settings → Shortcuts → Open the clipboard (⌘⇧V by default).") { EmptyView() }
+                HubKeepRow(title: "Shortcut", detail: "Opens the notch on the Clipboard page: Settings → Shortcuts → Open the clipboard (off by default; ⌃⌥C when turned on).") { EmptyView() }
                 HubDivider()
                 HubKeepRow(title: "↩ pastes", detail: "Return and a double-click paste into the app in front (this needs the Accessibility permission); off, they only copy.") {
                     Toggle("", isOn: $settings.enterPastes).toggleStyle(.switch).labelsHidden()
