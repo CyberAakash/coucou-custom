@@ -289,7 +289,11 @@ final class TasksStore: ObservableObject {
 
     func setDue(_ id: String, _ due: Date?, hasTime: Bool) {
         guard let r = reminder(id) else { return }
-        if let due { setDue(r, due, hasTime: hasTime) } else {
+        if let due, r.hasRecurrenceRules {
+            // A repeating task's alerts count from each due time: moving it keeps them.
+            let units: Set<Calendar.Component> = hasTime ? [.year, .month, .day, .hour, .minute] : [.year, .month, .day]
+            r.dueDateComponents = Calendar.current.dateComponents(units, from: due)
+        } else if let due { setDue(r, due, hasTime: hasTime) } else {
             r.dueDateComponents = nil
             r.alarms?.forEach { r.removeAlarm($0) }
         }
