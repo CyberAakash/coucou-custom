@@ -76,6 +76,7 @@ enum KeepSnapshots {
         case "controls":
             if options.contains("sample") { ControlsMonitor.shared.debugFill(); ControlsConnections.shared.debugFill() }
             KeepDebug.controlsDetail = ["cpu", "memory", "disk", "network"].first { options.contains($0) }
+            if options.contains("sample") { DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { ControlsMonitor.shared.debugFillApps() } }
             size = CGSize(width: IslandConst.openWidth, height: ControlsLayout.height)
             view = AnyView(islandFrame(height: ControlsLayout.height, width: IslandConst.openWidth) { ControlsView(state: state) })
         case "meeting":

@@ -241,9 +241,16 @@ final class ControlsMonitor: ObservableObject {
         netIn = wave(6e6, 5e6, 0.7); netOut = wave(6e5, 4e5, 1.4)
         memoryUsed = 11_200_000_000; memoryTotal = 18_000_000_000; swapUsed = 1_100_000_000
         diskFree = 412_000_000_000; diskTotal = 994_000_000_000; diskRead = 2.1e6; diskWrite = 0.8e6
-        apps = [MonitorApp(id: "/Applications/Xcode.app", name: "Xcode", path: "/Applications/Xcode.app", value: 1.4),
-                MonitorApp(id: "/Applications/Safari.app", name: "Safari", path: "/Applications/Safari.app", value: 0.6),
-                MonitorApp(id: "/System/Applications/Mail.app", name: "Mail", path: "/System/Applications/Mail.app", value: 0.2)]
+        debugFillApps()
+    }
+
+    /// Opening a detail clears the list (`appsFor`), so a snapshot fills it again after.
+    func debugFillApps() {
+        apps = [("Xcode", "/Applications/Xcode.app", 1.4), ("Safari", "/Applications/Safari.app", 0.6),
+                ("Mail", "/System/Applications/Mail.app", 0.2), ("Music", "/System/Applications/Music.app", 0.15),
+                ("Notes", "/System/Applications/Notes.app", 0.1), ("Finder", "/System/Library/CoreServices/Finder.app", 0.08),
+                ("Calendar", "/System/Applications/Calendar.app", 0.05), ("Preview", "/System/Applications/Preview.app", 0.03)]
+            .prefix(3).map { MonitorApp(id: $0.1, name: $0.0, path: $0.1, value: $0.2) }
     }
     #endif
 }
