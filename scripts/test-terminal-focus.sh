@@ -7,5 +7,7 @@ swiftc -parse-as-library \
     NotchBuddy/Sources/App/TerminalFocus.swift \
     NotchBuddy/Sources/App/TerminalInput.swift \
     NotchBuddy/Sources/App/SessionTracker.swift \
+    NotchBuddy/Sources/App/ClaudeHost.swift \
+    NotchBuddy/Sources/App/AppActivation.swift \
     tests/TerminalFocusTests.swift -o "$TEST_DIR/terminal-focus-tests"
 "$TEST_DIR/terminal-focus-tests"

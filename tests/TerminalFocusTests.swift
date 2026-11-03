@@ -61,6 +61,17 @@ enum TerminalFocusTests {
         check("iterm id stored, per session", t.sessions["B"]?.terminal["iterm_session_id"] == "w0t0p0:U"
               && t.sessions["A"]?.terminal["iterm_session_id"] == nil)
 
+        // Any terminal (ClaudeHost): a build of a listed one, an unknown id, Claude's own apps.
+        check("family: ghostty debug build", ClaudeHost.family("com.mitchellh.ghostty.debug") == "com.mitchellh.ghostty")
+        check("family: listed itself", ClaudeHost.family("com.apple.Terminal") == "com.apple.Terminal")
+        check("family: unrelated id", ClaudeHost.family("com.mitchellh.ghosttyfake") == nil && ClaudeHost.family("") == nil)
+        check("host: ghostty debug keeps its own id", ClaudeHost.terminal(termProgram: "ghostty", bundleId: "com.mitchellh.ghostty.debug")?.bundleId == "com.mitchellh.ghostty.debug")
+        check("host: no such app falls back to TERM_PROGRAM", ClaudeHost.terminal(termProgram: "ghostty", bundleId: "com.example.not-installed")?.bundleId == "com.mitchellh.ghostty")
+        check("host: unknown and no TERM_PROGRAM", ClaudeHost.terminal(termProgram: "", bundleId: "com.example.not-installed") == nil)
+        check("host: an installed app is a terminal", ClaudeHost.terminal(termProgram: "", bundleId: "com.apple.TextEdit")?.name == "TextEdit")
+        check("host: Claude's own app is not", ClaudeHost.terminal(termProgram: "", bundleId: "com.anthropic.claudefordesktop") == nil)
+        UserDefaults.standard.removeObject(forKey: ClaudeHost.seenKey)
+
         print(failures == 0 ? "\nTerminalFocusTests: all passed" : "\n\(failures) failed")
         if failures > 0 { exit(1) }
     }
