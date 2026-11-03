@@ -162,6 +162,9 @@ targets:
         NSFocusStatusUsageDescription: "Coucou stays quiet about new WhatsApp messages while a Focus is on."
         NSCalendarsFullAccessUsageDescription: "Coucou shows today's events in your Daily brief, when you turn on its Today ahead section."
         NSRemindersFullAccessUsageDescription: "Coucou shows your Reminders as tasks in the notch, and adds, ticks and moves them when you ask."
+        NSBluetoothAlwaysUsageDescription: "Coucou lists your Bluetooth devices on its Controls page and connects or disconnects them when you ask."
+        NSLocationUsageDescription: "macOS shows an app the Wi-Fi network's name only with Location allowed: Coucou uses it for that name alone."
+        NSLocationWhenInUseUsageDescription: "macOS shows an app the Wi-Fi network's name only with Location allowed: Coucou uses it for that name alone."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleLocalizations:
