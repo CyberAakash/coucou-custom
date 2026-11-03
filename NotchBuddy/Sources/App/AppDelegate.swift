@@ -69,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ClipboardStore.shared.start()   // coucou-custom fork: the clipboard history
         MeetingWatcher.shared.start()   // coucou-custom fork: the Join card when a meeting starts
         EventAlerts.shared.start()      // coucou-custom fork: a card for every timed event's alerts
+        ControlsWatcher.shared.start()  // coucou-custom fork: Bluetooth connect / low-battery peeks, the wing's monitor
         #endif
         #if !APPSTORE
         // Opened by hand (Finder, Dock, Spotlight): the Coucou window shows. Not at login.

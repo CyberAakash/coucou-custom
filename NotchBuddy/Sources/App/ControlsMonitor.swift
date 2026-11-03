@@ -253,7 +253,15 @@ enum MonitorFormat {
         ByteCountFormatter.string(fromByteCount: Int64(b), countStyle: .memory)
     }
 
-    static func rate(_ bytesPerSecond: Double) -> String {
+    /// MB/s, or Mbps when Settings → Controls says so (a speed test's unit).
+    @MainActor static func rate(_ bytesPerSecond: Double) -> String {
+        if ControlsSettings.shared.bits {
+            let b = bytesPerSecond * 8
+            if b >= 1e9 { return String(format: "%.1f Gbps", b / 1e9) }
+            if b >= 1e6 { return String(format: "%.1f Mbps", b / 1e6) }
+            if b >= 1e3 { return String(format: "%.0f Kbps", b / 1e3) }
+            return "0 Kbps"
+        }
         let v = bytesPerSecond
         if v >= 1e9 { return String(format: "%.1f GB/s", v / 1e9) }
         if v >= 1e6 { return String(format: "%.1f MB/s", v / 1e6) }

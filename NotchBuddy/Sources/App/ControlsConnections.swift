@@ -1,6 +1,7 @@
 #if !APPSTORE
 import AppKit
 import CoreLocation
+import SwiftUI
 import CoreWLAN
 import IOBluetooth
 
@@ -250,5 +251,129 @@ final class ControlsConnections: NSObject, ObservableObject, CLLocationManagerDe
         ]
     }
     #endif
+}
+// MARK: - Device alerts on the closed notch
+
+/// Always on while its alerts are: every 10 s the profiler's report (no permission, ~0.1 s off the
+/// main thread) against the last one. A device that connects or disconnects gets a peek with its
+/// battery; one that reaches 20%, and then 10%, gets a low-battery peek, again after a charge.
+/// Also keeps the monitors running while the closed notch's wing shows one.
+@MainActor
+final class ControlsWatcher {
+    static let shared = ControlsWatcher()
+
+    private var last: [String: BluetoothDevice]?
+    /// The lowest threshold already announced per device (20 or 10).
+    private var warned: [String: Int] = [:]
+    private var timer: Timer?
+    private var reading = false
+    private var holdingMonitor = false
+    /// A test sequence is running: the real reads wait, so they do not interleave with it.
+    private var testing = false
+
+    private init() {}
+
+    func start() {
+        guard timer == nil else { return }
+        tick()
+        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
+            MainActor.assumeIsolated { ControlsWatcher.shared.tick() }
+        }
+        timer?.tolerance = 2
+    }
+
+    private func tick() {
+        let settings = ControlsSettings.shared
+        let wantMonitor = settings.wingMetric != .off
+        if wantMonitor != holdingMonitor {
+            holdingMonitor = wantMonitor
+            ControlsMonitor.shared.hold(wantMonitor)
+        }
+        guard settings.deviceAlerts || settings.lowBattery, !reading else { if !(settings.deviceAlerts || settings.lowBattery) { last = nil }; return }
+        reading = true
+        Task.detached(priority: .utility) {
+            let read = ControlsConnections.profiler()
+            await MainActor.run {
+                let w = ControlsWatcher.shared
+                w.reading = false
+                if let read, !w.testing { w.compare(read.devices) }
+            }
+        }
+    }
+
+    #if DEBUG
+    /// `debug.controlsWatch`: a made-up sequence through the same comparison, peeks logged.
+    func debugSequence() {
+        func dev(_ connected: Bool, _ battery: Int?) -> [BluetoothDevice] {
+            [BluetoothDevice(id: "t", name: "Test Buds", kind: "Headphones", connected: connected, battery: battery, batteryDetail: nil)]
+        }
+        last = nil
+        warned = [:]
+        testing = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { ControlsWatcher.shared.testing = false; ControlsWatcher.shared.last = nil }
+        let steps: [[BluetoothDevice]] = [dev(false, nil), dev(true, 80), dev(true, 19), dev(true, 18), dev(true, 9), dev(true, 50), dev(true, 15), dev(false, nil)]
+        for (i, step) in steps.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 * Double(i)) {
+                appendAppLog("nb.log", "[Controls] watch step \(i): \(step[0].connected ? "connected" : "not connected") \(step[0].battery.map { "\($0)%" } ?? "")")
+                ControlsWatcher.shared.compare(step)
+            }
+        }
+    }
+    #endif
+
+    func compare(_ devices: [BluetoothDevice]) {
+        let settings = ControlsSettings.shared
+        let now = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        defer { last = now }
+        // The first report is the baseline: nothing is announced at launch.
+        guard let last else { return }
+        for d in devices {
+            let was = last[d.id]?.connected ?? false
+            if settings.deviceAlerts, d.connected, !was {
+                let battery = d.battery.map { " · \($0)%" } ?? ""
+                NotchPeek.shared.show(icon: d.symbol, text: d.name + battery, tint: Color(hex: "#34D399"))
+            } else if settings.deviceAlerts, !d.connected, was {
+                NotchPeek.shared.show(icon: d.symbol, text: "\(d.name) disconnected", tint: Color(hex: "#8E939C"))
+            }
+            guard settings.lowBattery, d.connected, let b = d.battery else { continue }
+            if b > 30 { warned[d.id] = nil; continue }
+            let threshold = b <= 10 ? 10 : (b <= 20 ? 20 : nil)
+            if let threshold, (warned[d.id] ?? 100) > threshold {
+                warned[d.id] = threshold
+                NotchPeek.shared.show(icon: "battery.25", text: "\(d.name) · \(b)% left", tint: Color(hex: "#F4505E"))
+            }
+        }
+    }
+}
+
+/// The closed notch's right wing showing a monitor (Settings → Controls), in the clock's place.
+struct ControlsWingText: View {
+    @ObservedObject private var monitor = ControlsMonitor.shared
+    @ObservedObject private var settings = ControlsSettings.shared
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if settings.wingMetric == .cpu || settings.wingMetric == .both {
+                Text("CPU " + (monitor.cpu.last.map(MonitorFormat.percent) ?? "–")).foregroundColor(Color(hex: "#34D399"))
+            }
+            if settings.wingMetric == .both { Text("·").foregroundColor(Color(hex: "#6B7079")) }
+            if settings.wingMetric == .network || settings.wingMetric == .both {
+                Text("↓" + MonitorFormat.rate(monitor.netIn.last ?? 0)).foregroundColor(Color(hex: "#22D3EE"))
+            }
+        }
+        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+        .lineLimit(1).fixedSize()
+    }
+
+    /// The widest the text gets, for the wing's width.
+    @MainActor static func widest(_ metric: ControlsWingMetric) -> String? {
+        let speed = ControlsSettings.shared.bits ? "↓999.9 Mbps" : "↓999.9 MB/s"
+        switch metric {
+        case .off: return nil
+        case .cpu: return "CPU 100%"
+        case .network: return speed
+        case .both: return "CPU 100% · " + speed
+        }
+    }
 }
 #endif
