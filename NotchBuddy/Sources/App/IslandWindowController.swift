@@ -2558,6 +2558,9 @@ func islandSize(mode: IslandMode, view: IslandView,
         if view == .shelf { return (IslandConst.openWidth, KeepPanels.islandHeight(.shelf, layout: ShelfSettings.layoutForSize)) }
         if view == .clipboard { return (IslandConst.openWidth, KeepPanels.islandHeight(.clipboard, layout: ClipboardSettings.layoutForSize)) }
         if view == .agenda { return (IslandConst.openWidth, 420) }
+        #if !APPSTORE
+        if view == .controls { return (IslandConst.openWidth, ControlsLayout.height) }
+        #endif
         // coucou-custom fork: the voice card is as tall as its answer.
         if VoiceCardLayout.applies(to: view) { return (VoiceCardLayout.width, VoiceCardLayout.height) }
         #endif

@@ -78,6 +78,12 @@ struct IslandViewContent: View {
             #else
             EmptyView()
             #endif
+        case .controls:
+            #if !APPSTORE
+            ControlsView(state: state)
+            #else
+            EmptyView()
+            #endif
         case .meeting:
             #if !APPSTORE
             MeetingCard()

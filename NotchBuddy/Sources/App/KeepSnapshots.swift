@@ -73,6 +73,9 @@ enum KeepSnapshots {
                 title: "Design review · in 10 min", detail: "10:00 – 11:00 AM · Room 4 · Work", isPreview: true))
             size = CGSize(width: IslandConst.openWidth, height: 160)
             view = AnyView(islandFrame(height: 160, width: IslandConst.openWidth) { RoutineNotchCard() })
+        case "controls":
+            size = CGSize(width: IslandConst.openWidth, height: ControlsLayout.height)
+            view = AnyView(islandFrame(height: ControlsLayout.height, width: IslandConst.openWidth) { ControlsView(state: state) })
         case "meeting":
             // The Join card for a sample meeting starting now (Mochi is the island's, not drawn here).
             CalendarStore.shared.debugFill()
