@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppActivation.installKeyTapHook()
         AppActivation.installExpandHook()
         KeepSnapshots.install()   // coucou-custom fork: render the Keep pages to PNG, for checking from a terminal
+        NotchPin.installDebug()
         #endif
         #if !APPSTORE
         // Before anything writes its settings: did Coucou just update itself? (What's new, once.)

@@ -40,6 +40,9 @@ final class AppState: ObservableObject {
 
     // Pinned (alerts that stay open, never auto-close)
     var isPinned: Bool = false
+    // coucou-custom fork: the header's pin (NotchPin); not saved.
+    @Published var pinOpen = false
+    @Published var pinScreen = false
 
     // Keyboard navigation — index of the selected item within the current card's list (nil = none)
     @Published var cardSelection: Int? = nil

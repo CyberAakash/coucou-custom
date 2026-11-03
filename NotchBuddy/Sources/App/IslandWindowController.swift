@@ -319,7 +319,7 @@ final class IslandWindowController: NSWindowController {
     /// has stayed on the other screen for a moment (coucou-custom fork: it used to stay behind
     /// until closed), so passing over a screen edge mid-click never takes it away.
     private func followMouseIfNeeded(_ mouse: NSPoint) {
-        guard state.islandDisplay == .followMouse, !inAttachDrag, attachDragStart == nil else { return }
+        guard state.islandDisplay == .followMouse, !state.pinScreen, !inAttachDrag, attachDragStart == nil else { return }
         guard let target = NSScreen.screens.first(where: { $0.frame.contains(mouse) }),
               target != Self.currentScreen else { followSince = nil; return }
         if state.mode == .expanded {
@@ -415,10 +415,10 @@ final class IslandWindowController: NSWindowController {
         // coucou-custom fork: a pending question holds the notch open too (typing "Other…").
         fsm.isHeldOpen = { AppState.shared.pendingApproval != nil || AppState.shared.voiceMailDraft != nil
                            || AppState.shared.pendingQuestion != nil || WhatsAppController.shared.composing
-                           || FileShelf.shared.dragging }
+                           || FileShelf.shared.dragging || AppState.shared.pinOpen }
         #else
         fsm.isHeldOpen = { AppState.shared.pendingApproval != nil || AppState.shared.voiceMailDraft != nil
-                           || AppState.shared.pendingQuestion != nil }
+                           || AppState.shared.pendingQuestion != nil || AppState.shared.pinOpen }
         #endif
 
         // Voice: wake phrase detected → open listening island
@@ -772,6 +772,7 @@ final class IslandWindowController: NSWindowController {
     func collapse(allowPendingApproval: Bool = false, reason: String = "other") {
         let keepsApprovalPending = allowPendingApproval && state.pendingApproval != nil
         if state.mode == .expanded { appendAppLog("nb.log", "[Notch] collapse: \(reason)") }
+        NotchPin.letGo(state, reason: reason)
         if alertCardShowing { appendAppLog("nb.log", "[Notch] card closed: \(reason)") }
         collapsing = true
         defer { collapsing = false }
@@ -1037,9 +1038,9 @@ final class IslandWindowController: NSWindowController {
             NotificationCenter.default.post(name: .openFullSettings, object: nil)
             return true
         }
-        // ⌘P — pin / unpin
+        // ⌘P — the header's pin (coucou-custom fork; upstream toggled isPinned, which only kept Escape away)
         if cmd && event.keyCode == 35 {
-            state.isPinned.toggle()
+            NotchPin.toggle(state)
             return true
         }
         // ⌘1–⌘9 — switch to pill by number
