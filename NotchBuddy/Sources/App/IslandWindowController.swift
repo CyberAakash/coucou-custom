@@ -82,6 +82,7 @@ final class IslandWindowController: NSWindowController {
     private var fullScreenCheckedAt: TimeInterval = 0  // coucou-custom fork: hide in full screen
     private var hiddenForFullScreen = false
     private let pageWheel = PageWheel()
+    private var threeFingerSubscription: AnyCancellable?   // coucou-custom fork: raw touches while open
 
     convenience init() {
         let screen = Self.targetScreen(for: AppState.shared.islandDisplay)
@@ -968,6 +969,15 @@ final class IslandWindowController: NSWindowController {
                 _ = self.pageWheel.handleSwipe(event, state: self.state, from: "app in front")
             }
         }
+        #if !APPSTORE
+        ThreeFingerSwipe.onSwipe = { [weak self] step in
+            guard let self else { return }
+            self.pageWheel.handleThreeFingers(step, state: self.state)
+        }
+        threeFingerSubscription = state.$mode.removeDuplicates().receive(on: DispatchQueue.main).sink { mode in
+            if mode == .expanded && IslandPages.enabled && IslandPages.wheelEnabled { ThreeFingerSwipe.start() } else { ThreeFingerSwipe.stop() }
+        }
+        #endif
     }
 
     /// The pointer is over the island itself.
