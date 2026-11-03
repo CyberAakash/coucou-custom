@@ -14,6 +14,7 @@ enum HubPage: String, CaseIterable, Identifiable {
     case shelf   // coucou-custom fork: Keep → Shelf (manage the files, its settings)
     case clipboard   // coucou-custom fork: Keep → Clipboard (what you copied, its settings)
     case agenda      // coucou-custom fork: Settings → Agenda (tasks from Reminders, calendars, the wing, the Join card)
+    case controls    // coucou-custom fork: Settings → Controls (the Controls page, its tiles, device alerts, the wing's monitor)
     case mailOverview, mailRules, mailBanned, mailVIP
 
     var id: String { rawValue }
@@ -26,7 +27,7 @@ enum HubPage: String, CaseIterable, Identifiable {
     /// on the desktop and in the menu bar, what Coucou connects to, then Flow.
     static let sidebarGroups: [(title: String, pages: [HubPage])] = [
         (String(localized: "hub.section.notch"), [.general, .agents, .chat, .voice, .shortcuts]),
-        ("Desktop", [.buddy, .routines, .agenda, .runner, .brief]),
+        ("Desktop", [.buddy, .routines, .agenda, .controls, .runner, .brief]),
         ("Keep", [.shelf, .clipboard, .notes]),
         ("Connections", [.pills, .integrations]),
         ("Mail", mailPages),
@@ -72,6 +73,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .shelf:        return "Shelf"
         case .clipboard:    return "Clipboard"
         case .agenda:       return "Agenda"
+        case .controls:     return "Controls"
         case .dictation:  return String(localized: "hub.page.dictation")
         case .notes:      return String(localized: "hub.page.notes")
         case .insights:   return String(localized: "hub.page.insights")
@@ -109,6 +111,7 @@ enum HubPage: String, CaseIterable, Identifiable {
         case .shelf:        return "tray.full"
         case .clipboard:    return "list.clipboard"
         case .agenda:       return "calendar"
+        case .controls:     return "slider.horizontal.3"
         case .mailOverview: return "tray"
         case .mailRules:    return "line.3.horizontal.decrease"
         case .mailBanned:   return "nosign"
@@ -292,6 +295,7 @@ struct FlowHubView: View {
         case .shelf:      HubShelfPage()   // coucou-custom fork
         case .clipboard:  HubClipboardPage()   // coucou-custom fork
         case .agenda:     HubAgendaPage()    // coucou-custom fork
+        case .controls:   HubControlsPage()  // coucou-custom fork
         case .mailOverview: HubMailOverviewPage()
         case .mailRules:    HubMailRulesPage()
         case .mailBanned:   HubMailBannedPage()

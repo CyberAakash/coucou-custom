@@ -110,10 +110,18 @@ enum KeepSnapshots {
             let clockWas = UserDefaults.standard.object(forKey: IslandClock.enabledKey)
             if options.contains("clock") { UserDefaults.standard.set(true, forKey: IslandClock.enabledKey) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UserDefaults.standard.set(clockWas, forKey: IslandClock.enabledKey) }
+            // "compact:cpu|network|both": a monitor in the wing, back to the setting after.
+            let metricWas = ControlsSettings.shared.wingMetric
+            if let m = ["cpu", "network", "both"].first(where: { options.contains($0) }).flatMap(ControlsWingMetric.init(rawValue:)) {
+                ControlsMonitor.shared.debugFill()
+                ControlsSettings.shared.wingMetric = m
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { ControlsSettings.shared.wingMetric = metricWas }
+            }
             IslandRestingStyle.gridOnLeft = !state.gridSlots.isEmpty
             IslandRestingStyle.contentNeed = CompactSideContent.need(
                 gridShown: false, clockOn: UserDefaults.standard.bool(forKey: IslandClock.enabledKey),
-                seconds: UserDefaults.standard.bool(forKey: IslandClock.secondsKey), dueLabel: TaskDueSoon.shared.next.map { $0.label ?? "" })
+                seconds: UserDefaults.standard.bool(forKey: IslandClock.secondsKey), dueLabel: TaskDueSoon.shared.next.map { $0.label ?? "" },
+                metric: ControlsWingText.widest(ControlsSettings.shared.wingMetric))
             let (w, h) = IslandRestingStyle.compactSize(nw: state.notchWidth, nh: state.notchHeight)
             size = CGSize(width: w + 40, height: h)
             view = AnyView(ZStack {

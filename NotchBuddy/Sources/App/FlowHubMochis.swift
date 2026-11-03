@@ -304,6 +304,8 @@ struct HubHeroTheme {
             return .init(color: Color(hex: "#F472B6"), cast: [m("#F5F6F8", 58, 0.25, outfit: .bow), m("#F472B6", 46, 0.8)])
         case .shelf:   // coucou-custom fork: the file shelf
             return .init(color: Color(hex: "#22D3EE"), cast: [m("#F5F6F8", 56, 0.2), m("#22D3EE", 48, 0.7, state: .working, roams: false), m("#3B9EFF", 40, 0.95)])
+        case .controls:   // coucou-custom fork: the Mac's controls and monitors
+            return .init(color: Color(hex: "#34D399"), cast: [m("#34D399", 56, 0.2, state: .working, roams: false), m("#F5F6F8", 48, 0.7), m("#22D3EE", 40, 0.95)])
         case .agenda:   // coucou-custom fork: tasks and the calendar
             return .init(color: Color(hex: "#0A84FF"), cast: [m("#0A84FF", 56, 0.2, outfit: .roundGlasses), m("#F5F6F8", 48, 0.7), m("#FF9F0A", 40, 0.95)])
         case .clipboard:   // coucou-custom fork: the clipboard history

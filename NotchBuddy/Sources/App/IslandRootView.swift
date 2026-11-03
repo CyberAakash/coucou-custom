@@ -1034,6 +1034,7 @@ struct CompactSideContent: View {
     @ObservedObject var state: AppState
     #if !APPSTORE
     @ObservedObject private var dueSoon = TaskDueSoon.shared   // coucou-custom fork: a task due soon
+    @ObservedObject private var controlsSettings = ControlsSettings.shared   // coucou-custom fork: a monitor in the wing
     #endif
     let islandWidth: CGFloat
     let islandHeight: CGFloat
@@ -1062,7 +1063,9 @@ struct CompactSideContent: View {
                         .transition(.opacity)
                     Group {
                         #if !APPSTORE
-                        if let due = dueSoon.next { TaskDueWing(due: due).transition(.opacity) } else { CompactClock() }
+                        if let due = dueSoon.next { TaskDueWing(due: due).transition(.opacity) }
+                        else if controlsSettings.wingMetric != .off { ControlsWingText().transition(.opacity) }
+                        else { CompactClock() }
                         #else
                         CompactClock()
                         #endif
@@ -1092,7 +1095,11 @@ struct CompactSideContent: View {
         #else
         let due = ""
         #endif
+        #if !APPSTORE
+        return "\(!state.gridSlots.isEmpty)|\(clockOn)|\(clockSeconds)|\(due)|\(controlsSettings.wingMetric.rawValue)|\(controlsSettings.bits)"
+        #else
         return "\(!state.gridSlots.isEmpty)|\(clockOn)|\(clockSeconds)|\(due)"
+        #endif
     }
 
     private func updateNeed() {
@@ -1101,7 +1108,12 @@ struct CompactSideContent: View {
         #else
         let due: String? = nil
         #endif
-        let need = Self.need(gridShown: false, clockOn: clockOn, seconds: clockSeconds, dueLabel: due)
+        #if !APPSTORE
+        let metric = ControlsWingText.widest(controlsSettings.wingMetric)
+        #else
+        let metric: String? = nil
+        #endif
+        let need = Self.need(gridShown: false, clockOn: clockOn, seconds: clockSeconds, dueLabel: due, metric: metric)
         let gridLeft = !state.gridSlots.isEmpty && !state.islandPlacement.isCorner
         guard abs(need - IslandRestingStyle.contentNeed) > 0.5 || gridLeft != IslandRestingStyle.gridOnLeft else { return }
         IslandRestingStyle.contentNeed = need
@@ -1111,12 +1123,15 @@ struct CompactSideContent: View {
 
     /// The right wing's width for its text: a task's time when one is due soon, else the clock.
     /// `dueLabel`: nil when nothing is due soon, "" for a task (its time alone), an event's name.
-    static func need(gridShown: Bool, clockOn: Bool, seconds: Bool, dueLabel: String?) -> CGFloat {
+    /// `metric`: the widest text of a monitor shown in the clock's place (Settings → Controls).
+    static func need(gridShown: Bool, clockOn: Bool, seconds: Bool, dueLabel: String?, metric: String?) -> CGFloat {
         var width: CGFloat = 0
         if let dueLabel {
             // Dot 7 + 5, the event's name and 5, and the widest time in the wing's font.
             width = 12 + textWidth("12:58", size: 11, weight: .bold)
                 + (dueLabel.isEmpty ? 0 : 5 + textWidth(dueLabel, size: 11, weight: .semibold))
+        } else if let metric {
+            width = textWidth(metric, size: 11, weight: .semibold)
         } else if clockOn {
             width = textWidth(IslandClock.text(widest, seconds: seconds), size: 11, weight: .semibold)
         }

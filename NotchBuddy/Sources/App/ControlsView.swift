@@ -9,12 +9,45 @@ import SwiftUI
 // Connections (Wi-Fi and Bluetooth in one list) and System (four live graphs). Each band is
 // the Mac's own setting, read and changed in place; nothing leaves the Mac.
 
+/// What the closed notch's right wing shows of the monitors, when nothing is due there.
+enum ControlsWingMetric: String, CaseIterable, Identifiable {
+    case off, cpu, network, both
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .cpu: "CPU"
+        case .network: "Download speed"
+        case .both: "CPU and download"
+        }
+    }
+}
+
+/// Settings → Controls.
 @MainActor
 final class ControlsSettings: ObservableObject {
     static let shared = ControlsSettings()
     static let enabledKey = "coucouControlsEnabled"
-    @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: Self.enabledKey) } }
-    private init() { enabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true }
+    private let ud = UserDefaults.standard
+    @Published var enabled: Bool { didSet { ud.set(enabled, forKey: Self.enabledKey) } }
+    /// A peek when a Bluetooth device connects or disconnects, with its battery.
+    @Published var deviceAlerts: Bool { didSet { ud.set(deviceAlerts, forKey: "coucouControlsDeviceAlerts") } }
+    /// A peek when a device's battery reaches 20%, and again at 10%.
+    @Published var lowBattery: Bool { didSet { ud.set(lowBattery, forKey: "coucouControlsLowBattery") } }
+    @Published var wingMetric: ControlsWingMetric { didSet { ud.set(wingMetric.rawValue, forKey: "coucouControlsWing") } }
+    /// Speeds in Mbps (a speed test's unit) rather than MB/s (Activity Monitor's).
+    @Published var bits: Bool { didSet { ud.set(bits, forKey: "coucouControlsBits") } }
+    /// Control Center tiles left out: "dark", "night", "awake", "mic".
+    @Published var hiddenTiles: Set<String> { didSet { ud.set(Array(hiddenTiles).sorted(), forKey: "coucouControlsHiddenTiles") } }
+
+    private init() {
+        enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
+        deviceAlerts = ud.object(forKey: "coucouControlsDeviceAlerts") as? Bool ?? true
+        lowBattery = ud.object(forKey: "coucouControlsLowBattery") as? Bool ?? true
+        wingMetric = ud.string(forKey: "coucouControlsWing").flatMap(ControlsWingMetric.init(rawValue:)) ?? .off
+        bits = ud.bool(forKey: "coucouControlsBits")
+        hiddenTiles = Set(ud.stringArray(forKey: "coucouControlsHiddenTiles") ?? [])
+    }
 }
 
 /// The page's height in the island: it grows as bands are added.
@@ -28,6 +61,7 @@ struct ControlsView: View {
     @ObservedObject private var display = ControlsDisplay.shared
     @ObservedObject private var monitor = ControlsMonitor.shared
     @ObservedObject private var net = ControlsConnections.shared
+    @ObservedObject private var settings = ControlsSettings.shared
     @Environment(\.islandViewActive) private var active
     /// The monitor whose graph and apps are open over the page.
     @State private var detail: MonitorKind?
@@ -100,6 +134,8 @@ struct ControlsView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                     appendAppLog("nb.log", "[Controls] test \(detail?.rawValue ?? "-") apps: \(monitor.apps.map { "\($0.name)=\($0.value)" })")
                 }
+            case "watch"?:
+                ControlsWatcher.shared.debugSequence()
             case "awake"?:
                 display.setKeepAwake(true)
                 let on = display.keepAwake
@@ -445,13 +481,20 @@ struct ControlsView: View {
                 }
             }
             HStack(spacing: 6) {
-                tile("Dark", symbol: "moon.fill", on: display.dark) { display.setDark(!display.dark) }
-                if let night = display.nightShift {
+                let hidden = settings.hiddenTiles
+                if !hidden.contains("dark") {
+                    tile("Dark", symbol: "moon.fill", on: display.dark) { display.setDark(!display.dark) }
+                }
+                if let night = display.nightShift, !hidden.contains("night") {
                     tile("Night Shift", symbol: "sun.haze.fill", on: night) { display.setNightShift(!night) }
                 }
-                tile("Keep awake", symbol: "cup.and.saucer.fill", on: display.keepAwake) { display.setKeepAwake(!display.keepAwake) }
-                tile(audio.micMuted ? "Mic off" : "Mic on", symbol: audio.micMuted ? "mic.slash.fill" : "mic.fill", on: audio.micMuted,
-                     help: audio.inputName.map { "Mute \($0)" }) { audio.setMicMuted(!audio.micMuted) }
+                if !hidden.contains("awake") {
+                    tile("Keep awake", symbol: "cup.and.saucer.fill", on: display.keepAwake) { display.setKeepAwake(!display.keepAwake) }
+                }
+                if !hidden.contains("mic") {
+                    tile(audio.micMuted ? "Mic off" : "Mic on", symbol: audio.micMuted ? "mic.slash.fill" : "mic.fill", on: audio.micMuted,
+                         help: audio.inputName.map { "Mute \($0)" }) { audio.setMicMuted(!audio.micMuted) }
+                }
             }
         }
     }
