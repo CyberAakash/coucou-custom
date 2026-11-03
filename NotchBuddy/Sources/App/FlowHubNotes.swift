@@ -706,13 +706,7 @@ struct HubSummaryEnginePicker: View {
 
     var body: some View {
         HubRow(title: String(localized: "notes.engine")) {
-            Picker("", selection: $taker.summaryEngine) {
-                ForEach(NoteSummaryEngine.allCases) { engine in
-                    Text(engine.label).tag(engine)
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
+            HubDropdown($taker.summaryEngine, NoteSummaryEngine.allCases.map { ($0, $0.label) })
         }
     }
 }

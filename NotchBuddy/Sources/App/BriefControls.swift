@@ -309,6 +309,7 @@ struct BriefComboList<Value: Hashable>: View {
     let custom: ((String) -> Value?)?
     let customTitle: ((Value) -> String)?
     let placeholder: String
+    var width: CGFloat = 320
     let done: () -> Void
     @State private var query = ""
     @State private var highlighted = 0
@@ -325,8 +326,12 @@ struct BriefComboList<Value: Hashable>: View {
         return list
     }
 
+    /// A short list needs no search: the field shows past seven choices, or to type a value.
+    private var searchable: Bool { options.count > 7 || custom != nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if searchable {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundColor(HubTheme.muted)
                 TextField(placeholder, text: $query)
@@ -337,6 +342,7 @@ struct BriefComboList<Value: Hashable>: View {
             }
             .padding(.horizontal, 10).frame(height: 32)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.06)))
+            }
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(Array(shown.enumerated()), id: \.offset) { i, o in
@@ -351,8 +357,10 @@ struct BriefComboList<Value: Hashable>: View {
             .frame(maxHeight: 280)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
-        .frame(width: 320)
+        .padding(searchable ? 10 : 6)
+        .frame(width: width)
+        .focusable(!searchable).focusEffectDisabled().focused($focused)
+        .onKeyPress(.return) { searchable ? .ignored : { pick(highlighted); return .handled }() }
         .onAppear { focused = true; highlighted = shown.firstIndex { $0.value == selection } ?? 0 }
         .onKeyPress(.downArrow) { highlighted = min(shown.count - 1, highlighted + 1); return .handled }
         .onKeyPress(.upArrow) { highlighted = max(0, highlighted - 1); return .handled }
@@ -388,5 +396,97 @@ struct BriefComboList<Value: Hashable>: View {
         withAnimation(BriefLayout.spring) { selection = shown[index].value }
         done()
     }
+}
+// MARK: - The dropdown every choice list uses (coucou-custom fork)
+//
+// FORK.md, "Dropdowns": no native Picker menus or NSMenus for a choice. A compact face sized to
+// its longest choice, BriefComboList in a popover (search past seven choices), ↑↓ Return Esc.
+
+struct HubDropdown<Value: Hashable>: View {
+    let options: [BriefComboOption<Value>]
+    @Binding var selection: Value
+    var tint: Color = HubTheme.accent
+    /// The popover's width; nil sizes it to the face (at least 200).
+    var listWidth: CGFloat? = nil
+    /// A fixed face that truncates (a device name in a narrow band); nil: as wide as the longest choice.
+    var width: CGFloat? = nil
+    var symbol: String? = nil
+    /// Shown when the selection is none of the choices.
+    var placeholder: String? = nil
+    @State private var open = false
+    @State private var hover = false
+    @Environment(\.isEnabled) private var enabled
+
+    init(_ selection: Binding<Value>, _ choices: [(Value, String)], tint: Color = HubTheme.accent, listWidth: CGFloat? = nil,
+         width: CGFloat? = nil, symbol: String? = nil, placeholder: String? = nil) {
+        self.init(options: choices.map { BriefComboOption(value: $0.0, title: $0.1) }, selection: selection, tint: tint,
+                  listWidth: listWidth, width: width, symbol: symbol, placeholder: placeholder)
+    }
+
+    init(options: [BriefComboOption<Value>], selection: Binding<Value>, tint: Color = HubTheme.accent, listWidth: CGFloat? = nil,
+         width: CGFloat? = nil, symbol: String? = nil, placeholder: String? = nil) {
+        self.options = options
+        self._selection = selection
+        self.tint = tint
+        self.listWidth = listWidth
+        self.width = width
+        self.symbol = symbol
+        self.placeholder = placeholder
+    }
+
+    private var known: Bool { options.contains { $0.value == selection } }
+    private var title: String { options.first { $0.value == selection }?.title ?? placeholder ?? "\(selection)" }
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            HStack(spacing: 7) {
+                if let symbol { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).foregroundColor(HubTheme.text) }
+                if width != nil {
+                    Text(title).truncationMode(.tail)
+                        .font(.system(size: 12, weight: .semibold)).foregroundColor(HubTheme.text).lineLimit(1)
+                    Spacer(minLength: 0)
+                } else {
+                    // Every title laid over the others, hidden but one: the face keeps the width of the longest.
+                    ZStack(alignment: .leading) {
+                        ForEach(options) { o in
+                            Text(o.title).opacity(o.value == selection ? 1 : 0)
+                        }
+                        if !known { Text(title) }
+                    }
+                    .font(.system(size: 12.5, weight: .medium)).foregroundColor(HubTheme.text).lineLimit(1)
+                }
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 8.5, weight: .bold))
+                    .foregroundColor(HubTheme.secondary)
+            }
+            .padding(.leading, 10).padding(.trailing, 9)
+            .frame(width: width, height: 28)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(hover || open ? 0.09 : 0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(open ? tint.opacity(0.6) : Color.white.opacity(0.08)))
+            .contentShape(Rectangle())
+            .opacity(enabled ? 1 : 0.45)
+            .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
+        }
+        .buttonStyle(BriefPress())
+        .fixedSize(horizontal: width == nil, vertical: true)
+        .background(GeometryReader { g in Color.clear.preference(key: HubDropdownWidth.self, value: g.size.width) })
+        .onPreferenceChange(HubDropdownWidth.self) { faceWidth = $0 }
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            BriefComboList(options: options, selection: $selection, tint: tint, custom: nil, customTitle: nil,
+                           placeholder: "Search", width: listWidth ?? max(200, faceWidth + 40)) { open = false }
+        }
+        #if DEBUG
+        // `debug.dropdown` "<text in the shown choice>" opens it, "close" closes them all (a terminal's check).
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.dropdown"))) { note in
+            guard let text = note.object as? String else { return }
+            if text == "close" { open = false } else if title.localizedCaseInsensitiveContains(text) { open = true }
+        }
+        #endif
+    }
+    @State private var faceWidth: CGFloat = 0
+}
+
+private struct HubDropdownWidth: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 #endif

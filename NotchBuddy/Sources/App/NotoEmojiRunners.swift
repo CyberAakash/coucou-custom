@@ -138,10 +138,7 @@ struct NotoEmojiCard: View {
                 let shown = client.emoji.filter { (q.isEmpty ? $0.category == category : $0.name.lowercased().contains(q)) }
                 HStack(spacing: 8) {
                     HubField(placeholder: "Search every emoji", text: $query).frame(maxWidth: 220)
-                    Picker("", selection: $category) {
-                        ForEach(client.categories, id: \.self) { Text($0).tag($0) }
-                    }
-                    .labelsHidden().frame(width: 200).disabled(!q.isEmpty)
+                    HubDropdown($category, client.categories.map { ($0, $0) }).disabled(!q.isEmpty)
                     Spacer()
                     Text("\(shown.count) emoji").font(.system(size: 11.5)).foregroundColor(HubTheme.muted)
                 }

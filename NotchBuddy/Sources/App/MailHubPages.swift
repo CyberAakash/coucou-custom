@@ -256,11 +256,7 @@ struct HubMailRulesPage: View {
                     Text("hub.mail.if")
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 44, alignment: .leading)
-                    Picker("", selection: $field) {
-                        ForEach(MailRuleField.allCases, id: \.self) { f in Text(f.title).tag(f) }
-                    }
-                    .labelsHidden()
-                    .frame(width: 170)
+                    HubDropdown($field, MailRuleField.allCases.map { ($0, $0.title) })
                     Text("hub.mail.contains")
                         .font(.system(size: 13))
                         .foregroundColor(HubTheme.secondary)
@@ -270,14 +266,8 @@ struct HubMailRulesPage: View {
                     Text("hub.mail.then")
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 44, alignment: .leading)
-                    Picker("", selection: $kind) {
-                        Text(MailRuleAction.junk.ruleLine).tag(Kind.junk)
-                        Text(MailRuleAction.important.ruleLine).tag(Kind.important)
-                        Text(MailRuleAction.markRead.ruleLine).tag(Kind.read)
-                        Text("hub.mail.do.move").tag(Kind.move)
-                    }
-                    .labelsHidden()
-                    .frame(width: 220)
+                    HubDropdown($kind, [(Kind.junk, MailRuleAction.junk.ruleLine), (.important, MailRuleAction.important.ruleLine),
+                                        (.read, MailRuleAction.markRead.ruleLine), (.move, String(localized: "hub.mail.do.move"))])
                     if kind == .move {
                         HubField(placeholder: String(localized: "hub.mail.mailbox-placeholder"), text: $mailbox, onSubmit: add)
                     }

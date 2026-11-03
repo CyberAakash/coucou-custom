@@ -150,29 +150,18 @@ struct HubComposerSettings: View {
         HubLabel("Defaults")
         HubCard {
             HubRow(title: "A new line is", detail: "/task, /event or Tab still choose for each line.") {
-                Picker("", selection: $settings.eventsFirst) {
-                    Text("A task").tag(false)
-                    Text("An event").tag(true)
-                }
-                .labelsHidden().fixedSize()
+                HubDropdown($settings.eventsFirst, [(false, "A task"), (true, "An event")])
             }
             HubDivider()
             HubRow(title: "Event length", detail: "When none is typed (\"for 45m\").") {
-                Picker("", selection: $settings.eventMinutes) {
-                    ForEach([15, 30, 45, 60, 90, 120], id: \.self) { m in
-                        Text(m % 60 == 0 ? (m == 60 ? "1 hour" : "\(m / 60) hours") : (m > 60 ? "1 h 30 min" : "\(m) min")).tag(m)
-                    }
-                }
-                .labelsHidden().fixedSize()
+                HubDropdown($settings.eventMinutes, [15, 30, 45, 60, 90, 120].map { m in
+                    (m, m % 60 == 0 ? (m == 60 ? "1 hour" : "\(m / 60) hours") : (m > 60 ? "1 h 30 min" : "\(m) min"))
+                })
             }
             HubDivider()
             HubRow(title: "Alert saved on new events", detail: "Kept on the event when none is typed, so the iPhone and the Watch ring too.") {
-                Picker("", selection: $settings.newEventAlert) {
-                    Text("None").tag(-1)
-                    Text("At the start").tag(0)
-                    ForEach([5, 10, 15, 30, 60], id: \.self) { Text($0 == 60 ? "1 hour before" : "\($0) min before").tag($0) }
-                }
-                .labelsHidden().fixedSize()
+                HubDropdown($settings.newEventAlert, [(-1, "None"), (0, "At the start")]
+                    + [5, 10, 15, 30, 60].map { ($0, $0 == 60 ? "1 hour before" : "\($0) min before") })
             }
             HubDivider()
             HubRow(title: "\"Looks like an event\" hint", detail: "On a task line with a length or a range.") {
@@ -220,10 +209,7 @@ struct HubComposerSettings: View {
 
     private func swipeRow(_ title: String, _ value: Binding<AgendaSwipe>, _ choices: [AgendaSwipe]) -> some View {
         HubRow(title: title, detail: "") {
-            Picker("", selection: value) {
-                ForEach(choices) { Text($0.title).tag($0) }
-            }
-            .labelsHidden().fixedSize()
+            HubDropdown(value, choices.map { ($0, $0.title) })
         }
     }
 

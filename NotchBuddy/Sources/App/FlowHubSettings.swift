@@ -67,13 +67,7 @@ struct HubSettingsPage: View {
                        detail: FlowLanguages.language(store.translateTo).map {
                            String(format: String(localized: "flow.translate-on %@"), $0.name)
                        } ?? String(localized: "flow.translate-detail")) {
-                    Picker("", selection: $store.translateTo) {
-                        Text("flow.translate-off").tag("")
-                        Divider()
-                        ForEach(FlowLanguages.sorted) { Text(verbatim: $0.name).tag($0.code) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+                    HubDropdown($store.translateTo, [("", String(localized: "flow.translate-off"))] + FlowLanguages.sorted.map { ($0.code, $0.name) })
                     .disabled(!FlowCleanup.hasKey && store.translateTo.isEmpty)
                 }
                 if !FlowCleanup.hasKey {
@@ -163,15 +157,9 @@ struct HubSettingsPage: View {
                 .settingsHeading("flow.privacy")
             HubCard {
                 HubRow(title: String(localized: "hub.settings.keep")) {
-                    Picker("", selection: $store.keepDays) {
-                        Text("hub.keep.none").tag(0)
-                        Text("hub.keep.week").tag(7)
-                        Text("hub.keep.month").tag(30)
-                        Text("hub.keep.year").tag(365)
-                        Text("hub.keep.forever").tag(-1)
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+                    HubDropdown($store.keepDays, [(0, String(localized: "hub.keep.none")), (7, String(localized: "hub.keep.week")),
+                                                  (30, String(localized: "hub.keep.month")), (365, String(localized: "hub.keep.year")),
+                                                  (-1, String(localized: "hub.keep.forever"))])
                 }
                 HubDivider()
                 HStack(spacing: 8) {
@@ -233,14 +221,8 @@ struct HubRecognitionSettings: View {
         if store.engine == .apple {
             HubDivider()
             HubRow(title: String(localized: "Dictation language")) {
-                Picker("", selection: $language) {
-                    Text("Automatic").tag(MacDictation.automatic)
-                    ForEach(MacDictation.allLanguages, id: \.self) { id in
-                        Text(MacDictation.name(of: id)).tag(id)
-                    }
-                }
-                .labelsHidden()
-                .fixedSize()
+                HubDropdown($language, [(MacDictation.automatic, String(localized: "Automatic"))]
+                    + MacDictation.allLanguages.map { ($0, MacDictation.name(of: $0)) })
             }
         } else if !parakeet.isReady {
             Text("hub.engine.fallback")

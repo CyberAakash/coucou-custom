@@ -1664,12 +1664,10 @@ struct AgendaView: View {
             .toggleStyle(.checkbox).font(.system(size: 11))
             if k == .event, timed, let start = e.start, let end = e.end {
                 let minutes = Int(end.timeIntervalSince(start) / 60)
-                Picker("", selection: Binding(get: { minutes }, set: { set(AgendaLine.length(minutes: $0), at: CalendarComposer.lengthRange(in: command.rest)) })) {
-                    ForEach(Array(Set([15, 30, 45, 60, 90, 120, minutes])).sorted(), id: \.self) { m in
-                        Text(m % 60 == 0 ? "for \(m / 60) h" : (m > 60 ? "for \(m / 60) h \(m % 60) min" : "for \(m) min")).tag(m)
-                    }
-                }
-                .labelsHidden().fixedSize()
+                HubDropdown(Binding(get: { minutes }, set: { set(AgendaLine.length(minutes: $0), at: CalendarComposer.lengthRange(in: command.rest)) }),
+                            Array(Set([15, 30, 45, 60, 90, 120, minutes])).sorted().map { m in
+                                (m, m % 60 == 0 ? "for \(m / 60) h" : (m > 60 ? "for \(m / 60) h \(m % 60) min" : "for \(m) min"))
+                            }, tint: Color(hex: "#67E8F9"))
             }
             Button("Clear") { set(nil, at: pieces.date) }.buttonStyle(.plain).pointer()
                 .font(.system(size: 11, weight: .semibold)).foregroundColor(Color(hex: "#8E939C"))
@@ -1783,17 +1781,10 @@ struct AgendaView: View {
     @ViewBuilder
     private func groupControl(_ k: AgendaKind, t: ParsedTask, e: ParsedEvent) -> some View {
         let current = k == .task ? (t.listID ?? tasks.newTaskList?.id) : (e.calendarID ?? calendar.newEventCalendar?.id)
-        Menu {
-            ForEach(groups, id: \.id) { g in
-                Button {
-                    set("#" + (TaskComposer.tag(for: g.id, in: groups) ?? TaskComposer.key(g.title)), at: pieces.tag)
-                } label: {
-                    if g.id == current { Label(g.title, systemImage: "checkmark") } else { Text(g.title) }
-                }
-            }
-        } label: {
-            Text(groups.first { $0.id == current }?.title ?? "Choose").font(.system(size: 11, weight: .semibold))
-        }
+        HubDropdown(Binding(get: { current ?? "" }, set: { id in
+            guard let g = groups.first(where: { $0.id == id }) else { return }
+            set("#" + (TaskComposer.tag(for: g.id, in: groups) ?? TaskComposer.key(g.title)), at: pieces.tag)
+        }), groups.map { ($0.id, $0.title) }, tint: Color(hex: "#67E8F9"), placeholder: "Choose")
         .menuStyle(.borderlessButton).fixedSize()
     }
 
