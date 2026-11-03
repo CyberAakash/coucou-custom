@@ -400,7 +400,8 @@ struct ControlsView: View {
             // header out of view).
             ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                PageMochi(state: detailMood(kind), size: 24)
                 Text(detailHeadline(kind)).font(.system(size: 24, weight: .bold).monospacedDigit())
                 Text(detailSubline(kind)).font(.system(size: 11)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
             }
@@ -441,6 +442,18 @@ struct ControlsView: View {
             let step = press.key == .upArrow || press.key == .leftArrow ? -1 : 1
             detail = all[(i + step + all.count) % all.count]
             return .handled
+        }
+    }
+
+    /// Calm, busy, then dizzy as this monitor's load rises (network has none to read).
+    private func detailMood(_ k: MonitorKind) -> BotState {
+        switch k {
+        case .cpu: return PageMochi.load(monitor.cpu.last ?? 0)
+        case .memory: return PageMochi.load(monitor.memoryTotal > 0 ? Double(monitor.memoryUsed) / Double(monitor.memoryTotal) : 0)
+        case .disk:
+            guard let free = monitor.diskFree, let total = monitor.diskTotal, total > 0 else { return .idle }
+            return PageMochi.load(1 - Double(free) / Double(total))
+        case .network: return .idle
         }
     }
 
@@ -495,7 +508,12 @@ struct ControlsView: View {
 
     private var controlCenter: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("CONTROL CENTER").font(.system(size: 9, weight: .heavy)).tracking(1.1).foregroundColor(Color(hex: "#6B7079"))
+            HStack(spacing: 0) {
+                Text("CONTROL CENTER").font(.system(size: 9, weight: .heavy)).tracking(1.1).foregroundColor(Color(hex: "#6B7079"))
+                Spacer(minLength: 0)
+                // Laid over the label row's end, so the bands below keep their places.
+                PageMochi(state: controlsMood, size: 18).frame(height: 10).offset(y: -3)
+            }
             HStack(spacing: 10) {
                 ControlSlider(value: audio.muted ? 0 : audio.volume, symbol: volumeSymbol, help: audio.muted ? "Unmute" : "Mute",
                               iconTap: { audio.setMuted(!audio.muted) }) { audio.setVolume($0) }
@@ -527,6 +545,14 @@ struct ControlsView: View {
                 }
             }
         }
+    }
+
+    /// Drowsy when muted or the screen is dim, busy or dizzy as the CPU climbs.
+    private var controlsMood: BotState {
+        let cpu = monitor.cpu.last ?? 0
+        if cpu > 0.6 { return PageMochi.load(cpu) }
+        if audio.muted || (display.brightness ?? 1) < 0.15 { return .sleeping }
+        return .idle
     }
 
     private var volumeSymbol: String {

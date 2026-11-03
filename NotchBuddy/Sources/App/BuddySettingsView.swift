@@ -21,6 +21,7 @@ struct HubBuddyPage: View {
     }
 
     @ObservedObject private var settings = BuddySettings.shared
+    @AppStorage(PageMochi.key) private var pageMochi = true   // coucou-custom fork
     @ObservedObject private var routineSettings = BuddyRoutineSettings.shared
     /// The tab shown; a search shows what matches in every tab of this page.
     @AppStorage private var sectionRaw: String
@@ -171,6 +172,10 @@ struct HubBuddyPage: View {
                 HubDivider()
                 HubRow(title: "Nap when idle", detail: "Only when you are away: two minutes without keyboard, mouse or trackpad, and your agents quiet. Any input wakes it.") {
                     BriefSwitch(isOn: $settings.napWhenIdle, tint: HubBuddyPage.tint)
+                }
+                HubDivider()
+                HubRow(title: "Mochi on the notch's pages", detail: "One on Controls, a monitor's detail and the empty Agenda, Shelf and Clipboard, reacting to what each shows.") {
+                    BriefSwitch(isOn: $pageMochi, tint: HubBuddyPage.tint)
                 }
                 HubDivider()
                 BriefSettingRow(title: "Card while dragging",
