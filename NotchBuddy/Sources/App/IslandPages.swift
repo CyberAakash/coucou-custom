@@ -11,7 +11,7 @@ import SwiftUI
 /// not one of them: the notch opens on it, so it is always first and always there.
 enum NotchPage: String, CaseIterable, Identifiable, Codable {
     // Sessions last: it comes and goes with the agents, so the pages before it never move.
-    case chat, shelf, clipboard, agenda, sessions
+    case chat, shelf, clipboard, agenda, controls, sessions
     var id: String { rawValue }
 
     var view: IslandView {
@@ -21,6 +21,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .clipboard: .clipboard
         case .sessions: .sessions
         case .agenda: .agenda
+        case .controls: .controls
         }
     }
 
@@ -31,6 +32,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .clipboard: "Clipboard"
         case .sessions: "Sessions"
         case .agenda: "Agenda"
+        case .controls: "Controls"
         }
     }
 
@@ -41,6 +43,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .clipboard: "list.clipboard.fill"
         case .sessions: "rectangle.stack.fill"
         case .agenda: "calendar"
+        case .controls: "slider.horizontal.3"
         }
     }
 
@@ -51,6 +54,7 @@ enum NotchPage: String, CaseIterable, Identifiable, Codable {
         case .clipboard: "What you copied. Hiding the page keeps recording; turn recording off on the Clipboard page."
         case .sessions: "Every agent session; shows only while one is running."
         case .agenda: "Your day: Reminders tasks and calendar events in one list, with Join on meetings."
+        case .controls: "Sound, brightness and quick switches, your connections and the Mac's live graphs."
         }
     }
 }
@@ -125,8 +129,9 @@ enum IslandPages {
         case .clipboard: return ClipboardSettings.shared.enabled
         case .sessions: return !LiveSessions.shared.sessions.isEmpty
         case .agenda: return TasksSettings.shared.enabled || CalendarSettings.shared.enabled
+        case .controls: return ControlsSettings.shared.enabled
         #else
-        case .shelf, .clipboard, .sessions, .agenda: return false
+        case .shelf, .clipboard, .sessions, .agenda, .controls: return false
         #endif
         }
     }
@@ -135,7 +140,7 @@ enum IslandPages {
     static func page(of view: IslandView) -> IslandView? {
         switch view {
         case .overview, .empty: return .overview
-        case .prompt, .shelf, .clipboard, .sessions, .agenda: return view
+        case .prompt, .shelf, .clipboard, .sessions, .agenda, .controls: return view
         default: return nil
         }
     }
@@ -241,6 +246,7 @@ struct PageBar: View {
         case .clipboard: return "Clipboard"
         case .sessions: return "Sessions"
         case .agenda: return "Agenda"
+        case .controls: return "Controls"
         default: return String(localized: "Home")
         }
     }

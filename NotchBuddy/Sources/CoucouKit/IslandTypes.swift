@@ -25,6 +25,7 @@ enum IslandView: String, CaseIterable {
     case peek         // a moment's pill: charger, network, sound output, Caps Lock… (coucou-custom fork)
     case clipboard    // what you copied, kept on this Mac (coucou-custom fork)
     case agenda       // the day: Reminders tasks and calendar events in one timeline (coucou-custom fork)
+    case controls     // sound, display, connections and system monitors (coucou-custom fork)
     case meeting      // a meeting with a link starts: Join, In 5 min, Dismiss (coucou-custom fork)
 }
 
@@ -308,6 +309,7 @@ enum IslandConst {
         .shelf:        ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .clipboard:    ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .agenda:       ViewLayout(height: 420, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
+        .controls:     ViewLayout(height: 232, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .meeting:      ViewLayout(height: 150, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         // Peek: drawn by PeekStage at notch height (PeekLayout); no BotPlacement
         .peek:         ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 0,  agentMode: .none),
