@@ -314,16 +314,25 @@ final class IslandWindowController: NSWindowController {
         NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil)
     }
 
-    /// Follow-the-mouse mode: hop to the cursor's screen while the island is not open,
-    /// so an approval or a chat never jumps away mid-click.
+    /// Follow-the-mouse mode: hop to the cursor's screen. An open island waits until the cursor
+    /// has stayed on the other screen for a moment (coucou-custom fork: it used to stay behind
+    /// until closed), so passing over a screen edge mid-click never takes it away.
     private func followMouseIfNeeded(_ mouse: NSPoint) {
-        guard state.islandDisplay == .followMouse,
-              state.mode != .expanded, !inAttachDrag, attachDragStart == nil else { return }
-        if let current = Self.currentScreen, current.frame.contains(mouse) { return }
+        guard state.islandDisplay == .followMouse, !inAttachDrag, attachDragStart == nil else { return }
         guard let target = NSScreen.screens.first(where: { $0.frame.contains(mouse) }),
-              target != Self.currentScreen else { return }
+              target != Self.currentScreen else { followSince = nil; return }
+        if state.mode == .expanded {
+            let now = CACurrentMediaTime()
+            if followTarget != target { followTarget = target; followSince = now }
+            guard let since = followSince, now - since >= 0.6 else { return }
+            appendAppLog("nb.log", "[Notch] open island follows to \(target.localizedName)")
+        }
+        followSince = nil
+        followTarget = nil
         relocate(to: target)
     }
+    private var followTarget: NSScreen?
+    private var followSince: CFTimeInterval?
 
     // MARK: - FSM wiring
 
@@ -721,6 +730,7 @@ final class IslandWindowController: NSWindowController {
         withAnimation(anim) { state.mode = mode }
         if mode == .expanded { SoundEngine.shared.play("open") }
         if prev == .expanded {
+            appendAppLog("nb.log", "[Notch] closed → \(mode) (fsm \(fsm.state), collapse \(collapsing))")
             SoundEngine.shared.play("close")
             if fsm.isHeldOpen?() != true { state.isPinned = false }
             HookServer.shared.restoreAlertFocus()
@@ -760,6 +770,7 @@ final class IslandWindowController: NSWindowController {
 
     func collapse(allowPendingApproval: Bool = false, reason: String = "other") {
         let keepsApprovalPending = allowPendingApproval && state.pendingApproval != nil
+        if state.mode == .expanded { appendAppLog("nb.log", "[Notch] collapse: \(reason)") }
         if alertCardShowing { appendAppLog("nb.log", "[Notch] card closed: \(reason)") }
         collapsing = true
         defer { collapsing = false }
