@@ -524,6 +524,7 @@ struct AgendaView: View {
             if empty {
                 VStack(spacing: 4) {
                     Spacer(minLength: 0)
+                    PageMochi(state: isToday ? .finished : .idle, size: 26).padding(.bottom, 2)
                     Text(isToday ? "Nothing else today" : "Nothing on this day").font(.system(size: 13, weight: .semibold))
                     Text("Type below: a task, or an event with a length or #calendar.")
                         .font(.system(size: 11.5)).foregroundColor(Color(hex: "#8E939C"))
@@ -544,9 +545,12 @@ struct AgendaView: View {
                         }
                         if nowIndex == s.timeline.count, !s.timeline.isEmpty { nowLine }
                         if s.overdue.isEmpty && s.allDayTasks.isEmpty && s.timeline.isEmpty {
-                            Text(filter == .tasks ? "No tasks due today" : (filter == .events ? "No events today" : "Nothing scheduled today"))
-                                .font(.system(size: 12, weight: .semibold)).foregroundColor(Color(hex: "#8E939C"))
-                                .padding(.leading, 2).padding(.top, 2)
+                            HStack(spacing: 8) {
+                                PageMochi(state: .idle, size: 20)
+                                Text(filter == .tasks ? "No tasks due today" : (filter == .events ? "No events today" : "Nothing scheduled today"))
+                                    .font(.system(size: 12, weight: .semibold)).foregroundColor(Color(hex: "#8E939C"))
+                            }
+                            .padding(.leading, 2).padding(.top, 2)
                         }
                         if !s.undated.isEmpty { undatedSection(s.undated) }
                     }

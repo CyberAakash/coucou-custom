@@ -190,6 +190,7 @@ struct ShelfView: View {
     private var emptyState: some View {
         VStack(spacing: 6) {
             Spacer(minLength: 0)
+            PageMochi(state: shelf.items.isEmpty ? .sleeping : .searching, size: 26)
             Text(shelf.items.isEmpty ? "Nothing on the shelf" : "Nothing matches")
                 .font(.system(size: 13, weight: .semibold))
             Text(shelf.items.isEmpty ? "Drop files on the notch: they wait here until you drag them out, open them or send them on."

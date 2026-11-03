@@ -228,6 +228,7 @@ struct ClipboardView: View {
     private var emptyState: some View {
         VStack(spacing: 6) {
             Spacer(minLength: 0)
+            PageMochi(state: store.items.isEmpty ? (settings.recording ? .idle : .sleeping) : .searching, size: 26)
             Text(store.items.isEmpty ? "Nothing kept yet" : "Nothing matches")
                 .font(.system(size: 13, weight: .semibold))
             Text(store.items.isEmpty ? (settings.recording ? "Copy something: it shows up here, on this Mac only." : "Recording is paused.")
