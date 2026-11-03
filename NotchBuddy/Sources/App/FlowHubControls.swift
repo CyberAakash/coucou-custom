@@ -31,11 +31,7 @@ struct HubControlsPage: View {
                 }
                 HubDivider()
                 HubRow(title: "Speeds in", detail: "MB/s, as Activity Monitor counts; Mbps, as a speed test does.") {
-                    Picker("", selection: $settings.bits) {
-                        Text("MB/s").tag(false)
-                        Text("Mbps").tag(true)
-                    }
-                    .labelsHidden().fixedSize()
+                    HubDropdown($settings.bits, [(false, "MB/s"), (true, "Mbps")])
                 }
             }
 
@@ -50,10 +46,7 @@ struct HubControlsPage: View {
                 }
                 HubDivider()
                 HubRow(title: "A live monitor in the wing", detail: "In the clock's place, when no task or meeting is due there. Off by default: a number that keeps changing pulls the eye.") {
-                    Picker("", selection: $settings.wingMetric) {
-                        ForEach(ControlsWingMetric.allCases) { Text($0.title).tag($0) }
-                    }
-                    .labelsHidden().fixedSize()
+                    HubDropdown($settings.wingMetric, ControlsWingMetric.allCases.map { ($0, $0.title) })
                 }
             }
 

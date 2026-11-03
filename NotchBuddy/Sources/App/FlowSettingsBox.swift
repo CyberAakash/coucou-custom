@@ -21,13 +21,7 @@ struct FlowSettingsBox: View {
 
                 HStack(spacing: 8) {
                     Text(String(localized: "flow.key"))
-                    Picker(String(localized: "flow.key"), selection: $flow.key) {
-                        ForEach(FlowKey.allCases) { key in
-                            Text(verbatim: key.label).tag(key)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 200)
+                    HubDropdown($flow.key, FlowKey.allCases.map { ($0, $0.label) })
                 }
                 .disabled(!flow.isEnabled)
 

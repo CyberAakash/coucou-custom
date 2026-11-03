@@ -205,8 +205,7 @@ struct HubShelfPage: View {
                 }
                 HubDivider()
                 HubKeepRow(title: "Drag a file out", detail: "After a file is dragged out of the notch and dropped in another app, in the Finder or on the desktop. The file itself is never moved by Coucou.") {
-                    Picker("", selection: $settings.dragOut) { ForEach(ShelfDragAction.allCases) { Text($0.label).tag($0) } }
-                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                    HubDropdown($settings.dragOut, ShelfDragAction.allCases.map { ($0, $0.label) })
                 }
             }
             HubLabel("Keeping")
@@ -239,14 +238,10 @@ struct HubShelfPage: View {
                     if i > 0 { HubDivider() }
                     let sample = shelf.items.first { $0.ext == ext } ?? ShelfItem(id: UUID(), path: "/tmp/x." + ext, addedAt: .now)
                     HubKeepRow(title: "." + ext, detail: "What Open uses for these files.") {
-                        Menu {
-                            ForEach(shelf.apps(for: sample), id: \.path) { app in Button(appName(app)) { settings.setDefaultApp(app, for: ext) } }
-                            Divider()
-                            Button("As macOS would") { settings.setDefaultApp(nil, for: ext) }
-                        } label: {
-                            Text(settings.defaultApp(for: ext).map(appName) ?? "As macOS would")
-                        }
-                        .menuStyle(.borderlessButton).fixedSize()
+                        let apps = shelf.apps(for: sample)
+                        HubDropdown(Binding(get: { settings.defaultApp(for: ext)?.path ?? "" }, set: { path in
+                            settings.setDefaultApp(apps.first { $0.path == path }, for: ext)
+                        }), [("", "As macOS would")] + apps.map { ($0.path, appName($0)) })
                     }
                 }
             }
@@ -511,8 +506,7 @@ struct HubClipboardPage: View {
                 }
                 HubDivider()
                 HubKeepRow(title: "Drag a card out", detail: "Pull a card down out of the notch and let go: the quick action, without a menu.") {
-                    Picker("", selection: $settings.dragOut) { ForEach(ClipDragAction.allCases) { Text($0.label).tag($0) } }
-                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                    HubDropdown($settings.dragOut, ClipDragAction.allCases.map { ($0, $0.label) })
                 }
             }
             HubLabel("Keeping")

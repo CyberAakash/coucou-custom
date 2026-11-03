@@ -511,25 +511,13 @@ struct ControlsView: View {
         return v < 0.01 ? "speaker.fill" : (v < 0.34 ? "speaker.wave.1.fill" : (v < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"))
     }
 
-    /// The output the volume belongs to: switched where the volume is changed. Drawn as a plain
-    /// pill (a SwiftUI menu draws its own title and ignores truncation), opening a native menu.
+    /// The output the volume belongs to: switched where the volume is changed. A fixed width,
+    /// so a long device name truncates instead of pushing the band.
     private var outputMenu: some View {
         let current = audio.outputs.first { $0.id == audio.current }
-        return Button {
-            PopupMenu.show(audio.outputs.map { o in (o.name, o.id == audio.current, { audio.use(o) }) })
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: Self.symbol(for: current)).font(.system(size: 10, weight: .semibold))
-                Text(current?.name ?? "No output").font(.system(size: 11, weight: .semibold)).lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 2)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundColor(Color(hex: "#8E939C"))
-            }
-            .foregroundColor(Color(hex: "#F5F6F8"))
-            .padding(.horizontal, 11).frame(width: 130, height: 28)
-            .background(Capsule().fill(Color.white.opacity(0.09)))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain).pointer().help("Sound output")
+        return HubDropdown(Binding(get: { audio.current }, set: { id in audio.outputs.first { $0.id == id }.map(audio.use) }),
+                           audio.outputs.map { ($0.id, $0.name) }, tint: Self.tint, listWidth: 240, width: 130,
+                           symbol: Self.symbol(for: current), placeholder: "No output")
     }
 
     static func symbol(for output: AudioOutput?) -> String {
@@ -593,31 +581,6 @@ struct ControlSlider: View {
         }
         .frame(height: 28)
         .opacity(value == nil ? 0.5 : 1)
-    }
-}
-/// A native menu at the pointer, from plain closures.
-@MainActor
-enum PopupMenu {
-    private final class Target: NSObject {
-        let action: () -> Void
-        init(_ action: @escaping () -> Void) { self.action = action }
-        @objc func run() { action() }
-    }
-
-    static func show(_ items: [(title: String, checked: Bool, action: () -> Void)]) {
-        let menu = NSMenu()
-        var targets: [Target] = []
-        for item in items {
-            let target = Target(item.action)
-            targets.append(target)
-            let mi = NSMenuItem(title: item.title, action: #selector(Target.run), keyEquivalent: "")
-            mi.target = target
-            mi.state = item.checked ? .on : .off
-            menu.addItem(mi)
-        }
-        // The targets live as long as the menu is up: popUp returns when it closes.
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-        withExtendedLifetime(targets) {}
     }
 }
 /// A line graph of the values, newest on the right; scaled to `fixedMax`, else to its own peak.

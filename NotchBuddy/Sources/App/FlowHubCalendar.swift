@@ -56,12 +56,9 @@ struct HubCalendarSettings: View {
                 }
                 HubDivider()
                 HubRow(title: "When an event has no alert", detail: "The time used for events without their own alert.") {
-                    Picker("", selection: $settings.alertLead) {
-                        Text("No alert").tag(-1)
-                        Text("At the start").tag(0)
-                        ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0 == 60 ? "1 hour" : "\($0) min") before").tag($0) }
-                    }
-                    .labelsHidden().fixedSize().disabled(!settings.alerts)
+                    HubDropdown($settings.alertLead, [(-1, "No alert"), (0, "At the start")]
+                        + [5, 10, 15, 30, 60].map { ($0, "\($0 == 60 ? "1 hour" : "\($0) min") before") })
+                        .disabled(!settings.alerts)
                 }
                 HubDivider()
                 HubRow(title: "All-day events", detail: "One card at 9 AM with the day's all-day events.") {
@@ -79,22 +76,16 @@ struct HubCalendarSettings: View {
             HubCard {
                 HubRow(title: "Next event in the closed notch", detail: "Its name and time in the right wing, this long before it starts; a task due at the same time comes first.") {
                     HStack(spacing: 10) {
-                        Picker("", selection: $settings.wingMinutes) {
-                            ForEach([5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
-                        }
-                        .labelsHidden().fixedSize().disabled(!settings.wing)
+                        HubDropdown($settings.wingMinutes, [5, 10, 15, 30].map { ($0, "\($0) min") })
+                            .disabled(!settings.wing)
                         Toggle("", isOn: $settings.wing).toggleStyle(.switch).labelsHidden()
                     }
                 }
                 HubDivider()
                 HubRow(title: "Join card", detail: "Below the notch when a meeting with a Zoom, Meet, Teams or Webex link starts; Join opens it in its app.") {
                     HStack(spacing: 10) {
-                        Picker("", selection: $settings.joinLead) {
-                            Text("At the start").tag(0)
-                            Text("1 min before").tag(1)
-                            Text("5 min before").tag(5)
-                        }
-                        .labelsHidden().fixedSize().disabled(!settings.join)
+                        HubDropdown($settings.joinLead, [(0, "At the start"), (1, "1 min before"), (5, "5 min before")])
+                            .disabled(!settings.join)
                         Toggle("", isOn: $settings.join).toggleStyle(.switch).labelsHidden()
                     }
                 }

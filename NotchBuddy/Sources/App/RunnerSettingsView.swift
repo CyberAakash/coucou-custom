@@ -351,11 +351,7 @@ private struct MochiIconOptions: View {
             RunnerChips(values: MochiIconMood.allCases, label: \.label, selection: $settings.mochiMood)
         }
         HubRow(title: "Outfit", detail: "From the Buddy’s wardrobe. Hats make him a little smaller to fit the menu bar.") {
-            Picker("", selection: $settings.mochiOutfit) {
-                ForEach(BuddyOutfit.allCases) { o in Text(o.name).tag(o) }
-            }
-            .labelsHidden()
-            .frame(width: 170)
+            HubDropdown($settings.mochiOutfit, BuddyOutfit.allCases.map { ($0, $0.name) })
         }
         HubRow(title: "Colour", detail: settings.mochiTint == .menuBar
                ? "The menu bar’s own colour, like the other icons; outfits show as shapes."

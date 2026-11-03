@@ -299,11 +299,7 @@ struct HubStylesPage: View {
     }
 
     private func stylePicker(_ selection: Binding<FlowStyle>) -> some View {
-        Picker("", selection: selection) {
-            ForEach(FlowStyle.allCases) { Text($0.label).tag($0) }
-        }
-        .labelsHidden()
-        .fixedSize()
+        HubDropdown(selection, FlowStyle.allCases.map { ($0, $0.label) })
     }
 
     /// Running apps with windows that have no style of their own yet.

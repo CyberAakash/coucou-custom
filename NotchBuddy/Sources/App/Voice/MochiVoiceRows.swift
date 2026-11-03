@@ -56,10 +56,8 @@ struct MochiVoiceRows: View {
         }
         HubDivider()
         HubRow(title: String(localized: "hub.mochi.base", defaultValue: "Base voice")) {
-            Picker("", selection: Binding(get: { character.base }, set: { character.base = $0; save(); sayHi() })) {
-                ForEach(MochiCharacter.bases, id: \.id) { b in Text(verbatim: b.name).tag(b.id) }
-            }
-            .labelsHidden().frame(width: 180)
+            HubDropdown(Binding(get: { character.base }, set: { character.base = $0; save(); sayHi() }),
+                        MochiCharacter.bases.map { ($0.id, $0.name) })
         }
         HubDivider()
         slider(String(localized: "hub.mochi.pitch", defaultValue: "Pitch"), $character.pitch, -6...12, 0.5, unit: " st")

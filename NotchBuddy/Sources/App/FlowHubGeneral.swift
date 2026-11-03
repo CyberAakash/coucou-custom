@@ -46,6 +46,16 @@ struct HubGeneralPage: View {
     @State private var launchAtStartup = SMAppService.mainApp.status == .enabled
     @State private var startupError = ""
     @State private var connectedScreens: [(uuid: String, name: String)] = []
+
+    private var displayChoices: [(IslandDisplayChoice, String)] {
+        var list: [(IslandDisplayChoice, String)] = [(.notch, "Screen with the notch"), (.menuBar, "Main screen (menu bar)"),
+                                                     (.followMouse, "Follow the mouse")]
+        list += connectedScreens.map { (.display(uuid: $0.uuid), $0.name) }
+        if case .display(let uuid) = state.islandDisplay, !connectedScreens.contains(where: { $0.uuid == uuid }) {
+            list.append((state.islandDisplay, "Saved screen (not connected)"))
+        }
+        return list
+    }
     @State private var customSoundCount = SoundEngine.shared.customized.count
 
     var body: some View {
@@ -172,21 +182,7 @@ struct HubGeneralPage: View {
             HubDivider()
             HubRow(title: String(localized: "Show Mochi on"),
                    detail: String(localized: "On a screen without a notch, Mochi sits in a small bar at the top. Follow the mouse moves it to your cursor's screen while it is closed.")) {
-                Picker("", selection: $state.islandDisplay) {
-                    Text("Screen with the notch").tag(IslandDisplayChoice.notch)
-                    Text("Main screen (menu bar)").tag(IslandDisplayChoice.menuBar)
-                    Text("Follow the mouse").tag(IslandDisplayChoice.followMouse)
-                    Divider()
-                    ForEach(connectedScreens, id: \.uuid) { screen in
-                        Text(screen.name).tag(IslandDisplayChoice.display(uuid: screen.uuid))
-                    }
-                    if case .display(let uuid) = state.islandDisplay,
-                       !connectedScreens.contains(where: { $0.uuid == uuid }) {
-                        Text("Saved screen (not connected)").tag(state.islandDisplay)
-                    }
-                }
-                .labelsHidden()
-                .fixedSize()
+                HubDropdown($state.islandDisplay, displayChoices)
             }
             HubDivider()
             HubRow(title: String(localized: "Close after"),
@@ -203,21 +199,13 @@ struct HubGeneralPage: View {
             // coucou-custom fork: the resting notch's size.
             HubRow(title: "Resting notch",
                    detail: "How far the resting island reaches past the notch: minimal keeps just Mochi and one mini Mochi or the clock; Auto follows the width of the screen it is on.") {
-                Picker("", selection: $restingWing) {
-                    ForEach(IslandRestingStyle.Wing.allCases) { Text($0.label).tag($0.rawValue) }
-                }
-                .labelsHidden()
-                .fixedSize()
+                HubDropdown($restingWing, IslandRestingStyle.Wing.allCases.map { ($0.rawValue, $0.label) })
                 .onChange(of: restingWing) { _, _ in NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil) }
             }
             HubDivider()
             HubRow(title: "Resting height",
                    detail: "Flush with the notch, or standing a little below it, so Mochi has more room.") {
-                Picker("", selection: $restingExtraHeight) {
-                    ForEach(IslandRestingStyle.ExtraHeight.allCases) { Text($0.label).tag($0.rawValue) }
-                }
-                .labelsHidden()
-                .fixedSize()
+                HubDropdown($restingExtraHeight, IslandRestingStyle.ExtraHeight.allCases.map { ($0.rawValue, $0.label) })
                 .onChange(of: restingExtraHeight) { _, _ in NotificationCenter.default.post(name: IslandRestingStyle.changed, object: nil) }
             }
             HubDivider()
@@ -366,12 +354,7 @@ struct HubGeneralPage: View {
             HubDivider()
             HubRow(title: String(localized: "Language"), detail: String(localized: "Applies on next launch")) {
                 HStack(spacing: 8) {
-                    Picker("", selection: $state.appLanguage) {
-                        Text(String(localized: "System")).tag("")
-                        ForEach(Self.languages, id: \.code) { Text(verbatim: $0.name).tag($0.code) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+                    HubDropdown($state.appLanguage, [("", String(localized: "System"))] + Self.languages.map { ($0.code, $0.name) })
                     .onChange(of: state.appLanguage) { _, code in
                         if code.isEmpty { UserDefaults.standard.removeObject(forKey: "AppleLanguages") }
                         else { UserDefaults.standard.set([code], forKey: "AppleLanguages") }
