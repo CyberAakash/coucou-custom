@@ -999,6 +999,10 @@ final class IslandWindowController: NSWindowController {
         let raw = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let cmd = raw == .command
 
+        #if !APPSTORE
+        // coucou-custom fork: the Controls page's focus ring, before the page bar takes ← →.
+        if ControlsKeys.shared.handle(event, state: state) { return true }
+        #endif
         // ← → — the page bar (coucou-custom fork)
         if IslandPages.handleKey(event, state: state) { return true }
 
