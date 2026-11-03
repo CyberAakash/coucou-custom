@@ -239,7 +239,7 @@ final class IslandWindowController: NSWindowController {
             .sink { [weak self] newView in
                 guard let self else { return }
                 // coucou-custom fork: the Sessions view has a message box too.
-                if newView == .prompt || newView == .sessions || newView == .agenda {
+                if newView == .prompt || newView == .sessions || newView == .agenda || newView == .controls {
                     self.islandPanel.makeKey()
                 }
                 // coucou-custom fork: a Finished/Error card that another view took over.

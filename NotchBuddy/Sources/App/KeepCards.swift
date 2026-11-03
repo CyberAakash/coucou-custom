@@ -175,6 +175,8 @@ enum KeepDebug {
     nonisolated(unsafe) static var agendaSwipe: String?
     /// The Agenda's snapshot: a row's quick view open ("t2", "e2").
     nonisolated(unsafe) static var agendaQuick: String?
+    /// The Controls snapshot: a monitor's detail open ("cpu", "disk"…).
+    nonisolated(unsafe) static var controlsDetail: String?
     #endif
     nonisolated(unsafe) static var filterOpen = false
 }
