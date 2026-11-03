@@ -39,6 +39,8 @@ final class ControlsSettings: ObservableObject {
     @Published var bits: Bool { didSet { ud.set(bits, forKey: "coucouControlsBits") } }
     /// Control Center tiles left out: "dark", "night", "awake", "mic".
     @Published var hiddenTiles: Set<String> { didSet { ud.set(Array(hiddenTiles).sorted(), forKey: "coucouControlsHiddenTiles") } }
+    /// The volume and brightness keys show their level in the notch instead of macOS's overlay (MediaKeys).
+    @Published var keysInNotch: Bool { didSet { ud.set(keysInNotch, forKey: "coucouControlsKeysInNotch"); MediaKeys.shared.update() } }
 
     private init() {
         enabled = ud.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -47,6 +49,7 @@ final class ControlsSettings: ObservableObject {
         wingMetric = ud.string(forKey: "coucouControlsWing").flatMap(ControlsWingMetric.init(rawValue:)) ?? .off
         bits = ud.bool(forKey: "coucouControlsBits")
         hiddenTiles = Set(ud.stringArray(forKey: "coucouControlsHiddenTiles") ?? [])
+        keysInNotch = ud.object(forKey: "coucouControlsKeysInNotch") as? Bool ?? true
     }
 }
 

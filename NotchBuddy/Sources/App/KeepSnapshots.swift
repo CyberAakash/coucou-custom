@@ -102,7 +102,13 @@ enum KeepSnapshots {
         case "peek":
             // "peek:Keyboard: English (India)": the pill sized for that text, the notch in red.
             let text = parts.dropFirst().joined(separator: ":")
-            NotchPeek.shared.debugSet(icon: "keyboard", text: text.isEmpty ? "Charging · 72 %" : text)
+            // "peek:volume|muted|brightness": the keys' level peeks.
+            switch text {
+            case "volume": NotchPeek.shared.debugSet(icon: "speaker.wave.2.fill", text: "62", level: 0.62, tint: Color(hex: "#F5F6F8"))
+            case "muted": NotchPeek.shared.debugSet(icon: "speaker.slash.fill", text: "Muted", level: 0, tint: Color(hex: "#F4505E"))
+            case "brightness": NotchPeek.shared.debugSet(icon: "sun.max.fill", text: "25", level: 0.25, tint: Color(hex: "#F7B32B"))
+            default: NotchPeek.shared.debugSet(icon: "keyboard", text: text.isEmpty ? "Charging · 72 %" : text)
+            }
             let (w, h) = PeekLayout.size(for: .peek, nw: state.notchWidth, nh: state.notchHeight) ?? (400, 32)
             appendAppLog("nb.log", "[Snapshot] peek \(Int(w)) pt for a \(Int(state.notchWidth)) pt notch")
             size = CGSize(width: w, height: h)

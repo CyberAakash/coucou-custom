@@ -12,6 +12,7 @@ import SwiftUI
 struct HubControlsPage: View {
     @ObservedObject private var settings = ControlsSettings.shared
     @ObservedObject private var net = ControlsConnections.shared
+    @State private var axTrusted = AXIsProcessTrusted()
 
     static let tint = Color(hex: "#34D399")
 
@@ -28,6 +29,10 @@ struct HubControlsPage: View {
                         tileToggle("Keep awake", "awake")
                         tileToggle("Mic", "mic")
                     }
+                }
+                HubDivider()
+                HubRow(title: "Volume and brightness keys", detail: "In the notch: the level shows in the closed notch instead of macOS's overlay. macOS's own leaves the keys as they are.") {
+                    HubDropdown($settings.keysInNotch, [(true, "In the notch"), (false, "macOS's own")])
                 }
                 HubDivider()
                 HubRow(title: "Speeds in", detail: "MB/s, as Activity Monitor counts; Mbps, as a speed test does.") {
@@ -67,6 +72,19 @@ struct HubControlsPage: View {
                         Button("Open System Settings") { ControlsView.openLocationSettings() }.buttonStyle(HubButtonStyle())
                     } else {
                         Button("Allow") { net.requestLocation() }.buttonStyle(HubButtonStyle(primary: true))
+                    }
+                }
+                HubDivider()
+                HubRow(title: "Accessibility", detail: "For the volume and brightness keys: taking them before macOS draws its overlay. Without it macOS keeps its own.") {
+                    if axTrusted {
+                        status("Allowed")
+                    } else {
+                        Button("Allow") {
+                            let prompt = "AXTrustedCheckOptionPrompt" as CFString
+                            _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
+                            MediaKeys.shared.waitForAccess()
+                        }
+                        .buttonStyle(HubButtonStyle(primary: true))
                     }
                 }
                 HubDivider()

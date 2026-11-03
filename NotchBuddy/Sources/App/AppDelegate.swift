@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if !APPSTORE
         // Before anything writes its settings: did Coucou just update itself? (What's new, once.)
         WhatsNewCenter.shared.noteLaunch()
+        MediaKeys.shared.update()   // coucou-custom fork: volume and brightness keys in the notch
         #endif
         // Warm up Keychain cache on main thread BEFORE any poller or view touches it
         _ = KeychainStore.shared

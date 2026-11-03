@@ -17,6 +17,8 @@ struct NotchPeekContent: Equatable {
     let icon: String
     let text: String
     let tint: Color
+    /// 0…1: a level bar between the icon and the text (the volume and brightness keys).
+    var level: Double? = nil
 }
 
 /// Readable from the nonisolated `islandSize`, as BriefLayout is.
@@ -35,11 +37,14 @@ enum PeekLayout {
         return view == .peek ? (nw + side * 2, nh) : nil
     }
 
-    /// Icon 12 pt + 6 pt + the text in the pill's font.
-    static func measure(_ text: String) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-        return 18 + ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    /// Icon 12 pt + 6 pt + the text in the pill's font; a level bar adds its 80 pt and a gap.
+    static func measure(_ text: String, level: Bool = false) -> CGFloat {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
+        // A level's text is measured as its widest ("Muted"), so the pill keeps still while it changes.
+        let shown = level ? "Muted" : text
+        return 18 + ceil((shown as NSString).size(withAttributes: [.font: font]).width) + (level ? barWidth + 8 : 0)
     }
+    static let barWidth: CGFloat = 80
 
     static func corner(for view: IslandView) -> CGFloat? { view == .peek ? 16 : nil }
 }
@@ -55,22 +60,23 @@ final class NotchPeek: ObservableObject {
 
     #if DEBUG
     /// Snapshots only: the peek's content without opening the island.
-    func debugSet(icon: String, text: String) {
-        PeekLayout.contentWidth = PeekLayout.measure(text)
-        content = NotchPeekContent(icon: icon, text: text, tint: Color(hex: "#34D399"))
+    func debugSet(icon: String, text: String, level: Double? = nil, tint: Color = Color(hex: "#34D399")) {
+        PeekLayout.contentWidth = PeekLayout.measure(text, level: level != nil)
+        content = NotchPeekContent(icon: icon, text: text, tint: tint, level: level)
     }
     #endif
 
     /// Shows the peek, unless a card is open (a peek replaces a peek).
-    func show(icon: String, text: String, tint: Color) {
+    func show(icon: String, text: String, tint: Color, level: Double? = nil, seconds: TimeInterval = PeekLayout.seconds) {
         let state = AppState.shared
         if state.mode == .expanded && state.view != .peek {
             appendAppLog("nb.log", "[Peek] \(text): \(state.view.rawValue) is open, not shown")
             return
         }
-        appendAppLog("nb.log", "[Peek] \(text)")
-        PeekLayout.contentWidth = PeekLayout.measure(text)
-        content = NotchPeekContent(icon: icon, text: text, tint: tint)
+        // A key held down sends a press every few frames: one log line per level is enough.
+        if level == nil { appendAppLog("nb.log", "[Peek] \(text)") }
+        PeekLayout.contentWidth = PeekLayout.measure(text, level: level != nil)
+        content = NotchPeekContent(icon: icon, text: text, tint: tint, level: level)
         NotificationCenter.default.post(name: .hookExpand, object: IslandView.peek)
         closer?.cancel()
         let close = DispatchWorkItem {
@@ -79,7 +85,7 @@ final class NotchPeek: ObservableObject {
             NotificationCenter.default.post(name: .islandCollapse, object: nil)
         }
         closer = close
-        DispatchQueue.main.asyncAfter(deadline: .now() + PeekLayout.seconds, execute: close)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: close)
     }
 }
 
@@ -99,14 +105,25 @@ struct PeekStage: View {
                     Image(systemName: c.icon)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(c.tint)
+                        .frame(width: c.level != nil ? 16 : nil)
+                    if let level = c.level {
+                        Capsule().fill(Color.white.opacity(0.18))
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(c.tint).frame(width: PeekLayout.barWidth * max(0, min(1, level)))
+                            }
+                            .frame(width: PeekLayout.barWidth, height: 5)
+                            .animation(.easeOut(duration: 0.12), value: level)
+                    }
                     Text(c.text)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
                         .foregroundColor(Color(hex: "#E1E3E6"))
                         .lineLimit(1)
                         .fixedSize()
+                        .frame(minWidth: c.level != nil ? 26 : nil, alignment: .trailing)
                 }
                 .padding(.trailing, 14)
-                .id(c.text)
+                // A level changing in place keeps the same view: only a new kind of peek fades in.
+                .id(c.level != nil ? c.icon.hasPrefix("speaker") ? "volume" : c.icon : c.text)
                 .transition(.opacity)
             }
         }
