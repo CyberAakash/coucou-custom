@@ -76,6 +76,11 @@ enum KeepSnapshots {
         case "controls":
             if options.contains("sample") { ControlsMonitor.shared.debugFill(); ControlsConnections.shared.debugFill() }
             KeepDebug.controlsDetail = ["cpu", "memory", "disk", "network"].first { options.contains($0) }
+            // "controls:ring": the keyboard's ring on the volume, then hidden again.
+            if options.contains("ring") {
+                ControlsKeys.shared.spot = .volume
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { ControlsKeys.shared.spot = nil }
+            }
             if options.contains("sample") { DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { ControlsMonitor.shared.debugFillApps() } }
             size = CGSize(width: IslandConst.openWidth, height: ControlsLayout.height)
             view = AnyView(islandFrame(height: ControlsLayout.height, width: IslandConst.openWidth) { ControlsView(state: state) })

@@ -413,18 +413,21 @@ struct HubDropdown<Value: Hashable>: View {
     var symbol: String? = nil
     /// Shown when the selection is none of the choices.
     var placeholder: String? = nil
+    /// Changing it opens the list (a key that opens the dropdown).
+    var opener: Int = 0
     @State private var open = false
     @State private var hover = false
     @Environment(\.isEnabled) private var enabled
 
     init(_ selection: Binding<Value>, _ choices: [(Value, String)], tint: Color = HubTheme.accent, listWidth: CGFloat? = nil,
-         width: CGFloat? = nil, symbol: String? = nil, placeholder: String? = nil) {
+         width: CGFloat? = nil, symbol: String? = nil, placeholder: String? = nil, opener: Int = 0) {
         self.init(options: choices.map { BriefComboOption(value: $0.0, title: $0.1) }, selection: selection, tint: tint,
-                  listWidth: listWidth, width: width, symbol: symbol, placeholder: placeholder)
+                  listWidth: listWidth, width: width, symbol: symbol, placeholder: placeholder, opener: opener)
     }
 
     init(options: [BriefComboOption<Value>], selection: Binding<Value>, tint: Color = HubTheme.accent, listWidth: CGFloat? = nil,
-         width: CGFloat? = nil, symbol: String? = nil, placeholder: String? = nil) {
+         width: CGFloat? = nil, symbol: String? = nil, placeholder: String? = nil, opener: Int = 0) {
+        self.opener = opener
         self.options = options
         self._selection = selection
         self.tint = tint
@@ -474,6 +477,7 @@ struct HubDropdown<Value: Hashable>: View {
             BriefComboList(options: options, selection: $selection, tint: tint, custom: nil, customTitle: nil,
                            placeholder: "Search", width: listWidth ?? max(200, faceWidth + 40)) { open = false }
         }
+        .onChange(of: opener) { _, _ in open = true }
         #if DEBUG
         // `debug.dropdown` "<text in the shown choice>" opens it, "close" closes them all (a terminal's check).
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.dropdown"))) { note in

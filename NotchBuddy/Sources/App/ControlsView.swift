@@ -62,6 +62,7 @@ struct ControlsView: View {
     @ObservedObject private var monitor = ControlsMonitor.shared
     @ObservedObject private var net = ControlsConnections.shared
     @ObservedObject private var settings = ControlsSettings.shared
+    @ObservedObject private var keys = ControlsKeys.shared
     @Environment(\.islandViewActive) private var active
     /// The monitor whose graph and apps are open over the page.
     @State private var detail: MonitorKind?
@@ -84,11 +85,25 @@ struct ControlsView: View {
                 systemBand
             }
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
+            // What the arrows do where the ring is (ControlsKeys); only while it shows.
+            if keys.spot != nil {
+                Text(keys.hint + " · Esc hides")
+                    .font(.system(size: 9.5, weight: .medium)).foregroundColor(Color(hex: "#6B7079"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).padding(.bottom, 1)
+                    .allowsHitTesting(false).transition(.opacity)
+            }
             if let kind = detail {
                 monitorDetail(kind).transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: detail)
+        .animation(.easeOut(duration: 0.12), value: keys.spot)
+        .onChange(of: keys.openDetail) { _, k in
+            guard active, let k else { return }
+            detail = k
+            keys.openDetail = nil
+        }
+        .onChange(of: detail) { _, d in if active { keys.detailOpen = d != nil } }
         .onAppear {
             audio.start()
             display.watch(active)
@@ -234,6 +249,7 @@ struct ControlsView: View {
         }
         .frame(height: 26)
         .contentShape(Rectangle())
+        .overlay(ring(.wifi, radius: 8))
         .contextMenu { Button("Wi-Fi settings") { ControlsConnections.openWiFiSettings() } }
     }
 
@@ -270,6 +286,7 @@ struct ControlsView: View {
             }
         }
         .frame(height: 26)
+        .overlay(ring(.device(d.id), radius: 8))
     }
 
     private func smallButton(_ title: String, _ action: @escaping () -> Void) -> some View {
@@ -307,6 +324,7 @@ struct ControlsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).pointer().help("\(kind.title): its graph and what is using it")
+                .overlay(ring(.monitor(kind)))
             }
         }
     }
@@ -478,11 +496,13 @@ struct ControlsView: View {
             HStack(spacing: 10) {
                 ControlSlider(value: audio.muted ? 0 : audio.volume, symbol: volumeSymbol, help: audio.muted ? "Unmute" : "Mute",
                               iconTap: { audio.setMuted(!audio.muted) }) { audio.setVolume($0) }
+                    .overlay(ring(.volume))
                 outputMenu
             }
             if let b = display.brightness {
                 HStack(spacing: 10) {
                     ControlSlider(value: b, symbol: "sun.max.fill", help: nil, iconTap: nil) { display.setBrightness($0) }
+                        .overlay(ring(.brightness))
                     Text("Built-in display").font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C"))
                         .frame(width: 130, alignment: .leading)
                 }
@@ -490,16 +510,16 @@ struct ControlsView: View {
             HStack(spacing: 6) {
                 let hidden = settings.hiddenTiles
                 if !hidden.contains("dark") {
-                    tile("Dark", symbol: "moon.fill", on: display.dark) { display.setDark(!display.dark) }
+                    tile("Dark", id: "dark", symbol: "moon.fill", on: display.dark) { display.setDark(!display.dark) }
                 }
                 if let night = display.nightShift, !hidden.contains("night") {
-                    tile("Night Shift", symbol: "sun.haze.fill", on: night) { display.setNightShift(!night) }
+                    tile("Night Shift", id: "night", symbol: "sun.haze.fill", on: night) { display.setNightShift(!night) }
                 }
                 if !hidden.contains("awake") {
-                    tile("Keep awake", symbol: "cup.and.saucer.fill", on: display.keepAwake) { display.setKeepAwake(!display.keepAwake) }
+                    tile("Keep awake", id: "awake", symbol: "cup.and.saucer.fill", on: display.keepAwake) { display.setKeepAwake(!display.keepAwake) }
                 }
                 if !hidden.contains("mic") {
-                    tile(audio.micMuted ? "Mic off" : "Mic on", symbol: audio.micMuted ? "mic.slash.fill" : "mic.fill", on: audio.micMuted,
+                    tile(audio.micMuted ? "Mic off" : "Mic on", id: "mic", symbol: audio.micMuted ? "mic.slash.fill" : "mic.fill", on: audio.micMuted,
                          help: audio.inputName.map { "Mute \($0)" }) { audio.setMicMuted(!audio.micMuted) }
                 }
             }
@@ -517,7 +537,7 @@ struct ControlsView: View {
         let current = audio.outputs.first { $0.id == audio.current }
         return HubDropdown(Binding(get: { audio.current }, set: { id in audio.outputs.first { $0.id == id }.map(audio.use) }),
                            audio.outputs.map { ($0.id, $0.name) }, tint: Self.tint, listWidth: 240, width: 130,
-                           symbol: Self.symbol(for: current), placeholder: "No output")
+                           symbol: Self.symbol(for: current), placeholder: "No output", opener: active ? keys.openOutput : 0)
     }
 
     static func symbol(for output: AudioOutput?) -> String {
@@ -533,7 +553,16 @@ struct ControlsView: View {
         }
     }
 
-    private func tile(_ title: String, symbol: String, on: Bool, help: String? = nil, _ action: @escaping () -> Void) -> some View {
+    /// The keyboard's focus ring (ControlsKeys), drawn just outside what it is on.
+    private func ring(_ spot: ControlsSpot, radius: CGFloat = 12) -> some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .strokeBorder(Color(hex: "#22D3EE"), lineWidth: 2)
+            .padding(-3)
+            .opacity(keys.spot == spot && active ? 1 : 0)
+            .allowsHitTesting(false)
+    }
+
+    private func tile(_ title: String, id: String, symbol: String, on: Bool, help: String? = nil, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
@@ -545,6 +574,7 @@ struct ControlsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).pointer().help(help ?? title)
+        .overlay(ring(.tile(id), radius: 16))
         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: on)
     }
 }
