@@ -208,10 +208,24 @@ final class PageWheel {
         }
         guard IslandPages.enabled, IslandPages.wheelEnabled, state.mode == .expanded,
               IslandPages.page(of: state.view) != nil, event.deltaX != 0 else { return false }
+        #if !APPSTORE
+        // The raw touches already turned the page for this gesture.
+        if ThreeFingerSwipe.running { return true }
+        #endif
         guard let next = IslandPages.step(event.deltaX > 0 ? 1 : -1, from: state) else { return false }
         IslandPages.go(to: next, state: state, how: "swipe")
         return true
     }
+
+    #if !APPSTORE
+    /// Three fingers sideways anywhere on the trackpad while the notch is open (ThreeFingerSwipe).
+    func handleThreeFingers(_ step: Int, state: AppState) {
+        guard state.mode == .expanded, IslandPages.page(of: state.view) != nil,
+              let next = IslandPages.step(step, from: state) else { return }
+        appendAppLog("nb.log", "[Pages] three fingers \(step > 0 ? "left" : "right"): \(state.view.rawValue) → \(next.rawValue)")
+        IslandPages.go(to: next, state: state, how: "three fingers")
+    }
+    #endif
 }
 
 /// The dots: the open page is a short bar, the others small circles. Click a dot to go there.
