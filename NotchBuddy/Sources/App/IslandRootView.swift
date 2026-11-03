@@ -842,14 +842,16 @@ struct IslandHeader: View {
                 TabButton(icon: "house.fill", view: .overview, state: state)
                 // coucou-custom fork: the other tabs in the order set in Settings → General → Pages.
                 // As many as fit left of the camera housing (the dots and ← → still go to every page).
-                ForEach(Array(arrangement.order.filter(inHeader).prefix(Self.tabRoom(notchWidth: state.notchWidth) - 1))) { page in tab(page) }
+                // Controls sits on the right, beside the pin and the gear (coucou-custom fork).
+                ForEach(Array(arrangement.order.filter { $0 != .controls && inHeader($0) }
+                    .prefix(Self.tabRoom(notchWidth: state.notchWidth) - 1))) { page in tab(page) }
             }
             .padding(.leading, 14)
 
             Spacer()
 
             // Right: plan pill (GitHub build, home view only) + action icons
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 #if !APPSTORE
                 // Claude and Codex both on: only Claude here (two pills and the icons do not
                 // clear the notch); Codex is a row in the Claude plan card.
@@ -859,7 +861,9 @@ struct IslandHeader: View {
                     ClaudePlanHeaderPill(state: state, codex: true)
                 }
                 #endif
-                HStack(spacing: 14) {
+                // 12, not 14: with the Controls tab here the plan pill still clears the camera housing.
+                HStack(spacing: 12) {
+                    tab(.controls)   // coucou-custom fork: on this side of the notch
                     NotchPinButton(state: state)   // coucou-custom fork
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {

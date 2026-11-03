@@ -154,6 +154,12 @@ enum KeepSnapshots {
             appendAppLog("nb.log", "[Snapshot] notch \(Int(state.notchWidth)) pt wide: room for \(IslandHeader.tabRoom(notchWidth: state.notchWidth)) tabs")
             let w = IslandConst.openWidth
             appendAppLog("nb.log", "[Snapshot] open island \(Int(w)) pt")
+            // "header:home": as on the home page (its plan pill), the page put back after.
+            if options.contains("home") {
+                let was = state.view
+                state.view = .overview
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { state.view = was }
+            }
             size = CGSize(width: w, height: 44)
             view = AnyView(ZStack {
                 IslandHeader(state: state).frame(width: w, height: 44).background(Color.black)
