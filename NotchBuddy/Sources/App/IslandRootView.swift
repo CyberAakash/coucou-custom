@@ -860,6 +860,7 @@ struct IslandHeader: View {
                 }
                 #endif
                 HStack(spacing: 14) {
+                    NotchPinButton(state: state)   // coucou-custom fork
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             state.view = .settings
@@ -1073,6 +1074,13 @@ struct CompactSideContent: View {
                     .fixedSize()
                     .frame(width: inset * 2)
                     .frame(width: islandWidth, height: islandHeight, alignment: .trailing)
+                }
+                // coucou-custom fork: pinned to this screen (NotchPin), a small pin by Mochi.
+                if state.pinScreen {
+                    Image(systemName: "pin.fill").font(.system(size: 7, weight: .bold))
+                        .foregroundColor(Color(hex: "#FB923C"))
+                        .position(x: IslandRestingStyle.mochiX - 13, y: islandHeight / 2 - 8)
+                        .transition(.opacity)
                 }
             }
         }
