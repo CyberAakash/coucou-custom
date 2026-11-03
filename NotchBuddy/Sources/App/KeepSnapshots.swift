@@ -74,7 +74,7 @@ enum KeepSnapshots {
             size = CGSize(width: IslandConst.openWidth, height: 160)
             view = AnyView(islandFrame(height: 160, width: IslandConst.openWidth) { RoutineNotchCard() })
         case "controls":
-            if options.contains("sample") { ControlsMonitor.shared.debugFill() }
+            if options.contains("sample") { ControlsMonitor.shared.debugFill(); ControlsConnections.shared.debugFill() }
             KeepDebug.controlsDetail = ["cpu", "memory", "disk", "network"].first { options.contains($0) }
             size = CGSize(width: IslandConst.openWidth, height: ControlsLayout.height)
             view = AnyView(islandFrame(height: ControlsLayout.height, width: IslandConst.openWidth) { ControlsView(state: state) })

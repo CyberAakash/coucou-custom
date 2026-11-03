@@ -27,6 +27,7 @@ struct ControlsView: View {
     @ObservedObject private var audio = ControlsAudio.shared
     @ObservedObject private var display = ControlsDisplay.shared
     @ObservedObject private var monitor = ControlsMonitor.shared
+    @ObservedObject private var net = ControlsConnections.shared
     @Environment(\.islandViewActive) private var active
     /// The monitor whose graph and apps are open over the page.
     @State private var detail: MonitorKind?
@@ -39,7 +40,12 @@ struct ControlsView: View {
         ZStack {
             CardBackground(wash: nil)
             VStack(spacing: 10) {
-                controlCenter
+                HStack(alignment: .top, spacing: 14) {
+                    controlCenter.frame(maxWidth: .infinity)
+                    Rectangle().fill(Color.white.opacity(0.05)).frame(width: 1)
+                    connections.frame(maxWidth: .infinity)
+                }
+                .frame(height: 150)
                 Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
                 systemBand
             }
@@ -52,6 +58,7 @@ struct ControlsView: View {
         .onAppear {
             audio.start()
             display.watch(active)
+            net.watch(active)
             hold(active)
             #if DEBUG
             if let d = KeepDebug.controlsDetail { detail = MonitorKind(rawValue: d) }
@@ -59,6 +66,7 @@ struct ControlsView: View {
         }
         .onChange(of: active) { _, on in
             display.watch(on)
+            net.watch(on)
             hold(on)
             if on { audio.reload() } else { detail = nil }
         }
@@ -67,7 +75,7 @@ struct ControlsView: View {
             if active { monitor.appsFor = kind }
             detailFocus = kind != nil
         }
-        .onDisappear { display.watch(false); hold(false) }
+        .onDisappear { display.watch(false); net.watch(false); hold(false) }
         #if DEBUG
         // `debug.controls` "volume|awake|mic": a change and its undo, both logged (a terminal's check).
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("fr.louisraille.NotchBuddy.debug.controls"))) { note in
@@ -115,6 +123,131 @@ struct ControlsView: View {
         guard on != holding else { return }
         holding = on
         monitor.hold(on)
+    }
+
+    // MARK: Connections
+
+    /// Wi-Fi first, then the Bluetooth devices (connected first): as many as fit, the rest in settings.
+    private var connections: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("CONNECTIONS").font(.system(size: 9, weight: .heavy)).tracking(1.1).foregroundColor(Color(hex: "#6B7079"))
+                Spacer()
+                Button { ControlsConnections.openBluetoothSettings() } label: {
+                    Image(systemName: "gearshape").font(.system(size: 10, weight: .semibold)).foregroundColor(Color(hex: "#6B7079"))
+                }
+                .buttonStyle(.plain).pointer().help("Bluetooth settings")
+            }
+            wifiRow
+            Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1).padding(.vertical, 2)
+            if net.bluetoothOn == false {
+                HStack(spacing: 8) {
+                    Text("Bluetooth is off").font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
+                    Spacer()
+                    smallButton("Bluetooth settings") { ControlsConnections.openBluetoothSettings() }
+                }
+                .frame(height: 26)
+            } else if net.devices.isEmpty {
+                Text(net.bluetoothOn == nil ? "Reading Bluetooth…" : "No Bluetooth devices paired")
+                    .font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C")).frame(height: 26)
+            } else {
+                let shown = Array(net.devices.prefix(3))
+                ForEach(shown) { deviceRow($0) }
+                if net.devices.count > shown.count {
+                    Button { ControlsConnections.openBluetoothSettings() } label: {
+                        Text("\(net.devices.count - shown.count) more in Bluetooth settings").font(.system(size: 10.5)).foregroundColor(Color(hex: "#6B7079"))
+                    }
+                    .buttonStyle(.plain).pointer()
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var wifiRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: net.wifiOn == true ? "wifi" : "wifi.slash")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(net.wifiOn == true ? Color(hex: "#F5F6F8") : Color(hex: "#6B7079"))
+                .frame(width: 22)
+            if net.wifiOn == nil {
+                Text("No Wi-Fi on this Mac").font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
+            } else if net.wifiOn == false {
+                Text("Wi-Fi is off").font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
+            } else {
+                if let name = net.wifiName {
+                    Text(name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                } else if !net.locationAllowed {
+                    Button { if net.locationAsked { ControlsView.openLocationSettings() } else { net.requestLocation() } } label: {
+                        Text("Show name").font(.system(size: 11.5, weight: .semibold)).foregroundColor(Color(hex: "#3B9EFF")).fixedSize()
+                    }
+                    .buttonStyle(.plain).pointer().help("macOS shows an app the network's name only with Location allowed")
+                } else {
+                    Text("Not connected").font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
+                }
+                if net.wifiRate > 0 {
+                    Text("\(Int(net.wifiRate)) Mbps · \(net.wifiQuality)").font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            if net.wifiOn != nil {
+                Toggle("", isOn: Binding(get: { net.wifiOn == true }, set: { net.setWiFi($0) }))
+                    .toggleStyle(.switch).controlSize(.mini).labelsHidden().tint(Self.tint)
+                    .help(net.wifiOn == true ? "Turn Wi-Fi off" : "Turn Wi-Fi on")
+            }
+        }
+        .frame(height: 26)
+        .contentShape(Rectangle())
+        .contextMenu { Button("Wi-Fi settings") { ControlsConnections.openWiFiSettings() } }
+    }
+
+    private func deviceRow(_ d: BluetoothDevice) -> some View {
+        let isOutput = d.connected && audio.outputs.first { $0.id == audio.current }?.name == d.name
+        let low = (d.battery ?? 100) <= 20
+        return HStack(spacing: 8) {
+            ZStack {
+                if let b = d.battery, d.connected {
+                    Circle().stroke(Color.white.opacity(0.1), lineWidth: 2.4)
+                    Circle().trim(from: 0, to: CGFloat(b) / 100)
+                        .stroke(low ? Color(hex: "#F4505E") : Self.tint, style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                Image(systemName: d.symbol).font(.system(size: d.battery != nil && d.connected ? 8 : 11, weight: .semibold))
+                    .foregroundColor(d.connected ? Color(hex: "#F5F6F8") : Color(hex: "#6B7079"))
+            }
+            .frame(width: 22, height: 22)
+            Text(d.name).font(.system(size: 12)).foregroundColor(d.connected ? Color(hex: "#F5F6F8") : Color(hex: "#8E939C")).lineLimit(1)
+            if let b = d.battery, d.connected {
+                Text("\(b)%").font(.system(size: 10.5).monospacedDigit()).foregroundColor(low ? Color(hex: "#F4505E") : Color(hex: "#8E939C"))
+                    .help(d.batteryDetail ?? "Battery")
+            }
+            if isOutput {
+                Text("sound").font(.system(size: 9.5, weight: .semibold)).foregroundColor(Self.tint)
+                    .padding(.horizontal, 6).frame(height: 16).background(Capsule().fill(Self.tint.opacity(0.14)))
+            }
+            Spacer(minLength: 4)
+            if net.busy == d.id {
+                ProgressView().controlSize(.mini)
+            } else {
+                smallButton(d.connected ? "Disconnect" : "Connect") { net.toggle(d) }
+                    .disabled(net.busy != nil)
+            }
+        }
+        .frame(height: 26)
+    }
+
+    private func smallButton(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundColor(Color(hex: "#F5F6F8"))
+                .padding(.horizontal, 9).frame(height: 22)
+                .background(Capsule().fill(Color.white.opacity(0.09)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).pointer()
+    }
+
+    static func openLocationSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
     }
 
     // MARK: System
@@ -308,7 +441,7 @@ struct ControlsView: View {
                 HStack(spacing: 10) {
                     ControlSlider(value: b, symbol: "sun.max.fill", help: nil, iconTap: nil) { display.setBrightness($0) }
                     Text("Built-in display").font(.system(size: 10.5)).foregroundColor(Color(hex: "#8E939C"))
-                        .frame(width: 170, alignment: .leading)
+                        .frame(width: 130, alignment: .leading)
                 }
             }
             HStack(spacing: 6) {
@@ -342,7 +475,7 @@ struct ControlsView: View {
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundColor(Color(hex: "#8E939C"))
             }
             .foregroundColor(Color(hex: "#F5F6F8"))
-            .padding(.horizontal, 11).frame(width: 170, height: 28)
+            .padding(.horizontal, 11).frame(width: 130, height: 28)
             .background(Capsule().fill(Color.white.opacity(0.09)))
             .contentShape(Capsule())
         }
