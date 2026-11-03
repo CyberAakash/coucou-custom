@@ -14,8 +14,11 @@ enum TerminalTarget {
     /// `bundle_id`, i.e. `__CFBundleIdentifier`), then the known terminals.
     static func candidates(sessionBundleId: String?) -> [String] {
         let own = sessionBundleId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !own.isEmpty else { return knownTerminals }
-        return [own] + knownTerminals.filter { $0 != own }
+        // coucou-custom fork: terminals seen running a session (ClaudeHost.seen) are tried too.
+        let seen = (UserDefaults.standard.dictionary(forKey: "coucouSeenTerminals") ?? [:]).keys.sorted()
+        let all = knownTerminals + seen.filter { !knownTerminals.contains($0) }
+        guard !own.isEmpty else { return all }
+        return [own] + all.filter { $0 != own }
     }
 
     /// First candidate that is currently running, or nil.

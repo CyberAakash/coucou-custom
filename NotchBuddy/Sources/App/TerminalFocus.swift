@@ -36,8 +36,13 @@ enum TerminalFocus {
         ("com.github.wez.wezterm", "WezTerm"),
     ]
 
+    /// The listed terminals installed here, then the others seen running a session.
     static var installedChoices: [(id: String, name: String)] {
-        choices.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.id) != nil }
+        let listed = choices.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.id) != nil }
+        let others = ClaudeHost.seen.filter { entry in !listed.contains { $0.id == entry.key } }
+            .filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.key) != nil }
+            .map { (id: $0.key, name: $0.value) }.sorted { $0.name < $1.name }
+        return listed + others
     }
 
     /// Brings `session`'s own tab forward; if that is not possible, runs `fallback`.
@@ -87,12 +92,14 @@ enum TerminalFocus {
         let t = s.terminal
         let tmux = tmuxStep(t)
         let host: (@Sendable () -> Bool)?
-        switch s.hostApp ?? s.bundleId ?? "" {
+        // A build or fork of a listed terminal is driven like it, addressed by its own id.
+        let app = s.hostApp ?? s.bundleId ?? ""
+        switch ClaudeHost.family(app) ?? app {
         case "dev.warp.Warp-Stable", "dev.warp.Warp-Preview":
             host = warpURL(t["warp_focus_url"]).map { url in { @Sendable in NSWorkspace.shared.open(url) } }
         case "com.apple.Terminal":
             host = validTTY(t["tty"]).map { tty in { @Sendable in runScript("""
-                tell application "Terminal"
+                tell application id "\(app)"
                     repeat with w in windows
                         repeat with t in tabs of w
                             if tty of t is "/dev/\(tty)" then
@@ -107,7 +114,7 @@ enum TerminalFocus {
                 """) } }
         case "com.googlecode.iterm2":
             host = itermUUID(t["iterm_session_id"]).map { uuid in { @Sendable in runScript("""
-                tell application "iTerm2"
+                tell application id "\(app)"
                     repeat with w in windows
                         repeat with t in tabs of w
                             repeat with s in sessions of t
@@ -125,7 +132,7 @@ enum TerminalFocus {
                 """) } }
         case "com.mitchellh.ghostty":
             host = safeAppleScriptString(s.cwd).map { cwd in { @Sendable in runScript("""
-                tell application "Ghostty"
+                tell application id "\(app)"
                     set matches to (every terminal whose working directory is "\(cwd)")
                     if (count of matches) is 0 then return false
                     focus (item 1 of matches)
@@ -134,11 +141,11 @@ enum TerminalFocus {
                 """) } }
         case "net.kovidgoyal.kitty":
             if let id = digits(t["kitty_window_id"]), let socket = t["kitty_listen_on"], socket.hasPrefix("unix:"),
-               let kitten = bundledTool("net.kovidgoyal.kitty", "kitten") {
+               let kitten = bundledTool(app, "kitten") {
                 host = { @Sendable in runTool(kitten, ["@", "--to", socket, "focus-window", "--match", "id:\(id)"]) }
             } else { host = nil }
         case "com.github.wez.wezterm":
-            if let pane = digits(t["wezterm_pane"]), let wezterm = bundledTool("com.github.wez.wezterm", "wezterm") {
+            if let pane = digits(t["wezterm_pane"]), let wezterm = bundledTool(app, "wezterm") {
                 host = { @Sendable in runTool(wezterm, ["cli", "activate-pane", "--pane-id", pane]) }
             } else { host = nil }
         default:
