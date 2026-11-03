@@ -791,7 +791,7 @@ struct SettingsView: View {
                     }
                 }
                 Text(String(localized: "terminal.default.detail",
-                            defaultValue: "Open terminal goes to the session's own tab in Warp, Terminal, iTerm2, Ghostty, kitty (remote control on) or WezTerm. This terminal opens when a session's own one is unknown."))
+                            defaultValue: "Sessions in any terminal show here, your own builds too. Open terminal goes to the session's own tab in Warp, Terminal, iTerm2, Ghostty, kitty (remote control on) or WezTerm, and brings any other terminal forward. This terminal opens when a session's own one is unknown."))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2883,7 +2883,7 @@ extension SettingsView {
             }
             HubDivider()
             HubRow(title: String(localized: "terminal.default", defaultValue: "Default terminal"),
-                   detail: String(localized: "terminal.default.detail", defaultValue: "Open terminal goes to the session's own tab in Warp, Terminal, iTerm2, Ghostty, kitty (remote control on) or WezTerm. This terminal opens when a session's own one is unknown.")) {
+                   detail: String(localized: "terminal.default.detail", defaultValue: "Sessions in any terminal show here, your own builds too. Open terminal goes to the session's own tab in Warp, Terminal, iTerm2, Ghostty, kitty (remote control on) or WezTerm, and brings any other terminal forward. This terminal opens when a session's own one is unknown.")) {
                 Picker("", selection: $defaultTerminal) {
                     Text(String(localized: "terminal.default.auto", defaultValue: "Automatic")).tag("")
                     ForEach(TerminalFocus.installedChoices, id: \.id) { Text($0.name).tag($0.id) }
