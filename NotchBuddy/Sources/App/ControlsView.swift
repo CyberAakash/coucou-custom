@@ -375,6 +375,10 @@ struct ControlsView: View {
                 }
                 .buttonStyle(.plain).pointer().help("Back to Controls")
             }
+            // Taller than the page: the tabs stay, the rest scrolls (it used to push the notch's
+            // header out of view).
+            ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(detailHeadline(kind)).font(.system(size: 24, weight: .bold).monospacedDigit())
                 Text(detailSubline(kind)).font(.system(size: 11)).foregroundColor(Color(hex: "#8E939C")).lineLimit(1)
@@ -385,7 +389,7 @@ struct ControlsView: View {
                 }
                 Sparkline(values: series(kind), color: color(kind), fixedMax: kind == .cpu || kind == .memory ? 1 : nil, filled: true)
             }
-            .frame(height: 92)
+            .frame(height: 52)
             Text("The last 5 minutes").font(.system(size: 9.5)).foregroundColor(Color(hex: "#6B7079"))
             if kind == .network {
                 if let a = ControlsMonitor.primaryAddress() {
@@ -399,12 +403,15 @@ struct ControlsView: View {
                 }
                 ForEach(monitor.apps) { app in appRow(app, kind) }
             }
-            Spacer(minLength: 0)
+            }
+            .padding(.bottom, 4)
+            }
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(hex: "#141518")))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .focusable().focusEffectDisabled().focused($detailFocus)
         .onExitCommand { detail = nil }
         .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
