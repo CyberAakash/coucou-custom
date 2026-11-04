@@ -16,6 +16,7 @@ struct HubGeneralPage: View {
     @AppStorage(NotchAlertRules.openOnFinishKey) private var openOnFinish = true
     @AppStorage(NotchAlertRules.openOnErrorKey) private var openOnError = true
     @AppStorage(NotchAlertRules.ambientKey) private var ambientPulse = true
+    @AppStorage(ThreeFingerSwipe.doubleTapKey) private var threeFingerTap = true   // coucou-custom fork
     @AppStorage(IslandClickOutside.key) private var closesOnClickOutside = true   // coucou-custom fork
     #if !APPSTORE
     #endif
@@ -236,6 +237,15 @@ struct HubGeneralPage: View {
                        detail: "While the notch is open, three fingers left or right anywhere on the trackpad turn the page, no click needed; two fingers scroll the page's cards. A mouse wheel turns it on the home page.") {
                     Toggle("", isOn: $pageWheel).toggleStyle(.switch).labelsHidden()
                 }
+            }
+            HubDivider()
+            // coucou-custom fork: open and close with a three-finger double tap (ThreeFingerSwipe).
+            HubRow(title: "Double-tap with three fingers",
+                   detail: "Two quick taps with three fingers anywhere on the trackpad open or close the notch. Turn off System Settings → Trackpad → Look up, which also uses a three-finger tap.") {
+                Toggle("", isOn: $threeFingerTap).toggleStyle(.switch).labelsHidden()
+                    .onChange(of: threeFingerTap) { _, _ in
+                        ThreeFingerSwipe.update(swipes: ThreeFingerSwipe.swipes)
+                    }
             }
             HubDivider()
             #if !APPSTORE

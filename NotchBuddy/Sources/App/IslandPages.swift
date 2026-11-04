@@ -210,7 +210,7 @@ final class PageWheel {
               IslandPages.page(of: state.view) != nil, event.deltaX != 0 else { return false }
         #if !APPSTORE
         // The raw touches already turned the page for this gesture.
-        if ThreeFingerSwipe.running { return true }
+        if ThreeFingerSwipe.running && ThreeFingerSwipe.swipes { return true }
         #endif
         guard let next = IslandPages.step(event.deltaX > 0 ? 1 : -1, from: state) else { return false }
         IslandPages.go(to: next, state: state, how: "swipe")
