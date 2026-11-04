@@ -5,7 +5,7 @@ import AppKit
 //
 // One focus ring walks the page's rows: volume, brightness, the tiles, Wi-Fi, each device shown,
 // the four monitors. ↑↓ move it; ←→ change the slider it is on (⌥: a quarter step) or move along
-// a row; Space or Return acts; M mute, O sound output, D dark, A keep awake jump straight there.
+// a row; Space or Return acts; M mute, O sound output, D dark, A keep awake, F Focus jump there.
 // The ring shows only after a key and goes on a click. With no ring, ←→ still turn the page.
 
 enum ControlsSpot: Hashable {
@@ -19,6 +19,8 @@ final class ControlsKeys: ObservableObject {
     @Published var spot: ControlsSpot?
     /// Bumped to open the sound output's dropdown.
     @Published var openOutput = 0
+    /// Bumped to open the Focus tile's list.
+    @Published var openFocus = 0
     /// A monitor's detail to open (the page owns `detail`).
     @Published var openDetail: MonitorKind?
     /// The detail answers its own keys.
@@ -39,6 +41,7 @@ final class ControlsKeys: ObservableObject {
         if display.nightShift != nil, !hidden.contains("night") { t.append("night") }
         if !hidden.contains("awake") { t.append("awake") }
         if !hidden.contains("mic") { t.append("mic") }
+        if !hidden.contains("focus") { t.append("focus") }
         return t
     }
 
@@ -97,6 +100,7 @@ final class ControlsKeys: ObservableObject {
             case 31: spot = .volume; openOutput += 1                                 // O
             case 2: spot = .tile("dark"); display.setDark(!display.dark)             // D
             case 0: spot = .tile("awake"); display.setKeepAwake(!display.keepAwake)  // A
+            case 3: spot = .tile("focus"); openFocus += 1                            // F
             default: return false
             }
         }
@@ -139,6 +143,7 @@ final class ControlsKeys: ObservableObject {
         case .tile("night"): if let n = display.nightShift { display.setNightShift(!n) }
         case .tile("awake"): display.setKeepAwake(!display.keepAwake)
         case .tile("mic"): audio.setMicMuted(!audio.micMuted)
+        case .tile("focus"): openFocus += 1
         case .tile: break
         case .wifi: net.setWiFi(net.wifiOn != true)
         case .device(let id): if net.busy == nil, let d = net.devices.first(where: { $0.id == id }) { net.toggle(d) }
