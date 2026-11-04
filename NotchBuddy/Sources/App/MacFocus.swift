@@ -75,6 +75,73 @@ final class MacFocus: ObservableObject {
         }
     }
 
+    // MARK: Turning a Focus on from Coucou (part 2)
+    //
+    // macOS lets only Shortcuts change a Focus. Each Focus here names two of the person's own
+    // shortcuts (one "Set Focus … On" action, one "… Off"), run with `shortcuts run`.
+
+    struct Entry: Codable, Equatable, Identifiable {
+        var name: String
+        var on: String = ""
+        var off: String = ""
+        /// Stable while the name is typed.
+        var id = UUID().uuidString
+    }
+
+    @Published var entries: [Entry] = (UserDefaults.standard.data(forKey: "coucouFocusEntries")
+        .flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? [Entry(name: "Work")] {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(entries), forKey: "coucouFocusEntries") }
+    }
+    /// The person's shortcuts, for the On and Off dropdowns.
+    @Published private(set) var shortcuts: [String] = []
+    @Published private(set) var running: String?
+
+    /// Focuses that can be turned on from Coucou.
+    var ready: [Entry] { entries.filter { !$0.on.isEmpty } }
+
+    func loadShortcuts() {
+        Task.detached(priority: .utility) {
+            let names = Self.runShortcutsTool(["list"]).output
+                .split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            await MainActor.run { MacFocus.shared.shortcuts = names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
+        }
+    }
+
+    /// Runs the Focus's On shortcut, or the current one's Off; the automations then confirm, and
+    /// when there are none Coucou takes the shortcut's success as the answer.
+    func turn(_ entry: Entry?, on: Bool) {
+        let target = on ? entry : (entry ?? entries.first { $0.name.caseInsensitiveCompare(current ?? "") == .orderedSame })
+        guard let target, running == nil else { return }
+        let shortcut = on ? target.on : target.off
+        guard !shortcut.isEmpty else {
+            appendAppLog("nb.log", "[Focus] \(target.name): no \(on ? "On" : "Off") shortcut set")
+            return
+        }
+        running = target.name
+        Task.detached(priority: .userInitiated) {
+            let result = Self.runShortcutsTool(["run", shortcut])
+            await MainActor.run {
+                let me = MacFocus.shared
+                me.running = nil
+                appendAppLog("nb.log", "[Focus] ran \"\(shortcut)\": \(result.ok ? "done" : "failed \(result.output.prefix(120))")")
+                if result.ok { me.set(on ? target.name : nil) }
+            }
+        }
+    }
+
+    nonisolated private static func runShortcutsTool(_ args: [String]) -> (ok: Bool, output: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+        p.arguments = args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        do { try p.run() } catch { return (false, "\(error)") }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus == 0, String(data: data, encoding: .utf8) ?? "")
+    }
+
     /// The two links an automation opens for a Focus.
     static func links(for name: String) -> (on: String, off: String) {
         let q = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
@@ -84,16 +151,92 @@ final class MacFocus: ObservableObject {
 #endif
 
 #if !APPSTORE
-/// Settings → Routines → Focus → Mac Focus: the automations to add, with their links to copy.
+/// The Controls page's Focus tile: the Focus that is on, and a list to turn one on or off or to
+/// start a focus session.
+struct ControlsFocusTile: View {
+    var opener: Int = 0
+    @ObservedObject private var focus = MacFocus.shared
+    @ObservedObject private var routines = BuddyRoutineController.shared
+    @State private var open = false
+
+    var body: some View {
+        let on = focus.current != nil
+        Button { open.toggle() } label: {
+            VStack(spacing: 4) {
+                if focus.running != nil {
+                    ProgressView().controlSize(.small).frame(height: 15)
+                } else {
+                    Image(systemName: focus.current.map(MacFocus.symbol) ?? "moon").font(.system(size: 13, weight: .semibold))
+                }
+                Text(focus.current ?? "Focus").font(.system(size: 10, weight: .semibold)).lineLimit(1)
+            }
+            .foregroundColor(on ? Color(hex: "#A5B4FC") : Color(hex: "#C5C8CD"))
+            .frame(maxWidth: .infinity).frame(height: 46)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(on ? MacFocus.tint.opacity(0.16) : Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).pointer().help(on ? "\(focus.current ?? "") Focus is on" : "Turn a Focus on")
+        .onChange(of: opener) { _, _ in open = true }
+        .popover(isPresented: $open, arrowEdge: .bottom) { list }
+    }
+
+    private var list: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if focus.ready.isEmpty {
+                row("gearshape", "Set up in Settings → Routines → Focus", on: false) {
+                    FlowHubController.shared.show(.routines)
+                }
+            }
+            ForEach(focus.ready) { e in
+                let isOn = focus.current?.caseInsensitiveCompare(e.name) == .orderedSame
+                row(MacFocus.symbol(for: e.name), e.name, on: isOn) { if !isOn { focus.turn(e, on: true) } }
+            }
+            if focus.current != nil {
+                row("minus.circle", "Turn off", on: false) { focus.turn(nil, on: false) }
+            }
+            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 6)
+            HStack(spacing: 8) {
+                Text(routines.focus != nil ? "A focus session is running" : "Focus session · \(BuddyRoutineSettings.shared.focusPlan.focus) min")
+                    .font(.system(size: 12)).foregroundColor(Color(hex: "#C5C8CD"))
+                Spacer(minLength: 8)
+                Button("Start") { routines.startFocus(); open = false }
+                    .buttonStyle(.plain).pointer()
+                    .font(.system(size: 11.5, weight: .semibold)).foregroundColor(Color(hex: "#0B0C0E"))
+                    .padding(.horizontal, 12).frame(height: 26).background(Capsule().fill(MacFocus.tint))
+                    .disabled(routines.focus != nil).opacity(routines.focus != nil ? 0.4 : 1)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+        }
+        .padding(6)
+        .frame(width: 270)
+    }
+
+    private func row(_ symbol: String, _ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button { action(); open = false } label: {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(on ? Color(hex: "#A5B4FC") : Color(hex: "#8E939C")).frame(width: 18)
+                Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Spacer(minLength: 6)
+                if on { Text("on").font(.system(size: 11)).foregroundColor(Color(hex: "#A5B4FC")) }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? MacFocus.tint.opacity(0.16) : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).pointer()
+    }
+}
+
+/// Settings → Routines → Focus → Mac Focus: each Focus with the two links its automations open
+/// (how Coucou hears of it) and the two shortcuts Coucou runs (how it turns it on and off).
 struct BuddyMacFocusCard: View {
     @ObservedObject private var focus = MacFocus.shared
-    @State private var name = "Work"
     @State private var copied: String?
 
     var body: some View {
-        let links = MacFocus.links(for: name.trimmingCharacters(in: .whitespaces).isEmpty ? "Work" : name.trimmingCharacters(in: .whitespaces))
         HubCard {
-            HubRow(title: "Now", detail: "As your automations last told Coucou.") {
+            HubRow(title: "Now", detail: "As your automations, or Coucou's own shortcuts, last told it.") {
                 HStack(spacing: 6) {
                     if let c = focus.current {
                         Image(systemName: MacFocus.symbol(for: c)).foregroundColor(MacFocus.tint)
@@ -104,24 +247,64 @@ struct BuddyMacFocusCard: View {
                 }
             }
             HubDivider()
-            HubRow(title: "Tell Coucou from Shortcuts",
-                   detail: "Shortcuts → Automation → New Automation → Focus → pick the Focus, When Turning On, Run Immediately → add Open URLs with the first link. Then one more for When Turning Off with the second. Once per Focus.") {
-                Button("Open Shortcuts") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Shortcuts.app"))
+            HubRow(title: "How it works",
+                   detail: "Hearing a Focus: Shortcuts → Automation → New Automation → Focus → the Focus, When Turning On, Run Immediately → Open URLs with its on link; one more When Turning Off with its off link. Turning one on from the notch: a shortcut with Set Focus → On, and one with Off.") {
+                HStack(spacing: 8) {
+                    Button("New shortcut") { NSWorkspace.shared.open(URL(string: "shortcuts://create-shortcut")!) }
+                        .buttonStyle(HubButtonStyle())
+                    Button("Open Shortcuts") { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Shortcuts.app")) }
+                        .buttonStyle(HubButtonStyle())
                 }
-                .buttonStyle(HubButtonStyle())
+            }
+            ForEach($focus.entries) { $entry in
+                HubDivider()
+                entryBlock($entry)
             }
             HubDivider()
-            HubRow(title: "Focus name", detail: "As macOS names it: the peek and the symbol by Mochi use it.") {
-                HubField(placeholder: "Work", text: $name, onSubmit: {}).frame(width: 180)
+            HStack {
+                Button("Add a Focus") { focus.entries.append(MacFocus.Entry(name: nextName)) }
+                    .buttonStyle(HubButtonStyle())
+                Spacer()
+                Button("Reload shortcuts") { focus.loadShortcuts() }.buttonStyle(HubButtonStyle())
             }
-            linkRow("When turning on", links.on)
-            linkRow("When turning off", links.off)
+            .padding(.vertical, 8)
             HubDivider()
             HubRow(title: "Quiet the notch", detail: "While a Focus is on, peeks (charger, network, sound, Caps Lock, devices) wait; a key's level and the Focus's own peek still show.") {
                 Toggle("", isOn: $focus.quiet).toggleStyle(.switch).labelsHidden()
             }
         }
+        .onAppear { focus.loadShortcuts() }
+    }
+
+    private var nextName: String {
+        ["Personal", "Do Not Disturb", "Sleep", "Reading"].first { n in !focus.entries.contains { $0.name == n } } ?? "Focus \(focus.entries.count + 1)"
+    }
+
+    private func entryBlock(_ entry: Binding<MacFocus.Entry>) -> some View {
+        let name = entry.wrappedValue.name.trimmingCharacters(in: .whitespaces)
+        let links = MacFocus.links(for: name.isEmpty ? "Focus" : name)
+        let choices = [("", "Choose a shortcut")] + focus.shortcuts.map { ($0, $0) }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: MacFocus.symbol(for: name)).foregroundColor(MacFocus.tint).frame(width: 18)
+                HubField(placeholder: "Focus name, as macOS names it", text: entry.name).frame(width: 220)
+                Spacer()
+                Button {
+                    focus.entries.removeAll { $0.id == entry.wrappedValue.id }
+                } label: { Image(systemName: "trash") }
+                .buttonStyle(HubButtonStyle()).help("Remove this Focus from Coucou")
+            }
+            HStack(spacing: 10) {
+                Text("Turn on with").font(.system(size: 12)).foregroundColor(HubTheme.secondary).frame(width: 120, alignment: .leading)
+                HubDropdown(entry.on, choices, tint: MacFocus.tint)
+                Spacer(minLength: 8)
+                Text("Turn off with").font(.system(size: 12)).foregroundColor(HubTheme.secondary)
+                HubDropdown(entry.off, choices, tint: MacFocus.tint)
+            }
+            linkRow("Link when on", links.on)
+            linkRow("Link when off", links.off)
+        }
+        .padding(.vertical, 8)
     }
 
     private func linkRow(_ title: String, _ link: String) -> some View {
@@ -141,7 +324,6 @@ struct BuddyMacFocusCard: View {
                 .buttonStyle(HubButtonStyle())
                 .help("What Coucou does when the automation opens this link")
         }
-        .padding(.vertical, 6)
     }
 }
 #endif

@@ -543,6 +543,10 @@ struct ControlsView: View {
                     tile(audio.micMuted ? "Mic off" : "Mic on", id: "mic", symbol: audio.micMuted ? "mic.slash.fill" : "mic.fill", on: audio.micMuted,
                          help: audio.inputName.map { "Mute \($0)" }) { audio.setMicMuted(!audio.micMuted) }
                 }
+                if !hidden.contains("focus") {
+                    ControlsFocusTile(opener: active ? keys.openFocus : 0)
+                        .overlay(ring(.tile("focus"), radius: 16))
+                }
             }
         }
     }

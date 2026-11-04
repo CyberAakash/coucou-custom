@@ -28,6 +28,7 @@ struct HubControlsPage: View {
                         tileToggle("Night Shift", "night")
                         tileToggle("Keep awake", "awake")
                         tileToggle("Mic", "mic")
+                        tileToggle("Focus", "focus")
                     }
                 }
                 HubDivider()
