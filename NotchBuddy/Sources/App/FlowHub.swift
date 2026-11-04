@@ -220,6 +220,10 @@ final class FlowHubController {
     }
 
     func show(_ page: HubPage? = nil) {
+        #if DEBUG
+        appendAppLog("nb.log", "[Hub] show \(page.map { "\($0)" } ?? "-") from " + Thread.callStackSymbols.dropFirst().prefix(6)
+            .map { $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined() }.joined(separator: " < "))
+        #endif
         if let page { router.page = page }
         #if !APPSTORE
         BackgroundMode.windowWillShow()   // coucou-custom fork: back in the Dock while the window is open

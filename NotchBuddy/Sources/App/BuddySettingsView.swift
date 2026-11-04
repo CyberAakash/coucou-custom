@@ -116,6 +116,8 @@ struct HubBuddyPage: View {
             if shows(.focus) {
                 HubLabel("Focus")
                 BuddyFocusCard(settings: routineSettings)
+                HubLabel("Mac Focus")   // coucou-custom fork: phase 5
+                BuddyMacFocusCard()
                 HubLabel("Where its alerts show")
                 BuddyAlertPlaces(kinds: [.focusStart, .focusDone, .breakDone])
             }

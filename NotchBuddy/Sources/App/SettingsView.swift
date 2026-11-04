@@ -248,7 +248,12 @@ struct SettingsView: View {
     var body: some View {
         #if !APPSTORE
         // coucou-custom fork: inside the Coucou window, a page in its style.
-        if embeddedSection != nil { hubPage } else { windowBody }
+        if embeddedSection != nil { hubPage } else {
+            windowBody
+            #if DEBUG
+                .onAppear { appendAppLog("nb.log", "[Settings] the Settings scene's window appeared") }
+            #endif
+        }
         #else
         windowBody
         #endif

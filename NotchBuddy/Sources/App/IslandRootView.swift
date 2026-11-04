@@ -1040,6 +1040,7 @@ struct CompactSideContent: View {
     #if !APPSTORE
     @ObservedObject private var dueSoon = TaskDueSoon.shared   // coucou-custom fork: a task due soon
     @ObservedObject private var controlsSettings = ControlsSettings.shared   // coucou-custom fork: a monitor in the wing
+    @ObservedObject private var macFocus = MacFocus.shared   // coucou-custom fork: the Mac's Focus by Mochi
     #endif
     let islandWidth: CGFloat
     let islandHeight: CGFloat
@@ -1079,11 +1080,23 @@ struct CompactSideContent: View {
                     .frame(width: inset * 2)
                     .frame(width: islandWidth, height: islandHeight, alignment: .trailing)
                 }
-                // coucou-custom fork: pinned to this screen (NotchPin), a small pin by Mochi.
+                // coucou-custom fork: pinned to this screen (NotchPin), a small pin by Mochi; a Focus
+                // on (MacFocus), its symbol there too, the pin then below it.
+                #if !APPSTORE
+                if let focus = macFocus.current {
+                    Image(systemName: MacFocus.symbol(for: focus)).font(.system(size: 7.5, weight: .bold))
+                        .foregroundColor(MacFocus.tint)
+                        .position(x: IslandRestingStyle.mochiX - 13, y: islandHeight / 2 - 7)
+                        .transition(.opacity)
+                }
+                let focusShown = macFocus.current != nil
+                #else
+                let focusShown = false
+                #endif
                 if state.pinScreen {
                     Image(systemName: "pin.fill").font(.system(size: 7, weight: .bold))
                         .foregroundColor(Color(hex: "#FB923C"))
-                        .position(x: IslandRestingStyle.mochiX - 13, y: islandHeight / 2 - 8)
+                        .position(x: IslandRestingStyle.mochiX - 13, y: islandHeight / 2 + (focusShown ? 7 : -8))
                         .transition(.opacity)
                 }
             }
