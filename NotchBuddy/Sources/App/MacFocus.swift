@@ -1,5 +1,6 @@
 #if !APPSTORE
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - The Mac's Focus, told by Shortcuts (coucou-custom fork, phase 5)
@@ -23,6 +24,59 @@ final class MacFocus: ObservableObject {
     @AppStorage("coucouFocusQuiet") var quiet = true
 
     private init() {}
+
+    // MARK: A focus session and a Focus (part 3)
+
+    /// Settings → Routines → Focus → Turn on a Focus with a session: an entry's name, "" for none.
+    @AppStorage("coucouFocusWithSession") var sessionFocus = ""
+    private var sessionWatch: AnyCancellable?
+    private var focusing = false
+    /// Coucou turned this Focus on for the session, so it may turn it off again; one turned on by
+    /// hand stays on.
+    private var turnedOnForSession: String?
+
+    /// Called at launch: follows Routines' focus session.
+    func start() {
+        guard sessionWatch == nil else { return }
+        sessionWatch = BuddyRoutineController.shared.$focus
+            .map { $0?.phase == .focus }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { focusing in MainActor.assumeIsolated { MacFocus.shared.sessionChanged(focusing) } }
+        #if DEBUG
+        // `debug.focusSession` "start|skip|end": Routines' session from a terminal.
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fr.louisraille.NotchBuddy.debug.focusSession"),
+                                                            object: nil, queue: .main) { note in
+            let what = note.object as? String ?? "start"
+            MainActor.assumeIsolated {
+                let r = BuddyRoutineController.shared
+                switch what {
+                case "skip": r.skipFocus()
+                case "end": r.endFocus()
+                default: r.startFocus()
+                }
+                appendAppLog("nb.log", "[Focus] test session \(what): \(r.focus.map { "\($0.phase)" } ?? "none")")
+            }
+        }
+        #endif
+    }
+
+    private func sessionChanged(_ nowFocusing: Bool) {
+        defer { focusing = nowFocusing }
+        guard nowFocusing != focusing else { return }
+        if nowFocusing {
+            guard current == nil, let entry = ready.first(where: { $0.name == sessionFocus }) else { return }
+            appendAppLog("nb.log", "[Focus] session started: turning \(entry.name) on")
+            turnedOnForSession = entry.name
+            turn(entry, on: true)
+        } else if let name = turnedOnForSession {
+            turnedOnForSession = nil
+            guard current?.caseInsensitiveCompare(name) == .orderedSame,
+                  let entry = entries.first(where: { $0.name == name }) else { return }
+            appendAppLog("nb.log", "[Focus] session over: turning \(name) off")
+            turn(entry, on: false)
+        }
+    }
 
     static let tint = Color(hex: "#818CF8")
 
@@ -269,6 +323,11 @@ struct BuddyMacFocusCard: View {
             }
             .padding(.vertical, 8)
             HubDivider()
+            HubRow(title: "Turn on a Focus with a session",
+                   detail: "A focus session turns this Focus on (with its Turn on shortcut) and off when the session ends or its break begins; a Focus you turned on yourself stays on.") {
+                HubDropdown($focus.sessionFocus, [("", "Off")] + focus.ready.map { ($0.name, $0.name) }, tint: MacFocus.tint)
+            }
+            HubDivider()
             HubRow(title: "Quiet the notch", detail: "While a Focus is on, peeks (charger, network, sound, Caps Lock, devices) wait; a key's level and the Focus's own peek still show.") {
                 Toggle("", isOn: $focus.quiet).toggleStyle(.switch).labelsHidden()
             }
@@ -324,6 +383,38 @@ struct BuddyMacFocusCard: View {
                 .buttonStyle(HubButtonStyle())
                 .help("What Coucou does when the automation opens this link")
         }
+    }
+}
+#endif
+
+#if !APPSTORE
+/// A Routines focus session in the closed notch's right wing, in the clock's place: its ring and
+/// what is left (indigo while focusing, green on a break, dimmed while paused).
+struct FocusSessionWing: View {
+    let session: BuddyFocusSession
+    let now: Date
+
+    var body: some View {
+        let total = Double(session.plan.minutes(session.phase) * 60)
+        let left = session.remaining(at: now)
+        let tint = session.phase == .focus ? MacFocus.tint : Color(hex: "#34D399")
+        HStack(spacing: 5) {
+            ZStack {
+                Circle().stroke(Color.white.opacity(0.15), lineWidth: 2.2)
+                Circle().trim(from: 0, to: total > 0 ? CGFloat(left / total) : 0)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 13, height: 13)
+            Text(Self.clock(left)).font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundColor(session.isPaused ? Color(hex: "#8E939C") : Color(hex: "#F5F6F8"))
+        }
+        .help(session.phase == .focus ? "Focus session \(session.round)" : "Break")
+    }
+
+    static func clock(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds.rounded(.up))
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 #endif
