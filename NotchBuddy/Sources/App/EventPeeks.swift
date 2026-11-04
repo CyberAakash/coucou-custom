@@ -67,8 +67,14 @@ final class NotchPeek: ObservableObject {
     #endif
 
     /// Shows the peek, unless a card is open (a peek replaces a peek).
-    func show(icon: String, text: String, tint: Color, level: Double? = nil, seconds: TimeInterval = PeekLayout.seconds) {
+    func show(icon: String, text: String, tint: Color, level: Double? = nil, seconds: TimeInterval = PeekLayout.seconds,
+              force: Bool = false) {
         let state = AppState.shared
+        // A Focus is on (MacFocus): peeks wait, except a key's level and the Focus's own.
+        if !force, level == nil, MacFocus.shared.quietsPeeks {
+            appendAppLog("nb.log", "[Peek] \(text): quiet, \(MacFocus.shared.current ?? "a") Focus is on")
+            return
+        }
         if state.mode == .expanded && state.view != .peek {
             appendAppLog("nb.log", "[Peek] \(text): \(state.view.rawValue) is open, not shown")
             return

@@ -150,6 +150,11 @@ targets:
         CFBundleVersion: "25"
         CFBundleShortVersionString: "0.5.8"
         CFBundlePackageType: APPL
+        # coucou-custom fork: coucou://focus/on?name=… from Shortcuts automations (MacFocus).
+        CFBundleURLTypes:
+          - CFBundleURLName: fr.louisraille.NotchBuddy.links
+            CFBundleURLSchemes:
+              - coucou
         LSUIElement: YES
         NSHighResolutionCapable: YES
         NSSupportsAutomaticGraphicsSwitching: YES

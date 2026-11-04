@@ -94,15 +94,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
+    #if !APPSTORE
+    /// coucou://focus/… from the person's Shortcuts automations (MacFocus). Opening a link makes
+    /// Coucou the front app: the app that was in front gets it back, so a Focus change never
+    /// takes the keyboard away from what you were typing in.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where MacFocus.shared.handle(url) {
+            if let back = AppState.shared.lastExternalApp, !back.isTerminated {
+                back.activate()
+            }
+        }
+    }
+    #endif
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         #if APPSTORE
         openIsland()
         #else
-        // A click on the Dock icon: the Coucou window.
+        // A click on the Dock icon: the Coucou window. coucou-custom fork: not when a background
+        // service sent the reopen (macOS's App Intents daemon does, each time it runs the Focus
+        // filter): the window then jumped in front of System Settings' Focus filter sheet.
+        guard Self.reopenCameFromAnApp() else { return false }
         FlowHubController.shared.show()
         #endif
         return true
     }
+
+    #if !APPSTORE
+    /// The reopen event's sender is an app (the Dock, the Finder, Spotlight), not a daemon.
+    private static func reopenCameFromAnApp() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              let pid = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value, pid > 0 else { return true }
+        let app = NSRunningApplication(processIdentifier: pid_t(pid))
+        // The Dock is a bundled agent; linkd and other daemons have no bundle. macOS's own services
+        // (System Settings' Focus extension, its Focus filter service) reopen apps they query: only
+        // the Apple apps a person opens Coucou from count.
+        let id = app?.bundleIdentifier ?? ""
+        let openers: Set<String> = ["com.apple.dock", "com.apple.finder", "com.apple.Spotlight", "com.apple.apps.launcher"]
+        let fromApp = !id.isEmpty && (!id.hasPrefix("com.apple.") || openers.contains(id))
+        appendAppLog("nb.log", "[App] reopen from pid \(pid) \(app?.bundleIdentifier ?? "no bundle") (\(app?.localizedName ?? "?"))\(fromApp ? "" : ": no window")")
+        return fromApp
+    }
+    #endif
 
     #if !APPSTORE
     /// Right-click on the Dock icon.
