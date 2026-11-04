@@ -975,8 +975,13 @@ final class IslandWindowController: NSWindowController {
             guard let self else { return }
             self.pageWheel.handleThreeFingers(step, state: self.state)
         }
+        ThreeFingerSwipe.onDoubleTap = { [weak self] in
+            guard let self else { return }
+            appendAppLog("nb.log", "[Notch] three-finger double tap: \(self.state.mode == .expanded ? "close" : "open")")
+            self.handleHotKey(.toggleIsland)
+        }
         threeFingerSubscription = state.$mode.removeDuplicates().receive(on: DispatchQueue.main).sink { mode in
-            if mode == .expanded && IslandPages.enabled && IslandPages.wheelEnabled { ThreeFingerSwipe.start() } else { ThreeFingerSwipe.stop() }
+            ThreeFingerSwipe.update(swipes: mode == .expanded && IslandPages.enabled && IslandPages.wheelEnabled)
         }
         #endif
     }
