@@ -59,13 +59,13 @@ struct NowPlayingProgress: View {
             Text(Self.format(fraction * duration))
                 .frame(minWidth: 26, alignment: .trailing)
             if let waveColors {
-                WaveBar(fraction: fraction, colors: waveColors, playing: playing, enabled: canSeek,
+                WaveBar(fraction: fraction, colors: waveColors, playing: playing, enabled: canSeek, duration: duration,
                         onChange: { dragFraction = $0 },
                         onCommit: { f in
                             onSeek(f * duration)
                             dragFraction = nil
                         })
-                    .frame(height: 18)
+                    .frame(height: 24)
             } else {
                 NowPlayingBar(fraction: fraction, accent: accent, enabled: canSeek,
                            onChange: { dragFraction = $0 },

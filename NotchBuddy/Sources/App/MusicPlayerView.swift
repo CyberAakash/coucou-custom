@@ -149,9 +149,9 @@ struct MusicPlayerView: View {
                 let p = position(context.date)
                 VStack(spacing: 2) {
                     WaveBar(fraction: duration > 0 ? p / duration : 0, colors: ArtworkPalette.waveColors(artwork, fallback: appColor),
-                            playing: playing, enabled: duration > 0, onChange: { _ in },
+                            playing: playing, enabled: duration > 0, duration: duration, onChange: { _ in },
                             onCommit: { f in isSpotify ? spotify.seek(to: f * duration) : music.seek(to: f * duration) })
-                        .frame(height: 30)
+                        .frame(height: 36)
                     HStack {
                         Text(NowPlayingProgress.format(p))
                         Spacer()

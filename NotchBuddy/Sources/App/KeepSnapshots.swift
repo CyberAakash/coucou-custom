@@ -149,6 +149,10 @@ enum KeepSnapshots {
             }.frame(width: w + 40, height: h))
             appendAppLog("nb.log", "[Snapshot] compact \(Int(w)) pt: wing \(Int(IslandRestingStyle.wing)) (chosen \(Int(IslandRestingStyle.chosenWing)), content \(Int(IslandRestingStyle.contentNeed))), grid \(!state.gridSlots.isEmpty), mode \(state.mode.rawValue), corner \(state.islandPlacement.isCorner)")
         case "music":
+            if options.contains("wave") {
+                WaveBar.debugPlaying = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { WaveBar.debugPlaying = false }
+            }
             // "music:spotify|apple[:wide]": the Home card's player as it is now (a song must be loaded), Mochi a white dot.
             let apple = options.contains("apple")
             let w: CGFloat = options.contains("wide") ? 430 : 330
@@ -163,6 +167,10 @@ enum KeepSnapshots {
             }.frame(width: w, height: 110).background(Color.black))
             appendAppLog("nb.log", "[Snapshot] music \(pill): task \(task != nil), art \(NowPlayingArt.image(for: task) != nil)")
         case "player":
+            if options.contains("wave") {
+                WaveBar.debugPlaying = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { WaveBar.debugPlaying = false }
+            }
             // The big player as it is now (a song must be loaded in Spotify or Music).
             size = CGSize(width: IslandConst.openWidth, height: PlayerLayout.height)
             view = AnyView(islandFrame(height: PlayerLayout.height, width: IslandConst.openWidth) { MusicPlayerView(state: state) })

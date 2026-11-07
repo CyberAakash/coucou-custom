@@ -131,17 +131,22 @@ struct WaveBar: View {
     let colors: [Color]
     let playing: Bool
     let enabled: Bool
+    /// The song's length: while it plays, the bar's end moves on every frame from the last known
+    /// position instead of jumping each time the card re-reads it.
+    var duration: Double = 0
     let onChange: (Double) -> Void
     let onCommit: (Double) -> Void
 
     @State private var dragging = false
     @State private var hovering = false
+    @State private var width: CGFloat = 1
+    @State private var anchor: (fraction: Double, at: Date) = (0, .now)
 
     var body: some View {
-        TimelineView(.animation(paused: !playing)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
+        TimelineView(.animation(paused: !playing && !dragging)) { context in
+            let now = context.date
             Canvas { ctx, size in
-                draw(&ctx, size: size, t: t)
+                draw(&ctx, size: size, t: now.timeIntervalSinceReferenceDate, f: shown(at: now))
             }
         }
         .contentShape(Rectangle())
@@ -150,66 +155,93 @@ struct WaveBar: View {
             .onChanged { v in
                 guard enabled else { return }
                 dragging = true
-                onChange(fractionAt(v.location.x))
+                anchor = (fractionAt(v.location.x), .now)
+                onChange(anchor.fraction)
             }
             .onEnded { v in
                 guard enabled else { return }
                 dragging = false
-                onCommit(fractionAt(v.location.x))
+                anchor = (fractionAt(v.location.x), .now)
+                onCommit(anchor.fraction)
             })
         .background(GeometryReader { geo in Color.clear.onAppear { width = geo.size.width }.onChange(of: geo.size.width) { _, w in width = w } })
+        .onAppear { anchor = (fraction, .now) }
+        .onChange(of: fraction) { _, f in if !dragging { anchor = (f, .now) } }
         .pointer()
     }
 
-    @State private var width: CGFloat = 1
-    private func fractionAt(_ x: CGFloat) -> Double { Double(min(1, max(0, x / max(1, width)))) }
-
-    private func draw(_ ctx: inout GraphicsContext, size: CGSize, t: Double) {
-        let base = size.height - 4
-        let f = min(1, max(0, fraction))
-        let xEnd = size.width * f
-        let amp = playing ? 1.0 : 0.3
-        guard xEnd > 8 else { return drawLine(&ctx, size: size, base: base, xEnd: xEnd) }
-        // Each colour is a few broad, slow hills (two sines, long wavelengths), drawn as a smooth
-        // curve through points every 3 pt; they rise from the line and fall back to it at both ends.
-        for (i, color) in colors.prefix(5).enumerated() {
-            let k = Double(i)
-            var points: [CGPoint] = []
-            var x = 0.0
-            while x <= xEnd {
-                let wave = sin(x / (46 + k * 14) + t * (0.55 + k * 0.12) + k * 2.1) * 0.6
-                    + sin(x / (23 + k * 6) - t * (0.8 + k * 0.1) + k) * 0.4
-                let edge = min(1, x / 26) * min(1, max(0, (xEnd - x) / 30))
-                let h = (wave * 0.5 + 0.5) * (size.height - 8) * (0.45 + 0.15 * (1 - k / 5)) * amp * edge
-                points.append(CGPoint(x: x, y: base - h))
-                x += 3
-            }
-            points.append(CGPoint(x: xEnd, y: base))
-            var path = Path()
-            path.move(to: CGPoint(x: 0, y: base))
-            for n in 1..<points.count {
-                let mid = CGPoint(x: (points[n - 1].x + points[n].x) / 2, y: (points[n - 1].y + points[n].y) / 2)
-                path.addQuadCurve(to: mid, control: points[n - 1])
-            }
-            path.addLine(to: CGPoint(x: xEnd, y: base))
-            path.closeSubpath()
-            ctx.fill(path, with: .linearGradient(Gradient(colors: [color.opacity(0.75), color.opacity(0.25)]),
-                                                 startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: base)))
-        }
-        drawLine(&ctx, size: size, base: base, xEnd: xEnd)
+    /// The position now: the last known one, moved on by the time since, while playing.
+    private func shown(at date: Date) -> Double {
+        if dragging { return min(1, max(0, anchor.fraction)) }
+        // Paused, or no update seen yet for this position: the position as given.
+        guard playing, duration > 0, abs(anchor.fraction - fraction) < 0.000_1 else { return min(1, max(0, fraction)) }
+        let moved = date.timeIntervalSince(anchor.at) / duration
+        return min(1, max(0, anchor.fraction + min(moved, 2 / duration)))
     }
 
-    private func drawLine(_ ctx: inout GraphicsContext, size: CGSize, base: CGFloat, xEnd: CGFloat) {
+    private func fractionAt(_ x: CGFloat) -> Double { Double(min(1, max(0, x / max(1, width)))) }
+
+    /// Hills on both sides of the line: each colour a few broad, slow swells, mirrored above and
+    /// (a little shorter) below, drawn as smooth curves through points every 2 pt.
+    private func draw(_ ctx: inout GraphicsContext, size: CGSize, t: Double, f: Double) {
+        let mid = size.height / 2
+        let xEnd = size.width * f
+        let room = mid - 1.5
+        var live = playing
+        #if DEBUG
+        if Self.debugPlaying { live = true }
+        #endif
+        let amp = live ? 1.0 : 0.45
+        if xEnd > 8 {
+            for (i, color) in colors.prefix(5).enumerated() {
+                let k = Double(i)
+                var tops: [CGPoint] = [], bottoms: [CGPoint] = []
+                var x = 0.0
+                while x <= xEnd {
+                    let wave = sin(x / (52 + k * 15) + t * (0.45 + k * 0.1) + k * 2.1) * 0.6
+                        + sin(x / (27 + k * 7) - t * (0.7 + k * 0.08) + k) * 0.4
+                    let edge = min(1, x / 24) * min(1, max(0, (xEnd - x) / 28))
+                    let h = (wave * 0.5 + 0.5) * room * (0.55 + 0.35 * (1 - k / 5)) * amp * edge
+                    tops.append(CGPoint(x: x, y: mid - h))
+                    bottoms.append(CGPoint(x: x, y: mid + h * 0.8))
+                    x += 2
+                }
+                tops.append(CGPoint(x: xEnd, y: mid)); bottoms.append(CGPoint(x: xEnd, y: mid))
+                var path = Path()
+                path.move(to: CGPoint(x: 0, y: mid))
+                Self.smooth(&path, tops)
+                Self.smooth(&path, bottoms.reversed())
+                path.closeSubpath()
+                ctx.fill(path, with: .radialGradient(Gradient(colors: [color.opacity(0.85), color.opacity(0.3)]),
+                                                     center: CGPoint(x: xEnd / 2, y: mid), startRadius: 0, endRadius: max(room * 2, 1)))
+            }
+        }
         let lineWidth: CGFloat = dragging || hovering ? 3.2 : 2.6
-        var played = Path(); played.move(to: CGPoint(x: 0, y: base)); played.addLine(to: CGPoint(x: xEnd, y: base))
+        var played = Path(); played.move(to: CGPoint(x: 0, y: mid)); played.addLine(to: CGPoint(x: xEnd, y: mid))
         ctx.stroke(played, with: .color(.white), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-        var rest = Path(); rest.move(to: CGPoint(x: min(size.width, xEnd + 6), y: base)); rest.addLine(to: CGPoint(x: size.width, y: base))
+        var rest = Path(); rest.move(to: CGPoint(x: min(size.width, xEnd + 6), y: mid)); rest.addLine(to: CGPoint(x: size.width, y: mid))
         ctx.stroke(rest, with: .color(.white.opacity(0.25)), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
         let dot = colors.first ?? .white
         let r: CGFloat = dragging || hovering ? 6.5 : 5
-        ctx.fill(Path(ellipseIn: CGRect(x: xEnd - r * 2, y: base - r * 2, width: r * 4, height: r * 4)), with: .color(dot.opacity(0.35)))
-        ctx.fill(Path(ellipseIn: CGRect(x: xEnd - r, y: base - r, width: r * 2, height: r * 2)), with: .color(dot))
-        ctx.stroke(Path(ellipseIn: CGRect(x: xEnd - r, y: base - r, width: r * 2, height: r * 2)), with: .color(.white), lineWidth: 2)
+        ctx.fill(Path(ellipseIn: CGRect(x: xEnd - r * 2, y: mid - r * 2, width: r * 4, height: r * 4)), with: .color(dot.opacity(0.35)))
+        ctx.fill(Path(ellipseIn: CGRect(x: xEnd - r, y: mid - r, width: r * 2, height: r * 2)), with: .color(dot))
+        ctx.stroke(Path(ellipseIn: CGRect(x: xEnd - r, y: mid - r, width: r * 2, height: r * 2)), with: .color(.white), lineWidth: 2)
+    }
+
+    #if DEBUG
+    /// Snapshots only: draw the hills as while a song plays.
+    nonisolated(unsafe) static var debugPlaying = false
+    #endif
+
+    /// A curve through the points, each segment ending at the midpoint of the next pair.
+    private static func smooth(_ path: inout Path, _ points: [CGPoint]) {
+        guard let first = points.first else { return }
+        path.addLine(to: first)
+        for n in 1..<max(1, points.count) {
+            let mid = CGPoint(x: (points[n - 1].x + points[n].x) / 2, y: (points[n - 1].y + points[n].y) / 2)
+            path.addQuadCurve(to: mid, control: points[n - 1])
+        }
+        if let last = points.last { path.addLine(to: last) }
     }
 }
 #endif
