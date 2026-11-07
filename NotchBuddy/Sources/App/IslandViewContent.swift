@@ -285,7 +285,7 @@ struct OverviewView: View {
                     CardBackground(wash: nil) {
                         AgentPillsView(state: state)
                     }
-                    .frame(height: 98)
+                    .frame(height: 110)
                 }
             }
         }
