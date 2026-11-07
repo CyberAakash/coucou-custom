@@ -139,7 +139,7 @@ enum IslandPages {
     /// The page a view belongs to (the empty home is the home page); nil for cards and alerts.
     static func page(of view: IslandView) -> IslandView? {
         switch view {
-        case .overview, .empty: return .overview
+        case .overview, .empty, .player: return .overview
         case .prompt, .shelf, .clipboard, .sessions, .agenda, .controls: return view
         default: return nil
         }

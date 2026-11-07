@@ -27,6 +27,7 @@ enum IslandView: String, CaseIterable {
     case agenda       // the day: Reminders tasks and calendar events in one timeline (coucou-custom fork)
     case controls     // sound, display, connections and system monitors (coucou-custom fork)
     case meeting      // a meeting with a link starts: Join, In 5 min, Dismiss (coucou-custom fork)
+    case player       // the big music player, grown from the Home card's ↗ (coucou-custom fork)
 }
 
 // MARK: - Bot State

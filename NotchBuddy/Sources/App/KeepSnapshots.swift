@@ -162,6 +162,10 @@ enum KeepSnapshots {
                 if apple { MusicCardView() } else { SpotifyCardView() }
             }.frame(width: w, height: 98).background(Color.black))
             appendAppLog("nb.log", "[Snapshot] music \(pill): task \(task != nil), art \(NowPlayingArt.image(for: task) != nil)")
+        case "player":
+            // The big player as it is now (a song must be loaded in Spotify or Music).
+            size = CGSize(width: IslandConst.openWidth, height: PlayerLayout.height)
+            view = AnyView(islandFrame(height: PlayerLayout.height, width: IslandConst.openWidth) { MusicPlayerView(state: state) })
         case "header":
             // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
             appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))
