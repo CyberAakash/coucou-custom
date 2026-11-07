@@ -138,7 +138,7 @@ struct WaveBar: View {
     @State private var hovering = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing)) { context in
+        TimelineView(.animation(paused: !playing)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             Canvas { ctx, size in
                 draw(&ctx, size: size, t: t)
@@ -168,27 +168,38 @@ struct WaveBar: View {
         let base = size.height - 4
         let f = min(1, max(0, fraction))
         let xEnd = size.width * f
-        let amp = playing ? 1.0 : 0.25
-        // Three to five hills, each its own colour, phase and speed.
+        let amp = playing ? 1.0 : 0.3
+        guard xEnd > 8 else { return drawLine(&ctx, size: size, base: base, xEnd: xEnd) }
+        // Each colour is a few broad, slow hills (two sines, long wavelengths), drawn as a smooth
+        // curve through points every 3 pt; they rise from the line and fall back to it at both ends.
         for (i, color) in colors.prefix(5).enumerated() {
+            let k = Double(i)
+            var points: [CGPoint] = []
+            var x = 0.0
+            while x <= xEnd {
+                let wave = sin(x / (46 + k * 14) + t * (0.55 + k * 0.12) + k * 2.1) * 0.6
+                    + sin(x / (23 + k * 6) - t * (0.8 + k * 0.1) + k) * 0.4
+                let edge = min(1, x / 26) * min(1, max(0, (xEnd - x) / 30))
+                let h = (wave * 0.5 + 0.5) * (size.height - 8) * (0.45 + 0.15 * (1 - k / 5)) * amp * edge
+                points.append(CGPoint(x: x, y: base - h))
+                x += 3
+            }
+            points.append(CGPoint(x: xEnd, y: base))
             var path = Path()
             path.move(to: CGPoint(x: 0, y: base))
-            let steps = max(8, Int(xEnd / 4))
-            for s in 0...steps {
-                let x = xEnd * Double(s) / Double(steps)
-                let k = Double(i)
-                let wave = sin(x / (34 + k * 9) + t * (1.3 + k * 0.4) + k * 1.7) * 0.55
-                    + sin(x / (13 + k * 4) - t * (2.1 + k * 0.3)) * 0.25
-                    + sin(x / 71 + t * 0.6 + k) * 0.2
-                // Hills taper to the line at both ends.
-                let edge = min(1, x / 18) * min(1, max(0, (xEnd - x) / 22))
-                let h = max(0, (wave + 0.65)) * (size.height - 8) * 0.62 * amp * edge
-                path.addLine(to: CGPoint(x: x, y: base - h))
+            for n in 1..<points.count {
+                let mid = CGPoint(x: (points[n - 1].x + points[n].x) / 2, y: (points[n - 1].y + points[n].y) / 2)
+                path.addQuadCurve(to: mid, control: points[n - 1])
             }
             path.addLine(to: CGPoint(x: xEnd, y: base))
             path.closeSubpath()
-            ctx.fill(path, with: .color(color.opacity(0.55)))
+            ctx.fill(path, with: .linearGradient(Gradient(colors: [color.opacity(0.75), color.opacity(0.25)]),
+                                                 startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: base)))
         }
+        drawLine(&ctx, size: size, base: base, xEnd: xEnd)
+    }
+
+    private func drawLine(_ ctx: inout GraphicsContext, size: CGSize, base: CGFloat, xEnd: CGFloat) {
         let lineWidth: CGFloat = dragging || hovering ? 3.2 : 2.6
         var played = Path(); played.move(to: CGPoint(x: 0, y: base)); played.addLine(to: CGPoint(x: xEnd, y: base))
         ctx.stroke(played, with: .color(.white), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))

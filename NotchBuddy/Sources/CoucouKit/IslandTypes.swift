@@ -267,53 +267,55 @@ enum IslandConst {
     static let expandedCorner: CGFloat = 22
 
     static let viewLayouts: [IslandView: ViewLayout] = [
-        // Home is the reference: height 150
-        .overview:  ViewLayout(height: 160, botX: 68,  botY: nil, botDiameter: 58, agentMode: .pills),
+        // Home is the reference: height 172 (coucou-custom fork: 12 pt taller than upstream's 160, more room on every card)
+        .overview:  ViewLayout(height: 172, botX: 68,  botY: nil, botDiameter: 58, agentMode: .pills),
         // All non-chat views match home height (150) — law
-        .empty:     ViewLayout(height: 160, botX: 70,  botY: nil, botDiameter: 62, agentMode: .none),
-        .approval:  ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 56, agentMode: .column),
-        .question:  ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 56, agentMode: .column),
-        .error:     ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .column),
-        .finished:  ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .column),
-        .confused:  ViewLayout(height: 160, botX: 76,  botY: nil, botDiameter: 66, agentMode: .column),
+        .empty:     ViewLayout(height: 172, botX: 70,  botY: nil, botDiameter: 62, agentMode: .none),
+        .approval:  ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 56, agentMode: .column),
+        .question:  ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 56, agentMode: .column),
+        .error:     ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 58, agentMode: .column),
+        .finished:  ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 58, agentMode: .column),
+        .confused:  ViewLayout(height: 172, botX: 76,  botY: nil, botDiameter: 66, agentMode: .column),
         .upload:    ViewLayout(height: 176, botX: 140, botY: 104, botDiameter: 62, agentMode: .column),
         .uploading: ViewLayout(height: 176, botX: 46,  botY: 118, botDiameter: 20, agentMode: .none),
         .choose:    ViewLayout(height: 176, botX: 60,  botY: 101, botDiameter: 52, agentMode: .column),
         .mail:      ViewLayout(height: 240, botX: 56,  botY: nil, botDiameter: 46, agentMode: .column),
         // coucou-custom fork: small Mochi at the top-left; the chat gets the room (ChatFit).
-        .prompt:    ViewLayout(height: 160, botX: 24,  botY: 64,  botDiameter: 28, agentMode: .column),
-        .searching: ViewLayout(height: 160, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
-        .result:    ViewLayout(height: 160, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
-        .note:      ViewLayout(height: 160, botX: 60,  botY: nil, botDiameter: 50, agentMode: .column),
-        .settings:  ViewLayout(height: 160, botX: 54,  botY: nil, botDiameter: 46, agentMode: .none),
+        .prompt:    ViewLayout(height: 172, botX: 24,  botY: 64,  botDiameter: 28, agentMode: .column),
+        .searching: ViewLayout(height: 172, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
+        .result:    ViewLayout(height: 172, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
+        .note:      ViewLayout(height: 172, botX: 60,  botY: nil, botDiameter: 50, agentMode: .column),
+        .settings:  ViewLayout(height: 172, botX: 54,  botY: nil, botDiameter: 46, agentMode: .none),
         // Greeting: bot drawn by GreetingCanvasView; no BotPlacement needed
         .greeting:  ViewLayout(height: 150, botX: 320, botY: 90,  botDiameter: 0,  agentMode: .none),
-        .wardrobe:  ViewLayout(height: 160, botX: 68,  botY: nil, botDiameter: 58, agentMode: .none),
-        .recap:     ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .column),
+        .wardrobe:  ViewLayout(height: 172, botX: 68,  botY: nil, botDiameter: 58, agentMode: .none),
+        .recap:     ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 58, agentMode: .column),
         // Voice listening: Mochi (listening emote) on left, transcript on right
-        .listening:    ViewLayout(height: 160, botX: 68,  botY: nil, botDiameter: 58, agentMode: .none),
+        .listening:    ViewLayout(height: 172, botX: 68,  botY: nil, botDiameter: 58, agentMode: .none),
         // Voice result: same layout as listening — Mochi on left, ✓/✗ on right
-        .voiceResult:  ViewLayout(height: 160, botX: 68,  botY: nil, botDiameter: 58, agentMode: .none),
+        .voiceResult:  ViewLayout(height: 172, botX: 68,  botY: nil, botDiameter: 58, agentMode: .none),
         // Screen capture: Mochi on the left (he just swallowed it), the image and what to do with it
-        .capture:      ViewLayout(height: 160, botX: 58,  botY: nil, botDiameter: 52, agentMode: .none),
+        .capture:      ViewLayout(height: 172, botX: 58,  botY: nil, botDiameter: 52, agentMode: .none),
         // Sessions (coucou-custom fork): tall, no Mochi — the room goes to the session detail
         .sessions:     ViewLayout(height: 420, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         // New version: Mochi on the left, the version and Update now
-        .update:       ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
+        .update:       ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         // After an update: taller, four items then the stats (like mail, it fills the height)
         .whatsNew:     ViewLayout(height: 232, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         // coucou-custom fork: the briefs, a little taller than the recap for their numbers
         .dailyBrief:   ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         .weeklyBrief:  ViewLayout(height: 186, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
-        .routineAlert: ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
+        .routineAlert: ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         // Shelf: the whole card is the shelf, no Mochi; its height comes from KeepLayout (islandSize)
         .shelf:        ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .clipboard:    ViewLayout(height: 240, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .agenda:       ViewLayout(height: 420, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .controls:     ViewLayout(height: 318, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
+        // coucou-custom fork: the big player draws its own Mochi on his stage.
+        .player:       ViewLayout(height: 330, botX: 0,   botY: 0,   botDiameter: 0,  agentMode: .none),
         .meeting:      ViewLayout(height: 150, botX: 62,  botY: nil, botDiameter: 58, agentMode: .none),
         // Peek: drawn by PeekStage at notch height (PeekLayout); no BotPlacement
-        .peek:         ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 0,  agentMode: .none),
+        .peek:         ViewLayout(height: 172, botX: 62,  botY: nil, botDiameter: 0,  agentMode: .none),
     ]
 
     // Project colors — keyed by lowercase display name or slug

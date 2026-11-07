@@ -140,7 +140,7 @@ struct SpotifyCardView: View {
                 Spacer(minLength: 0)
             }
             .padding(.trailing, 24)   // the ↗ button sits top-right
-            .padding(.top, 6)
+            .padding(.top, 8)
 
             // Position runs on its own clock only while playing and on screen
             TimelineView(.animation(minimumInterval: 0.5, paused: !controller.isPlaying)) { context in
@@ -154,7 +154,7 @@ struct SpotifyCardView: View {
                     onSeek: { controller.seek(to: $0) }
                 )
             }
-            .padding(.top, 7)
+            .padding(.top, 6)
 
             controls
                 .padding(.top, 4)

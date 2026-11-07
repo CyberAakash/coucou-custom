@@ -154,13 +154,13 @@ enum KeepSnapshots {
             let w: CGFloat = options.contains("wide") ? 430 : 330
             let pill = apple ? "integration_music" : SpotifyController.pillId
             let task = state.tasks.first { $0.id == pill }
-            size = CGSize(width: w, height: 98)
+            size = CGSize(width: w, height: 110)
             view = AnyView(ZStack(alignment: .topLeading) {
                 CardBackground(wash: nil)
                 if let art = NowPlayingArt.image(for: task) { NowPlayingBackdrop(image: art) }
-                Circle().fill(Color.white).frame(width: 46, height: 46).position(x: 54, y: 49)
+                Circle().fill(Color.white).frame(width: 46, height: 46).position(x: 54, y: 55)
                 if apple { MusicCardView() } else { SpotifyCardView() }
-            }.frame(width: w, height: 98).background(Color.black))
+            }.frame(width: w, height: 110).background(Color.black))
             appendAppLog("nb.log", "[Snapshot] music \(pill): task \(task != nil), art \(NowPlayingArt.image(for: task) != nil)")
         case "player":
             // The big player as it is now (a song must be loaded in Spotify or Music).

@@ -9,22 +9,25 @@ struct NowPlayingArtwork: View {
     let accent: Color
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(0.06))
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fill)
-                    .transition(.opacity)
-            } else {
-                Image(systemName: "music.note")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(accent.opacity(0.7))
+        // coucou-custom fork: the square takes the size it is given and the cover fills it,
+        // cropped (Spotify sends some covers as wide video stills, which used to stretch the box).
+        RoundedRectangle(cornerRadius: 6)
+            .fill(Color.white.opacity(0.06))
+            .overlay {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fill)
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(accent.opacity(0.7))
+                }
             }
-        }
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .pointer()
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.08), lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
         .animation(.easeInOut(duration: 0.25), value: image)
@@ -62,7 +65,7 @@ struct NowPlayingProgress: View {
                             onSeek(f * duration)
                             dragFraction = nil
                         })
-                    .frame(height: 22)
+                    .frame(height: 18)
             } else {
                 NowPlayingBar(fraction: fraction, accent: accent, enabled: canSeek,
                            onChange: { dragFraction = $0 },
@@ -150,6 +153,7 @@ struct NowPlayingBar: View {
             .frame(width: w, height: geo.size.height)
             .contentShape(Rectangle())
             .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+        .pointer()
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
@@ -194,6 +198,7 @@ struct NowPlayingPressStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+            .pointer()   // coucou-custom fork: every player button shows the hand
     }
 }
 #endif

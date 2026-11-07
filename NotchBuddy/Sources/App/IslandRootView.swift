@@ -708,7 +708,7 @@ struct IslandContentView: View {
                         // but stop their endless animations: nobody sees them.
                         .environment(\.islandViewActive, active)
                         .frame(maxWidth: .infinity)
-                        .frame(height: isTall ? nil : (v == .overview ? 98 + (placement.isCorner ? 0 : mailExtra) : 98),
+                        .frame(height: isTall ? nil : (v == .overview ? 110 + (placement.isCorner ? 0 : mailExtra) : 110),
                                alignment: v == .overview ? .top : .center)
                         .frame(minHeight: (isTall && !active) ? 0 : nil, maxHeight: isTall ? .infinity : nil)
                         .opacity(active ? 1 : 0)
@@ -732,7 +732,7 @@ struct IslandContentView: View {
         }
         .foregroundColor(Color(hex: "#F5F6F8"))
         .onReceive(NotificationCenter.default.publisher(for: .islandResize)) { _ in
-            let extra = max(0, (MailLayout.detailHeight ?? 160) - 160)
+            let extra = max(0, (MailLayout.detailHeight ?? 172) - 172)
             // The island's own spring (IslandContainer.openSpring): the card and the island move together.
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { mailExtra = extra }
         }
