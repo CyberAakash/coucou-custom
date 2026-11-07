@@ -84,6 +84,12 @@ struct IslandViewContent: View {
             #else
             EmptyView()
             #endif
+        case .player:
+            #if !APPSTORE
+            MusicPlayerView(state: state)
+            #else
+            EmptyView()
+            #endif
         case .meeting:
             #if !APPSTORE
             MeetingCard()
@@ -315,6 +321,13 @@ struct OverviewView: View {
         }
     }
 
+    #if !APPSTORE
+    private func openPlayer(_ pill: String) {
+        state.playerSource = pill
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { state.view = .player }
+    }
+    #endif
+
     private func openAgentTarget(_ task: AgentTask?) {
         guard let task else { return }
         switch task.pill {
@@ -406,11 +419,12 @@ struct OverviewView: View {
             switchChatProvider(.lmstudio)
         case "integration_music":
             #if !APPSTORE
-            MusicController.shared.openMusic()
+            // coucou-custom fork: with a song loaded, ↗ grows the card into the big player.
+            if MusicController.shared.trackTitle != nil { openPlayer(task.id) } else { MusicController.shared.openMusic() }
             #endif
         case "integration_spotify":
             #if !APPSTORE
-            SpotifyController.shared.openSpotify()
+            if SpotifyController.shared.track != nil { openPlayer(task.id) } else { SpotifyController.shared.openSpotify() }
             #endif
         default:
             // Non-integration real tasks

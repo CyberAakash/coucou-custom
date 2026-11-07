@@ -25,6 +25,9 @@ final class MusicController: ObservableObject {
     @Published private(set) var repeating = false
     @Published private(set) var volume = 50
     private var artworkFor: String?
+    /// The next songs of Music's current playlist, for the big player (coucou-custom fork).
+    struct UpNext: Identifiable, Equatable { let index: Int; let name: String; let artist: String; let duration: Double; var id: Int { index } }
+    @Published private(set) var upNext: [UpNext] = []
 
     /// Where playback is now, extrapolated from the last anchor.
     func position(at date: Date) -> Double {
@@ -338,6 +341,39 @@ final class MusicController: ObservableObject {
                 me.artwork = data.flatMap { NSImage(data: $0) }
             }
         }
+    }
+
+    func loadUpNext() {
+        guard isMusicRunning() else { upNext = []; return }
+        Task {
+            let r = await runAppleScript("""
+                tell application id "com.apple.Music"
+                    set out to {}
+                    try
+                        set pl to current playlist
+                        set i to index of current track
+                        set n to count of tracks of pl
+                        repeat with k from (i + 1) to (i + 3)
+                            if k > n then exit repeat
+                            set t to track k of pl
+                            set end of out to (k as string) & tab & (name of t) & tab & (artist of t) & tab & ((duration of t) as integer as string)
+                        end repeat
+                    end try
+                    return out
+                end tell
+            """)
+            guard case .success(let rows) = r else { return }
+            upNext = rows.compactMap { row in
+                let f = row.components(separatedBy: "\t")
+                guard f.count >= 4, let k = Int(f[0]) else { return nil }
+                return UpNext(index: k, name: f[1], artist: f[2], duration: Double(f[3]) ?? 0)
+            }
+        }
+    }
+
+    func playUpNext(_ song: UpNext) {
+        guard isMusicRunning() else { return }
+        Task { await runAppleScript(#"tell application id "com.apple.Music" to play track \#(song.index) of current playlist"#) }
     }
 
     func nextTrack() {

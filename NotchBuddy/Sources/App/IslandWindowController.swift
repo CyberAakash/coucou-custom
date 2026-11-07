@@ -240,7 +240,7 @@ final class IslandWindowController: NSWindowController {
             .sink { [weak self] newView in
                 guard let self else { return }
                 // coucou-custom fork: the Sessions view has a message box too.
-                if newView == .prompt || newView == .sessions || newView == .agenda || newView == .controls {
+                if newView == .prompt || newView == .sessions || newView == .agenda || newView == .controls || newView == .player {
                     self.islandPanel.makeKey()
                 }
                 // coucou-custom fork: a Finished/Error card that another view took over.
@@ -2591,6 +2591,7 @@ func islandSize(mode: IslandMode, view: IslandView,
         if view == .agenda { return (IslandConst.openWidth, 420) }
         #if !APPSTORE
         if view == .controls { return (IslandConst.openWidth, ControlsLayout.height) }
+        if view == .player { return (IslandConst.openWidth, PlayerLayout.height) }
         #endif
         // coucou-custom fork: the voice card is as tall as its answer.
         if VoiceCardLayout.applies(to: view) { return (VoiceCardLayout.width, VoiceCardLayout.height) }

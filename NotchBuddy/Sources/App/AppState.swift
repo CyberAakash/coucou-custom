@@ -536,6 +536,8 @@ final class AppState: ObservableObject {
 
     #if !APPSTORE
     @Published var musicPlaying: Bool = false
+    /// coucou-custom fork: which player the big player shows (the Spotify or Music pill's id).
+    @Published var playerSource: String?
     @Published var musicAutomationDenied: Bool = false
 
     // Voice command result (shown in VoiceResultView for ~2 s, then cleared by IWC)
