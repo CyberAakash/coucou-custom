@@ -148,6 +148,20 @@ enum KeepSnapshots {
                 }.frame(width: w, height: h)
             }.frame(width: w + 40, height: h))
             appendAppLog("nb.log", "[Snapshot] compact \(Int(w)) pt: wing \(Int(IslandRestingStyle.wing)) (chosen \(Int(IslandRestingStyle.chosenWing)), content \(Int(IslandRestingStyle.contentNeed))), grid \(!state.gridSlots.isEmpty), mode \(state.mode.rawValue), corner \(state.islandPlacement.isCorner)")
+        case "music":
+            // "music:spotify|apple[:wide]": the Home card's player as it is now (a song must be loaded), Mochi a white dot.
+            let apple = options.contains("apple")
+            let w: CGFloat = options.contains("wide") ? 430 : 330
+            let pill = apple ? "integration_music" : SpotifyController.pillId
+            let task = state.tasks.first { $0.id == pill }
+            size = CGSize(width: w, height: 98)
+            view = AnyView(ZStack(alignment: .topLeading) {
+                CardBackground(wash: nil)
+                if let art = NowPlayingArt.image(for: task) { NowPlayingBackdrop(image: art) }
+                Circle().fill(Color.white).frame(width: 46, height: 46).position(x: 54, y: 49)
+                if apple { MusicCardView() } else { SpotifyCardView() }
+            }.frame(width: w, height: 98).background(Color.black))
+            appendAppLog("nb.log", "[Snapshot] music \(pill): task \(task != nil), art \(NowPlayingArt.image(for: task) != nil)")
         case "header":
             // The open notch's tabs, and the pages the dots and ← → go through, in nb.log.
             appendAppLog("nb.log", "[Snapshot] pages: " + IslandPages.pages(state).map(\.rawValue).joined(separator: ", "))
