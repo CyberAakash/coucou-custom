@@ -149,6 +149,8 @@ struct SpotifyCardView: View {
                     duration: track.duration,
                     accent: green,
                     canSeek: !track.isAd && track.duration > 0,
+                    waveColors: ArtworkPalette.waveColors(controller.artwork, fallback: green),
+                    playing: controller.isPlaying,
                     onSeek: { controller.seek(to: $0) }
                 )
             }

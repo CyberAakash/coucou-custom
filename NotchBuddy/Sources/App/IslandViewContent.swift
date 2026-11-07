@@ -116,6 +116,10 @@ struct OverviewView: View {
     @ViewBuilder private var leftCard: some View {
         ZStack(alignment: .topLeading) {
             CardBackground(wash: nil)
+            #if !APPSTORE
+            // coucou-custom fork: a song's cover, blurred, behind its player card (and Mochi).
+            if let art = NowPlayingArt.image(for: agent) { NowPlayingBackdrop(image: art) }
+            #endif
 
             // Title row + ticker stacked (or integration card)
             if let agent = agent {
@@ -4808,68 +4812,100 @@ struct MusicCardView: View {
                     .padding(.leading, 108)
                     .padding(.top, 2)
             } else {
-                // Line 1: dot + title
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color(hex: "#FA2D48"))
-                        .frame(width: 7, height: 7)
-                    if let title = controller.trackTitle {
-                        Text(title)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color(hex: "#F5F6F8"))
-                            .lineLimit(1).truncationMode(.tail)
-                            .frame(maxWidth: 150, alignment: .leading)
-                    }
-                }
-                .padding(.top, 6)
-                .padding(.leading, 108)
-
-                // Line 2: artist (coucou-custom fork: the line being sung while it plays)
-                if lyrics.status == .found && appState.musicPlaying {
-                    TimelineView(.animation(minimumInterval: 0.25, paused: !appState.musicPlaying)) { context in
-                        LyricsLineView(position: controller.position(at: context.date), accent: Color(hex: "#FDB4BF"))
-                    }
-                    .frame(maxWidth: 300, alignment: .leading)
-                    .padding(.leading, 108)
-                    .help(controller.artist ?? "")
-                } else if let artist = controller.artist {
-                    Text(artist)
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(hex: "#8E939C"))
-                        .lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: 150, alignment: .leading)
-                        .padding(.leading, 108)
-                }
-
-                // Line 3: controls
-                HStack(spacing: 8) {
-                    Button(action: { MusicController.shared.previousTrack() }) {
-                        Image(systemName: "backward.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(hex: "#8E939C"))
-                    }
-                    .buttonStyle(.plain)
-                    Button(action: { MusicController.shared.playPause() }) {
-                        Image(systemName: appState.musicPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(hex: "#FA2D48"))
-                    }
-                    .buttonStyle(.plain)
-                    Button(action: { MusicController.shared.nextTrack() }) {
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(hex: "#8E939C"))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.leading, 108)
-                .padding(.top, 6)
+                // coucou-custom fork (phase 6): the Spotify card's layout, so both players read the same.
+                playing
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.top, 4)
         // Music announces no seeks: re-read the position when the card shows (coucou-custom fork).
         .onAppear { controller.refreshPosition() }
+    }
+
+    private let red = Color(hex: "#FA2D48")
+
+    private var playing: some View {
+        let subtitle = [controller.artist, controller.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 9) {
+                NowPlayingArtwork(image: controller.artwork, accent: red)
+                    .frame(width: 36, height: 36)
+                    .onTapGesture { controller.openMusic() }
+                    .help(String(localized: "Open Music"))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Circle().fill(red).frame(width: 6, height: 6)
+                        Text(controller.trackTitle ?? "")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color(hex: "#F5F6F8"))
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                    if lyrics.status == .found && appState.musicPlaying {
+                        TimelineView(.animation(minimumInterval: 0.25, paused: !appState.musicPlaying)) { context in
+                            LyricsLineView(position: controller.position(at: context.date), accent: Color(hex: "#FDB4BF"))
+                        }
+                        .help(subtitle)
+                    } else if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(hex: "#C5C8CD"))
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.trailing, 24)
+            .padding(.top, 2)
+
+            TimelineView(.animation(minimumInterval: 0.5, paused: !appState.musicPlaying)) { context in
+                NowPlayingProgress(
+                    position: controller.position(at: context.date),
+                    duration: controller.duration,
+                    accent: red,
+                    canSeek: controller.duration > 0,
+                    waveColors: ArtworkPalette.waveColors(controller.artwork, fallback: red),
+                    playing: appState.musicPlaying,
+                    onSeek: { controller.seek(to: $0) }
+                )
+            }
+            .padding(.top, 2)
+
+            HStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    NowPlayingIconButton(icon: "shuffle", size: 10, tint: controller.shuffling ? red : Color(hex: "#8E939C"),
+                                         help: controller.shuffling ? "Shuffle on" : "Shuffle off") {
+                        controller.setShuffling(!controller.shuffling)
+                    }
+                    NowPlayingIconButton(icon: "backward.fill", size: 11, tint: Color(hex: "#C5C8CD"), help: "Previous") {
+                        controller.previousTrack()
+                    }
+                    Button(action: { controller.playPause() }) {
+                        ZStack {
+                            Circle().fill(Color(hex: "#F5F6F8"))
+                            Image(systemName: appState.musicPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundColor(Color(hex: "#0E0F11"))
+                                .offset(x: appState.musicPlaying ? 0 : 1)
+                        }
+                        .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(NowPlayingPressStyle())
+                    .help(appState.musicPlaying ? String(localized: "Pause") : String(localized: "Play"))
+                    NowPlayingIconButton(icon: "forward.fill", size: 11, tint: Color(hex: "#C5C8CD"), help: "Next") {
+                        controller.nextTrack()
+                    }
+                    NowPlayingIconButton(icon: "repeat", size: 10, tint: controller.repeating ? red : Color(hex: "#8E939C"),
+                                         help: controller.repeating ? "Repeat on" : "Repeat off") {
+                        controller.setRepeating(!controller.repeating)
+                    }
+                }
+                Spacer(minLength: 8)
+                NowPlayingVolume(volume: controller.volume, accent: red) { controller.setVolumeLevel($0) }
+            }
+            .padding(.top, 2)
+        }
+        .padding(.leading, 108)
+        .padding(.trailing, 12)
     }
 }
 #endif

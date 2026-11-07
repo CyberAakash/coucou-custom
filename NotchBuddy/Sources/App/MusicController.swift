@@ -19,6 +19,12 @@ final class MusicController: ObservableObject {
     @Published private(set) var duration: Double = 0
     @Published private(set) var positionAnchor: Double = 0
     @Published private(set) var positionDate = Date()
+    // coucou-custom fork (phase 6): the cover and the player's switches, read over AppleScript.
+    @Published private(set) var artwork: NSImage?
+    @Published private(set) var shuffling = false
+    @Published private(set) var repeating = false
+    @Published private(set) var volume = 50
+    private var artworkFor: String?
 
     /// Where playback is now, extrapolated from the last anchor.
     func position(at date: Date) -> Double {
@@ -176,6 +182,7 @@ final class MusicController: ObservableObject {
         artist     = inputArtist.map { Self.shortArtist($0) }.flatMap { $0.isEmpty ? nil : $0 }
         album      = inputAlbum
         if let totalMs { duration = totalMs / 1000 }
+        loadExtras()
 
         // Pausing freezes the clock where it is; any change re-reads the real position.
         if playing != wasPlaying { positionAnchor = position(at: .now); positionDate = .now }
@@ -220,6 +227,7 @@ final class MusicController: ObservableObject {
             album      = values[3].isEmpty ? nil : values[3]
             AppState.shared.musicPlaying = playing
             syncTaskName()
+            loadExtras()
             if playing && !wasPlaying {
                 NotificationCenter.default.post(name: .musicReveal, object: nil)
             }
@@ -228,6 +236,7 @@ final class MusicController: ObservableObject {
 
     private func clearState() {
         trackTitle = nil; artist = nil; album = nil
+        artwork = nil; artworkFor = nil
         AppState.shared.musicPlaying = false
         syncTaskName()
     }
@@ -267,6 +276,68 @@ final class MusicController: ObservableObject {
     func setVolume(_ pct: Int) {
         let clamped = max(0, min(100, pct))
         Task { await runAppleScript(#"tell application id "com.apple.Music" to set sound volume to \#(clamped)"#) }
+    }
+
+    // MARK: coucou-custom fork (phase 6): seek, shuffle, repeat, and the cover
+
+    func seek(to seconds: Double) {
+        guard isMusicRunning() else { return }
+        positionAnchor = seconds; positionDate = .now
+        Task { await runAppleScript(#"tell application id "com.apple.Music" to set player position to \#(max(0, seconds))"#) }
+    }
+
+    func setShuffling(_ on: Bool) {
+        guard isMusicRunning() else { return }
+        shuffling = on
+        Task { await runAppleScript(#"tell application id "com.apple.Music" to set shuffle enabled to \#(on)"#) }
+    }
+
+    /// Music repeats one song or the whole list; the card's one switch is "all".
+    func setRepeating(_ on: Bool) {
+        guard isMusicRunning() else { return }
+        repeating = on
+        Task { await runAppleScript(#"tell application id "com.apple.Music" to set song repeat to \#(on ? "all" : "off")"#) }
+    }
+
+    func setVolumeLevel(_ pct: Int) {
+        volume = max(0, min(100, pct))
+        setVolume(volume)
+    }
+
+    /// The switches every change; the cover once per song (it is the heaviest read).
+    private func loadExtras() {
+        guard isPillActive, isMusicRunning(), trackTitle != nil else { return }
+        Task {
+            let r = await runAppleScript("""
+                tell application id "com.apple.Music"
+                    return {shuffle enabled as string, song repeat as string, sound volume as string}
+                end tell
+            """)
+            if case .success(let v) = r, v.count >= 3 {
+                shuffling = v[0] == "true"
+                repeating = v[1] != "off"
+                volume = Int(v[2]) ?? volume
+            }
+        }
+        let key = [trackTitle, artist, album].compactMap { $0 }.joined(separator: "|")
+        guard key != artworkFor else { return }
+        artworkFor = key
+        queue.async {
+            let script = NSAppleScript(source: """
+                tell application id "com.apple.Music"
+                    try
+                        return raw data of artwork 1 of current track
+                    end try
+                end tell
+            """)
+            var err: NSDictionary?
+            let data = script?.executeAndReturnError(&err).data
+            Task { @MainActor in
+                let me = MusicController.shared
+                guard me.artworkFor == key else { return }
+                me.artwork = data.flatMap { NSImage(data: $0) }
+            }
+        }
     }
 
     func nextTrack() {

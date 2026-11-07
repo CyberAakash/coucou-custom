@@ -38,6 +38,9 @@ struct NowPlayingProgress: View {
     let duration: Double
     let accent: Color
     let canSeek: Bool
+    /// coucou-custom fork: the cover's colours turn the bar into the wave (WaveBar).
+    var waveColors: [Color]? = nil
+    var playing = false
     let onSeek: (Double) -> Void
 
     @State private var dragFraction: Double?
@@ -52,13 +55,23 @@ struct NowPlayingProgress: View {
         HStack(spacing: 6) {
             Text(Self.format(fraction * duration))
                 .frame(minWidth: 26, alignment: .trailing)
-            NowPlayingBar(fraction: fraction, accent: accent, enabled: canSeek,
-                       onChange: { dragFraction = $0 },
-                       onCommit: { f in
-                           onSeek(f * duration)
-                           dragFraction = nil
-                       })
-                .frame(height: 10)
+            if let waveColors {
+                WaveBar(fraction: fraction, colors: waveColors, playing: playing, enabled: canSeek,
+                        onChange: { dragFraction = $0 },
+                        onCommit: { f in
+                            onSeek(f * duration)
+                            dragFraction = nil
+                        })
+                    .frame(height: 22)
+            } else {
+                NowPlayingBar(fraction: fraction, accent: accent, enabled: canSeek,
+                           onChange: { dragFraction = $0 },
+                           onCommit: { f in
+                               onSeek(f * duration)
+                               dragFraction = nil
+                           })
+                    .frame(height: 10)
+            }
             Text(duration > 0 ? "-" + Self.format(max(0, duration - fraction * duration)) : "")
                 .frame(minWidth: 28, alignment: .leading)
         }
