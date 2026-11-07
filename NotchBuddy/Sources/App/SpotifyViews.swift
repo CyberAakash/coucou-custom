@@ -154,10 +154,10 @@ struct SpotifyCardView: View {
                     onSeek: { controller.seek(to: $0) }
                 )
             }
-            .padding(.top, 6)
+            .padding(.top, 3)
 
             controls
-                .padding(.top, 4)
+                .padding(.top, 2)
         }
         .padding(.leading, 108)
         .padding(.trailing, 12)
